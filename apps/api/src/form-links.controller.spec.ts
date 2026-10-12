@@ -9,6 +9,7 @@
  * shared `publicFormPath`, the rule every web surface builds its links with.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { ConflictException } from '@nestjs/common';
 import { createDb, migrate, seed, getPublishedForm, setVanitySlug, sql, type Db } from '@quill/db';
 import { formEditorPath, publicFormPath } from '@quill/shared';
 import type { ServerEnv } from '@quill/config/env';
@@ -153,6 +154,34 @@ describe('publicUrl / editorUrl on form responses', () => {
     const form = await c.getForm(asOwner(), formId);
     expect(form.publicUrl).toBe(`${APP}/acme-labs/f/lead-qualifier`);
     expect((await open(form.publicUrl))?.id).toBe(formId);
+  });
+
+  it('a 409 STALE body carries both links on `current`, from PUT and from publish', async () => {
+    const c = controllerWith(APP);
+    const stale = (await c.getForm(asOwner(), formId)).updatedAt;
+    await new Promise((r) => setTimeout(r, 2));
+    await c.updateForm(asOwner(), formId, { config: CONFIG }); // someone else saved
+
+    const currentOf = async (call: Promise<unknown>) => {
+      const thrown = await call.then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(thrown).toBeInstanceOf(ConflictException);
+      const body = (thrown as ConflictException).getResponse() as { error: string; current: Record<string, unknown> };
+      expect(body.error).toBe('STALE');
+      return body.current;
+    };
+    const links = {
+      id: formId,
+      publicUrl: `${APP}/acme/f/lead-qualifier`,
+      editorUrl: `${APP}/admin/forms/${formId}/edit`,
+    };
+
+    expect(await currentOf(c.updateForm(asOwner(), formId, { config: CONFIG, expectedUpdatedAt: stale }))).toMatchObject(
+      links,
+    );
+    expect(await currentOf(c.publishForm(asOwner(), formId, { expectedUpdatedAt: stale }))).toMatchObject(links);
   });
 
   it('tolerates a trailing slash on PUBLIC_APP_URL', async () => {

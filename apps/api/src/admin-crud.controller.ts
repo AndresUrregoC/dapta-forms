@@ -121,17 +121,23 @@ function unwrapCrud<T>(r: CrudResult<T>): T {
   throw new ConflictException({ error: r.reason, message: r.message ?? 'Conflict.' });
 }
 
+/** A form row as `getFormById` reads it. */
+type FormRow = NonNullable<Awaited<ReturnType<typeof getFormById>>>;
+
 /**
  * `unwrapCrud` for the editor's guarded writes: a STALE refusal carries the
  * row as it is NOW, so the client can tell "someone else changed the content"
  * from "only the stamp moved" (its own slug rename, a CRM mapping save) in one
  * round trip, and adopt the stamp or show the conflict accordingly.
+ * `view` shapes that row like every other form response (the controller passes
+ * its `formView`, so `current` carries `publicUrl` and `editorUrl` too).
  */
 async function unwrapGuarded<T>(
   db: Db,
   accountId: string,
   id: string,
   r: CrudResult<T>,
+  view: (form: FormRow) => unknown = maskForm,
 ): Promise<T> {
   if (!r.ok && r.reason === 'STALE') {
     const current = await getFormById(db, accountId, id);
@@ -139,7 +145,7 @@ async function unwrapGuarded<T>(
       error: 'STALE',
       message: r.message ?? 'This form was saved elsewhere since you loaded it.',
       updatedAt: current?.updatedAt ?? null,
-      current: current ? maskForm(current) : null,
+      current: current ? await view(current) : null,
     });
   }
   return unwrapCrud(r);
@@ -661,11 +667,13 @@ export class AdminCrudController {
     // request checks against the one it just produced; a request with no
     // metadata wrote nothing, and the draft still checks the client's own
     // stamp (reading it off the row here would wave every stale draft through).
+    const view = (f: FormRow) => this.formView(p.accountId, f);
     let updated = await unwrapGuarded(
       this.db,
       p.accountId,
       id,
       await updateForm(this.db, p.accountId, id, meta, expectedUpdatedAt),
+      view,
     );
     if (config !== undefined) {
       const metaWrote = meta.name !== undefined;
@@ -676,6 +684,7 @@ export class AdminCrudController {
         p.accountId,
         id,
         await saveDraftConfig(this.db, p.accountId, id, config, stamp),
+        view,
       );
     }
     return this.formView(p.accountId, updated);
@@ -737,7 +746,7 @@ export class AdminCrudController {
       ? await getFormById(this.db, p.accountId, id)
       : null;
     const result = await publishForm(this.db, p.accountId, id, expectedUpdatedAt);
-    const published = await unwrapGuarded(this.db, p.accountId, id, result);
+    const published = await unwrapGuarded(this.db, p.accountId, id, result, (f) => this.formView(p.accountId, f));
     // `result.published` comes from the UPDATE's own RETURNING, so it is true
     // exactly on the call that copied the draft over. Reading the row BEFORE and
     // deciding here would be a read-then-act: two concurrent publishes both saw

@@ -9,7 +9,8 @@ An agent working through the API had no way to hand a person the form it just
 built: the link was never in a response, so it had to guess the shape, and most
 guesses were wrong. Every route that returns a form (`POST /v1/forms`,
 `GET /v1/forms/:id`, each item of `GET /v1/forms`, `PUT /v1/forms/:id`,
-`PUT /v1/forms/:id/slug`, duplicate and publish) now carries both:
+`PUT /v1/forms/:id/slug`, duplicate and publish, plus the `current` form of a
+409 `STALE` answer) now carries both:
 
 - `publicUrl` is the form's public link, the same one the dashboard copies: the
   workspace's current public code (its vanity slug once it claims one) and the
