@@ -1,0 +1,58 @@
+import { describe, expect, it } from 'vitest';
+import { publicApiUrl } from './public-api-url';
+
+describe('publicApiUrl', () => {
+  it('prefers PUBLIC_API_URL over every other variable', () => {
+    expect(
+      publicApiUrl({
+        PUBLIC_API_URL: 'https://api.example.com/',
+        API_URL: 'https://other.example.com',
+        NEXT_PUBLIC_API_URL: 'https://baked.example.com',
+      }),
+    ).toBe('https://api.example.com');
+  });
+
+  it('keeps a path prefix and drops the trailing slash', () => {
+    expect(publicApiUrl({ PUBLIC_API_URL: 'https://example.com/forms-api/' })).toBe(
+      'https://example.com/forms-api',
+    );
+  });
+
+  it('never prints a cluster-internal API_URL to a customer', () => {
+    expect(publicApiUrl({ API_URL: 'http://forms-api.lab.svc.cluster.local' })).toBeNull();
+    expect(publicApiUrl({ API_URL: 'http://api:4000' })).toBeNull();
+  });
+
+  it('does not fall back to the build-time variable when API_URL is set', () => {
+    // The image was built once with some host baked in; with API_URL set, that
+    // host may belong to a different environment.
+    expect(
+      publicApiUrl({
+        API_URL: 'http://forms-api.lab.svc.cluster.local',
+        NEXT_PUBLIC_API_URL: 'https://baked.example.com',
+      }),
+    ).toBeNull();
+  });
+
+  it('uses a public API_URL as is', () => {
+    expect(publicApiUrl({ API_URL: 'https://api.example.com' })).toBe('https://api.example.com');
+  });
+
+  it('uses NEXT_PUBLIC_API_URL for a fork that sets nothing else', () => {
+    expect(publicApiUrl({ NEXT_PUBLIC_API_URL: 'https://api.example.com' })).toBe(
+      'https://api.example.com',
+    );
+  });
+
+  it('defaults to the local API for a bare clone', () => {
+    expect(publicApiUrl({})).toBe('http://localhost:4000');
+    expect(publicApiUrl({ API_URL: 'http://localhost:4000' })).toBe('http://localhost:4000');
+  });
+
+  it('ignores a malformed or non-http PUBLIC_API_URL', () => {
+    expect(publicApiUrl({ PUBLIC_API_URL: 'not a url', API_URL: 'https://api.example.com' })).toBe(
+      'https://api.example.com',
+    );
+    expect(publicApiUrl({ PUBLIC_API_URL: 'ftp://api.example.com' })).toBe('http://localhost:4000');
+  });
+});
