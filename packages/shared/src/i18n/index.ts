@@ -216,6 +216,8 @@ export interface FormsMessages {
         submissions: string;
         analytics: string;
         integrations: string;
+        /** The API keys page (/admin/developers), between Integrations and Docs. */
+        developers: string;
         /** The product documentation, an EXTERNAL link (see `docsHref`). */
         docs: string;
         /**
@@ -1846,6 +1848,80 @@ export interface FormsMessages {
         loadError: string;
       };
     };
+    /**
+     * The Developers page (/admin/developers): the workspace's API keys. A key
+     * lets an agent or a script call the same `/v1` routes the dashboard uses.
+     */
+    developers: {
+      title: string;
+      subtitle: string;
+      keys: {
+        title: string;
+        /** Under the title. Members see their own keys only. */
+        subtitle: string;
+        /** Same line for owners and admins, who see every key in the workspace. */
+        subtitleAdmin: string;
+        create: string;
+        colName: string;
+        colKey: string;
+        colCreated: string;
+        colLastUsed: string;
+        colCreatedBy: string;
+        colActions: string;
+        /** The masked key: only its last four characters. // {last4} */
+        masked: string;
+        /** Screen-reader name of the masked key. // {last4} */
+        maskedLabel: string;
+        /** Last used: the key has never been used. */
+        neverUsed: string;
+        /** Marks the caller's own keys in the Created by column. */
+        you: string;
+        /** Created by: the member is gone from the roster. */
+        unknownCreator: string;
+        emptyTitle: string;
+        /** What a key is and how to start. */
+        emptyBody: string;
+        loadError: string;
+        revoke: string;
+        /** Accessible name of a row's revoke button. // {name} */
+        revokeLabel: string;
+        revokeTitle: string;
+        /** // {name} */
+        revokeConfirm: string;
+        revokeSuccess: string;
+        revokeErrorForbidden: string;
+        revokeErrorFailed: string;
+        createTitle: string;
+        nameLabel: string;
+        namePlaceholder: string;
+        nameHelp: string;
+        createSubmit: string;
+        creating: string;
+        cancel: string;
+        errorInvalid: string;
+        /** 409 KEY_LIMIT: ten active keys already. */
+        errorLimit: string;
+        errorForbidden: string;
+        errorFailed: string;
+        /** The reveal step, after the key exists. Shown once. */
+        createdTitle: string;
+        keyLabel: string;
+        createdWarning: string;
+        copy: string;
+        copied: string;
+        copyFailed: string;
+        done: string;
+      };
+    };
+    /**
+     * The docs section of the Developers page. A placeholder for now: the
+     * guide and the agent skill replace it.
+     */
+    developerDocs: {
+      title: string;
+      comingSoon: string;
+      body: string;
+    };
     /** Draft → publish controls in the form editor (publish button + badge). */
     publish: {
       publish: string;
@@ -2203,6 +2279,7 @@ export const en: FormsMessages = {
         submissions: 'Submissions',
         analytics: 'Analytics',
         integrations: 'Integrations',
+        developers: 'Developers',
         docs: 'Docs',
         agents: 'Dapta Agents',
       },
@@ -3619,6 +3696,63 @@ export const en: FormsMessages = {
         loadError: 'Could not load your webhooks.',
       },
     },
+    developers: {
+      title: 'Developers',
+      subtitle: 'Connect an AI agent or your own code to dForms with an API key.',
+      keys: {
+        title: 'API keys',
+        subtitle: 'Your keys for this workspace. Each one acts as you, with your role.',
+        subtitleAdmin: 'Every active key in this workspace. Each one acts as the person who created it.',
+        create: 'Create key',
+        colName: 'Name',
+        colKey: 'Key',
+        colCreated: 'Created',
+        colLastUsed: 'Last used',
+        colCreatedBy: 'Created by',
+        colActions: 'Actions',
+        masked: '•••• {last4}',
+        maskedLabel: 'Key ending in {last4}',
+        neverUsed: 'Never',
+        you: 'You',
+        unknownCreator: 'Former member',
+        emptyTitle: 'No API keys yet',
+        emptyBody:
+          'An API key lets an AI agent (Claude Code, Codex, Cursor) or a script create, edit and publish forms in this workspace, and read their responses. It works as you, so treat it like a password.',
+        loadError: 'Could not load your API keys. Reload the page to try again.',
+        revoke: 'Revoke',
+        revokeLabel: 'Revoke {name}',
+        revokeTitle: 'Revoke this key?',
+        revokeConfirm: 'Anything using “{name}” stops working right away. This cannot be undone.',
+        revokeSuccess: 'Key revoked',
+        revokeErrorForbidden: 'You can only revoke your own keys.',
+        revokeErrorFailed: 'Could not revoke the key. Try again.',
+        createTitle: 'Create an API key',
+        nameLabel: 'Name',
+        namePlaceholder: 'Claude Code on my laptop',
+        nameHelp: 'So you know later where it is used. Up to 60 characters.',
+        createSubmit: 'Create key',
+        creating: 'Creating…',
+        cancel: 'Cancel',
+        errorInvalid: 'Give the key a name of 1 to 60 characters.',
+        errorLimit:
+          'You already have 10 active keys, the most allowed. Revoke one you no longer use to create another.',
+        errorForbidden: 'You cannot create keys in this workspace.',
+        errorFailed: 'Could not create the key. Try again.',
+        createdTitle: 'Copy your new key',
+        keyLabel: 'Your API key',
+        createdWarning:
+          'This is the only time you will see this key. Copy it and store it somewhere safe: once you close this dialog it cannot be shown again.',
+        copy: 'Copy',
+        copied: 'Copied',
+        copyFailed: 'Could not copy. Select the key and copy it by hand.',
+        done: 'Done',
+      },
+    },
+    developerDocs: {
+      title: 'Use the API',
+      comingSoon: 'Coming soon',
+      body: 'A short guide to the API and a skill you can hand to your AI agent will live here.',
+    },
     publish: {
       publish: 'Publish',
       publishing: 'Publishing…',
@@ -3968,6 +4102,7 @@ export const es: FormsMessages = {
         submissions: 'Respuestas',
         analytics: 'Analíticas',
         integrations: 'Integraciones',
+        developers: 'Developers',
         docs: 'Documentación',
         agents: 'Dapta Agents',
       },
@@ -5394,6 +5529,63 @@ export const es: FormsMessages = {
         emptyCta: 'Ir a formularios',
         loadError: 'No se pudieron cargar tus webhooks.',
       },
+    },
+    developers: {
+      title: 'Developers',
+      subtitle: 'Conecta un agente de IA o tu propio código a dForms con una llave de API.',
+      keys: {
+        title: 'Llaves de API',
+        subtitle: 'Tus llaves de este workspace. Cada una actúa como tú, con tu rol.',
+        subtitleAdmin: 'Todas las llaves activas de este workspace. Cada una actúa como la persona que la creó.',
+        create: 'Crear llave',
+        colName: 'Nombre',
+        colKey: 'Llave',
+        colCreated: 'Creada',
+        colLastUsed: 'Último uso',
+        colCreatedBy: 'Creada por',
+        colActions: 'Acciones',
+        masked: '•••• {last4}',
+        maskedLabel: 'Llave que termina en {last4}',
+        neverUsed: 'Nunca',
+        you: 'Tú',
+        unknownCreator: 'Exmiembro',
+        emptyTitle: 'Aún no tienes llaves de API',
+        emptyBody:
+          'Una llave de API le permite a un agente de IA (Claude Code, Codex, Cursor) o a un script crear, editar y publicar formularios en este workspace, y leer sus respuestas. Funciona como tú, así que cuídala como una contraseña.',
+        loadError: 'No se pudieron cargar tus llaves de API. Recarga la página para intentarlo de nuevo.',
+        revoke: 'Revocar',
+        revokeLabel: 'Revocar {name}',
+        revokeTitle: '¿Revocar esta llave?',
+        revokeConfirm: 'Todo lo que use «{name}» deja de funcionar de inmediato. No se puede deshacer.',
+        revokeSuccess: 'Llave revocada',
+        revokeErrorForbidden: 'Solo puedes revocar tus propias llaves.',
+        revokeErrorFailed: 'No se pudo revocar la llave. Inténtalo de nuevo.',
+        createTitle: 'Crear una llave de API',
+        nameLabel: 'Nombre',
+        namePlaceholder: 'Claude Code en mi portátil',
+        nameHelp: 'Para saber después dónde la usas. Hasta 60 caracteres.',
+        createSubmit: 'Crear llave',
+        creating: 'Creando…',
+        cancel: 'Cancelar',
+        errorInvalid: 'Ponle a la llave un nombre de 1 a 60 caracteres.',
+        errorLimit:
+          'Ya tienes 10 llaves activas, el máximo permitido. Revoca una que ya no uses para crear otra.',
+        errorForbidden: 'No puedes crear llaves en este workspace.',
+        errorFailed: 'No se pudo crear la llave. Inténtalo de nuevo.',
+        createdTitle: 'Copia tu nueva llave',
+        keyLabel: 'Tu llave de API',
+        createdWarning:
+          'Esta es la única vez que vas a ver esta llave. Cópiala y guárdala en un lugar seguro: cuando cierres este diálogo no se podrá volver a mostrar.',
+        copy: 'Copiar',
+        copied: 'Copiada',
+        copyFailed: 'No se pudo copiar. Selecciona la llave y cópiala a mano.',
+        done: 'Listo',
+      },
+    },
+    developerDocs: {
+      title: 'Usa la API',
+      comingSoon: 'Próximamente',
+      body: 'Aquí vas a encontrar una guía corta de la API y un skill para darle a tu agente de IA.',
     },
     publish: {
       publish: 'Publicar',
