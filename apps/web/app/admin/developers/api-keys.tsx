@@ -7,9 +7,11 @@ import { useToast } from '@/components/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useConfirmDialog } from '@/components/ui/confirm-dialog';
-import { isAdminRole, type AccountRole, type ApiKey, type CreatedApiKey } from '@/lib/admin-api';
+// Types only: the module itself is server-side (it reads the session cookie).
+import type { AccountRole, ApiKey, CreatedApiKey } from '@/lib/admin-api';
 import { callAction, isTransportError } from '@/lib/call-action';
-import { API_KEY_NAME_MAX, createApiKeyAction, revokeApiKeyAction } from './actions';
+import { createApiKeyAction, revokeApiKeyAction } from './actions';
+import { API_KEY_NAME_MAX } from './limits';
 
 type KeysMessages = FormsMessages['admin']['developers']['keys'];
 
@@ -56,7 +58,7 @@ export function ApiKeysPanel({
   const [, startRevoke] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const toast = useToast();
-  const showCreator = isAdminRole(viewer.role);
+  const showCreator = viewer.role === 'owner' || viewer.role === 'admin';
 
   const onCreated = (created: CreatedApiKey) => {
     const row: ApiKey = {

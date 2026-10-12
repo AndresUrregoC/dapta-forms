@@ -3,6 +3,7 @@
 import { unstable_rethrow } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { adminApi, ApiError, type CreatedApiKey } from '@/lib/admin-api';
+import { API_KEY_NAME_MAX } from './limits';
 
 /**
  * The writes behind the Developers page: create and revoke an API key in the
@@ -12,9 +13,6 @@ import { adminApi, ApiError, type CreatedApiKey } from '@/lib/admin-api';
  */
 
 const PAGE = '/admin/developers';
-
-/** The spec's bound on a key's name, mirrored so a bad one never reaches the API. */
-export const API_KEY_NAME_MAX = 60;
 
 export type CreateApiKeyState =
   | { ok: true; key: CreatedApiKey }

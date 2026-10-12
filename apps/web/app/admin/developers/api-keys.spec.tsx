@@ -24,7 +24,7 @@ const actions = vi.hoisted(() => ({
   createApiKeyAction: vi.fn(),
   revokeApiKeyAction: vi.fn(),
 }));
-vi.mock('./actions', () => ({ ...actions, API_KEY_NAME_MAX: 60 }));
+vi.mock('./actions', () => actions);
 
 import { ApiKeysPanel, type ApiKeysViewer } from './api-keys';
 

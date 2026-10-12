@@ -22,7 +22,6 @@ vi.mock('@/lib/admin-api', () => ({
 vi.mock('@/lib/locale', () => ({ getLocale: async () => locale.value }));
 vi.mock('next/navigation', () => ({ unstable_rethrow: () => undefined }));
 vi.mock('./actions', () => ({
-  API_KEY_NAME_MAX: 60,
   createApiKeyAction: vi.fn(),
   revokeApiKeyAction: vi.fn(),
 }));
