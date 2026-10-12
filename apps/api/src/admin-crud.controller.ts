@@ -29,6 +29,7 @@ import {
   deleteNotificationSetting,
   duplicateForm,
   getAccountMember,
+  getAccountPublicCode,
   getFormById,
   getNotificationSettings,
   inviteMember,
@@ -55,6 +56,7 @@ import {
   setFormFolder,
 } from '@quill/db';
 import { withNewFormBranding } from '@quill/engine';
+import { formLinks, type FormLinks } from '@quill/shared';
 import {
   defaultSubmissionTemplate,
   isSubmissionEmailKey,
@@ -200,6 +202,32 @@ export class AdminCrudController {
     // reads as "not available", which is the safe answer.
     @Optional() @Inject(CAPTCHA) private readonly captcha?: CaptchaVerifier,
   ) {}
+
+  /**
+   * Adds `publicUrl` and `editorUrl` to forms of one account, so an API caller
+   * (an agent, most of all) can hand a person the exact link instead of
+   * guessing its shape. Built with the same `publicFormPath` every web surface
+   * uses, on `PUBLIC_APP_URL`, naming the workspace by its canonical public
+   * code (vanity slug first) and the form by its live slug. Without
+   * `PUBLIC_APP_URL` both are null, and the account is not even read.
+   *
+   * Returns a function so a list pays for one account read, not one per form.
+   */
+  private async linker(
+    accountId: string,
+  ): Promise<<T extends { id: string; slug: string }>(form: T) => T & FormLinks> {
+    const appUrl = this.env?.PUBLIC_APP_URL;
+    const accountCode = appUrl?.trim() ? await getAccountPublicCode(this.db, accountId) : null;
+    return (form) => ({ ...form, ...formLinks(appUrl, accountCode, form) });
+  }
+
+  /** One masked form as the admin API returns it: secrets masked, links added. */
+  private async formView<T extends { id: string; slug: string; config: unknown; draftConfig?: unknown }>(
+    accountId: string,
+    form: T,
+  ): Promise<T & FormLinks> {
+    return (await this.linker(accountId))(maskForm(form));
+  }
 
   private ws(): WorkspaceService {
     if (!this.workspacesSvc) throw new Error('WorkspaceService not wired');
@@ -533,7 +561,8 @@ export class AdminCrudController {
   @Get('forms')
   async listForms(@Req() req: ReqLike) {
     const p = await this.auth.resolveHost(req);
-    return listForms(this.db, p.accountId);
+    const link = await this.linker(p.accountId);
+    return (await listForms(this.db, p.accountId)).map(link);
   }
 
   @Get('forms/:id')
@@ -541,7 +570,7 @@ export class AdminCrudController {
     const p = await this.auth.resolveHost(req);
     const f = await getFormById(this.db, p.accountId, id);
     if (!f) throw new NotFoundException({ error: 'NOT_FOUND', message: 'Not found.' });
-    return maskForm(f);
+    return this.formView(p.accountId, f);
   }
 
   @Post('forms')
@@ -587,7 +616,7 @@ export class AdminCrudController {
     // `p.memberId` — from the resolved principal, never the body.
     const created = unwrapCrud(await createForm(this.db, p.accountId, { ...input, config }, p.memberId));
     await this.productAnalytics?.captureForMember('form_created', p, { form_id: created.id });
-    return maskForm(created);
+    return this.formView(p.accountId, created);
   }
 
   /**
@@ -649,7 +678,7 @@ export class AdminCrudController {
         await saveDraftConfig(this.db, p.accountId, id, config, stamp),
       );
     }
-    return maskForm(updated);
+    return this.formView(p.accountId, updated);
   }
 
   /**
@@ -673,7 +702,7 @@ export class AdminCrudController {
   async updateFormSlug(@Req() req: ReqLike, @Param('id') id: string, @Body() body: unknown) {
     const p = await this.auth.resolveHost(req);
     const { slug } = parse(formSlugInputSchema, body);
-    return maskForm(unwrapCrud(await setFormSlug(this.db, p.accountId, id, slug)));
+    return this.formView(p.accountId, unwrapCrud(await setFormSlug(this.db, p.accountId, id, slug)));
   }
 
   @Post('forms/:id/duplicate')
@@ -687,7 +716,7 @@ export class AdminCrudController {
       form_id: copy.id,
       from_duplicate: true,
     });
-    return maskForm(copy);
+    return this.formView(p.accountId, copy);
   }
 
   /**
@@ -725,7 +754,7 @@ export class AdminCrudController {
         has_captcha: hasCaptchaSwitch(published.config),
       });
     }
-    return maskForm(published);
+    return this.formView(p.accountId, published);
   }
 
   @Delete('forms/:id')
