@@ -1,0 +1,149 @@
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { buildSkillFiles, SKILL_DIR } from './skill-files';
+import { EXAMPLE_CONFIGS } from './examples';
+
+const urls = { apiUrl: 'https://api.forms.example.com', appUrl: 'https://forms.example.com' };
+const files = new Map(buildSkillFiles(urls).map((f) => [f.path, f.content]));
+
+/** Every host-looking token of the vendor's own domains, built so this file does not contain one. */
+const VENDOR = new RegExp(['[a-z0-9-]+\\.', 'dap', 'ta\\.(ai|dev|com)'].join(''), 'i');
+const VENDOR_WORDS = new RegExp(['dap', 'tatech|amazon', 'aws|dap', 'ta_forms|forms', '_ms'].join(''), 'i');
+const DASHES = /—|―|–/;
+
+describe('buildSkillFiles', () => {
+  it('ships every file the ticket lists, inside one folder', () => {
+    expect([...files.keys()].sort()).toEqual(
+      [
+        'INSTALL.md',
+        'SKILL.md',
+        'recipes/analytics-and-csv.md',
+        'recipes/edit-a-step.md',
+        'recipes/publish-and-revert.md',
+        'recipes/quiz-with-scoring.md',
+        'recipes/responses-with-filters.md',
+        'reference/endpoints.md',
+        'reference/errors.md',
+        'reference/form-config.schema.json',
+      ].map((p) => `${SKILL_DIR}/${p}`),
+    );
+  });
+
+  it('opens SKILL.md with frontmatter that says when to use it', () => {
+    const skill = files.get(`${SKILL_DIR}/SKILL.md`)!;
+    const front = /^---\nname: dforms-api\ndescription: (.+)\n---\n/.exec(skill);
+    expect(front).not.toBeNull();
+    expect(front![1]).toMatch(/Use it whenever/);
+  });
+
+  it('states the rules the agent must follow', () => {
+    const skill = files.get(`${SKILL_DIR}/SKILL.md`)!;
+    expect(skill).toContain('GET /v1/forms'); // list before retrying a POST
+    expect(skill).toContain('`steps`');
+    expect(skill).toContain('expectedUpdatedAt');
+    expect(skill).toContain('UNSUPPORTED_FIELD');
+    expect(skill).toContain('`publicUrl` exactly as the API returns it');
+    expect(skill).toContain('Retry-After');
+  });
+
+  it('injects the environment URLs and leaves no placeholder behind', () => {
+    const skill = files.get(`${SKILL_DIR}/SKILL.md`)!;
+    expect(skill).toContain('`https://api.forms.example.com`');
+    expect(skill).toContain('https://forms.example.com/admin/developers');
+    for (const [path, content] of files) {
+      expect(content, path).not.toMatch(/\$\{|undefined|null\/v1|localhost/);
+    }
+    for (const path of ['endpoints.md'].map((p) => `${SKILL_DIR}/reference/${p}`)) {
+      expect(files.get(path)).toContain('https://api.forms.example.com');
+    }
+    for (const [path, content] of files) {
+      if (path.includes('/recipes/')) expect(content, path).toContain('https://api.forms.example.com/v1/');
+    }
+  });
+
+  it('documents every route a key can reach, including responses, analytics, CSV, me and revert', () => {
+    const endpoints = files.get(`${SKILL_DIR}/reference/endpoints.md`)!;
+    for (const route of [
+      '/v1/me',
+      '/v1/forms/{id}/revert',
+      '/v1/forms/{id}/publish',
+      '/v1/forms/{id}/submissions',
+      '/v1/forms/{id}/analytics',
+      '/v1/forms/{id}/submissions.csv',
+      '/v1/forms/{id}/destinations',
+      '/v1/folders',
+      'scoreMin',
+      'answers',
+      'KEY_NOT_ALLOWED',
+    ]) {
+      expect(endpoints, route).toContain(route);
+    }
+  });
+
+  it('documents the error format and the spec codes', () => {
+    const errors = files.get(`${SKILL_DIR}/reference/errors.md`)!;
+    for (const code of [
+      'issues',
+      'BAD_REQUEST',
+      'STEPS_REQUIRED',
+      'INVALID_API_KEY',
+      'KEY_NOT_ALLOWED',
+      'WORKSPACE_FORBIDDEN',
+      'STALE',
+      'NOTHING_TO_REVERT',
+      'RATE_LIMITED',
+      'UNSUPPORTED_FIELD',
+      'EMPTY_QUESTION',
+    ]) {
+      expect(errors, code).toContain(code);
+    }
+  });
+
+  it('ships a JSON Schema that parses', () => {
+    const schema = JSON.parse(files.get(`${SKILL_DIR}/reference/form-config.schema.json`)!);
+    expect(schema.properties.steps).toBeDefined();
+  });
+
+  it('prints the example configs verbatim in the recipes', () => {
+    const quiz = files.get(`${SKILL_DIR}/recipes/quiz-with-scoring.md`)!;
+    const block = /~~~json\n([\s\S]+?)\n~~~/.exec(quiz)![1]!;
+    expect(JSON.parse(block).config).toEqual(EXAMPLE_CONFIGS.quiz);
+  });
+
+  it('explains how to install it in Claude Code, Codex and Cursor', () => {
+    const install = files.get(`${SKILL_DIR}/INSTALL.md`)!;
+    expect(install).toContain('~/.claude/skills/dforms-api/SKILL.md');
+    expect(install).toContain('AGENTS.md');
+    expect(install).toContain('.cursor/rules/dforms-api.mdc');
+  });
+
+  it('carries no vendor host, no internal name and no dash in any file', () => {
+    for (const [path, content] of files) {
+      expect(content, path).not.toMatch(VENDOR);
+      expect(content, path).not.toMatch(VENDOR_WORDS);
+      expect(content, path).not.toMatch(DASHES);
+    }
+  });
+});
+
+describe('skill sources', () => {
+  /** The skill and the docs section, as written in the repository. */
+  const roots = [
+    fileURLToPath(new URL('.', import.meta.url)),
+    fileURLToPath(new URL('../../app/admin/developers', import.meta.url)),
+    fileURLToPath(new URL('../../app/api/developers', import.meta.url)),
+  ];
+  const sources = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const full = join(dir, name);
+      return statSync(full).isDirectory() ? sources(full) : [full];
+    });
+
+  it('hardcode no vendor host: the URLs only arrive at request time', () => {
+    for (const file of roots.flatMap(sources)) {
+      expect(readFileSync(file, 'utf8'), file).not.toMatch(VENDOR);
+    }
+  });
+});
