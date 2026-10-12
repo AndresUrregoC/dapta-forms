@@ -19,7 +19,12 @@ import {
   sql,
   type Db,
 } from '@quill/db';
-import { AuthService, WORKSPACE_HEADER, isApiKeyPrincipal, type HostPrincipal } from './auth.service';
+import {
+  AuthService,
+  WORKSPACE_HEADER,
+  isApiKeyPrincipal,
+  type HostPrincipal,
+} from './auth.service';
 import { LocalAuthProvider, type ReqLike } from './auth.provider';
 
 const EMAIL = 'alex@example.com';
@@ -56,7 +61,12 @@ describe('host principal via', () => {
 
   it("a session principal is the same principal as before plus via: 'session', and no apiKeyId", async () => {
     const p = await auth.resolveHost(as());
-    expect(p).toEqual({ accountId: homeAccountId, memberId: homeMemberId, role: 'owner', via: 'session' });
+    expect(p).toEqual({
+      accountId: homeAccountId,
+      memberId: homeMemberId,
+      role: 'owner',
+      via: 'session',
+    });
     expect(Object.keys(p).sort()).toEqual(['accountId', 'memberId', 'role', 'via']);
   });
 
@@ -64,7 +74,8 @@ describe('host principal via', () => {
     const externalId = 'ext:beta';
     await insertAccountWithShortCode(db, { name: 'Beta', externalId });
     const beta = String(
-      (await db.get<{ id: string }>(sql`SELECT id FROM account WHERE external_id = ${externalId}`))!.id,
+      (await db.get<{ id: string }>(sql`SELECT id FROM account WHERE external_id = ${externalId}`))!
+        .id,
     );
     const memberId = randomUUID();
     await db.run(

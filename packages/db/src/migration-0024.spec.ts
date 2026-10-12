@@ -37,13 +37,16 @@ let db: Db;
 
 const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
-/** A migrations root holding every shipped script BEFORE 0024. */
-function rootBefore0024(): string {
+/**
+ * A migrations root holding the shipped scripts up to `last`, so the upgrade is
+ * staged at exactly 0023 then 0024 no matter how many migrations come later.
+ */
+function rootThrough(last: string, inclusive: boolean): string {
   const root = join(tempRoot, randomUUID());
   const directory = join(root, DIALECT);
   mkdirSync(directory, { recursive: true });
   for (const file of readdirSync(join(MIGRATIONS_ROOT, DIALECT))) {
-    if (file.endsWith('.sql') && file < FILE) {
+    if (file.endsWith('.sql') && (inclusive ? file <= last : file < last)) {
       copyFileSync(join(MIGRATIONS_ROOT, DIALECT, file), join(directory, file));
     }
   }
@@ -99,7 +102,12 @@ const CONFIG = { version: 1, title: 'Live', steps: [{ id: 's1', question: 'Name?
 const DRAFT = { version: 1, title: 'Draft', steps: [{ id: 's1', question: 'Your name?' }] };
 
 /** Rows shaped like production data, written with the pre-0024 schema. */
-async function seedPre0024(): Promise<{ accountId: string; memberId: string; formIds: string[]; keyId: string }> {
+async function seedPre0024(): Promise<{
+  accountId: string;
+  memberId: string;
+  formIds: string[];
+  keyId: string;
+}> {
   const accountId = randomUUID();
   const memberId = randomUUID();
   const keyId = randomUUID();
@@ -138,7 +146,9 @@ async function count(table: string): Promise<number> {
 async function indexNames(): Promise<string[]> {
   const rows =
     db.dialect === 'sqlite'
-      ? await db.all<{ name: string }>(sql.raw(`SELECT name FROM sqlite_master WHERE type = 'index'`))
+      ? await db.all<{ name: string }>(
+          sql.raw(`SELECT name FROM sqlite_master WHERE type = 'index'`),
+        )
       : await db.all<{ name: string }>(
           sql.raw(`SELECT indexname AS name FROM pg_indexes WHERE schemaname = 'public'`),
         );
@@ -147,13 +157,23 @@ async function indexNames(): Promise<string[]> {
 
 describe(FILE, () => {
   it('upgrades a database with data: no row lost or changed, and the new columns read NULL', async () => {
-    await migrate(db, rootBefore0024());
+    await migrate(db, rootThrough(FILE, false));
     const seeded = await seedPre0024();
-    const before = { account: await count('account'), member: await count('member'), form: await count('form'), apiKey: await count('api_key') };
+    const before = {
+      account: await count('account'),
+      member: await count('member'),
+      form: await count('form'),
+      apiKey: await count('api_key'),
+    };
 
-    expect(await migrate(db)).toEqual([FILE]);
+    expect(await migrate(db, rootThrough(FILE, true))).toEqual([FILE]);
 
-    expect({ account: await count('account'), member: await count('member'), form: await count('form'), apiKey: await count('api_key') }).toEqual(before);
+    expect({
+      account: await count('account'),
+      member: await count('member'),
+      form: await count('form'),
+      apiKey: await count('api_key'),
+    }).toEqual(before);
 
     const forms = await db.all<{
       id: string;
@@ -181,10 +201,18 @@ describe(FILE, () => {
       expect(form.previous_published_at_ms).toBeNull();
     }
 
-    const key = await db.get<{ id: string; account_id: string; key_hash: string; member_id: string | null }>(
-      sql`SELECT id, account_id, key_hash, member_id FROM api_key WHERE id = ${seeded.keyId}`,
-    );
-    expect(key).toEqual({ id: seeded.keyId, account_id: seeded.accountId, key_hash: 'f'.repeat(64), member_id: null });
+    const key = await db.get<{
+      id: string;
+      account_id: string;
+      key_hash: string;
+      member_id: string | null;
+    }>(sql`SELECT id, account_id, key_hash, member_id FROM api_key WHERE id = ${seeded.keyId}`);
+    expect(key).toEqual({
+      id: seeded.keyId,
+      account_id: seeded.accountId,
+      key_hash: 'f'.repeat(64),
+      member_id: null,
+    });
   });
 
   it('indexes api_key by (account_id, member_id)', async () => {
@@ -207,15 +235,29 @@ describe(FILE, () => {
       const { form, apiKey } = sqliteSchema;
       await orm
         .update(form)
-        .set({ createdVia: 'api', previousConfig: JSON.stringify(previous), previousPublishedAtMs: 1_690_000_000_000 })
+        .set({
+          createdVia: 'api',
+          previousConfig: JSON.stringify(previous),
+          previousPublishedAtMs: 1_690_000_000_000,
+        })
         .where(eq(form.id, formIds[0]!));
       await orm.update(apiKey).set({ memberId }).where(eq(apiKey.id, keyId));
       const [row] = await orm
-        .select({ createdVia: form.createdVia, previousConfig: form.previousConfig, previousPublishedAtMs: form.previousPublishedAtMs })
+        .select({
+          createdVia: form.createdVia,
+          previousConfig: form.previousConfig,
+          previousPublishedAtMs: form.previousPublishedAtMs,
+        })
         .from(form)
         .where(eq(form.id, formIds[0]!));
-      expect(row).toEqual({ createdVia: 'api', previousConfig: JSON.stringify(previous), previousPublishedAtMs: 1_690_000_000_000 });
-      const [key] = await orm.select({ memberId: apiKey.memberId, accountId: apiKey.accountId }).from(apiKey);
+      expect(row).toEqual({
+        createdVia: 'api',
+        previousConfig: JSON.stringify(previous),
+        previousPublishedAtMs: 1_690_000_000_000,
+      });
+      const [key] = await orm
+        .select({ memberId: apiKey.memberId, accountId: apiKey.accountId })
+        .from(apiKey);
       expect(key).toEqual({ memberId, accountId });
       return;
     }
@@ -224,15 +266,29 @@ describe(FILE, () => {
     const { form, apiKey } = pgSchema;
     await orm
       .update(form)
-      .set({ createdVia: 'api', previousConfig: previous, previousPublishedAtMs: 1_690_000_000_000 })
+      .set({
+        createdVia: 'api',
+        previousConfig: previous,
+        previousPublishedAtMs: 1_690_000_000_000,
+      })
       .where(eq(form.id, formIds[0]!));
     await orm.update(apiKey).set({ memberId }).where(eq(apiKey.id, keyId));
     const [row] = await orm
-      .select({ createdVia: form.createdVia, previousConfig: form.previousConfig, previousPublishedAtMs: form.previousPublishedAtMs })
+      .select({
+        createdVia: form.createdVia,
+        previousConfig: form.previousConfig,
+        previousPublishedAtMs: form.previousPublishedAtMs,
+      })
       .from(form)
       .where(eq(form.id, formIds[0]!));
-    expect(row).toEqual({ createdVia: 'api', previousConfig: previous, previousPublishedAtMs: 1_690_000_000_000 });
-    const [key] = await orm.select({ memberId: apiKey.memberId, accountId: apiKey.accountId }).from(apiKey);
+    expect(row).toEqual({
+      createdVia: 'api',
+      previousConfig: previous,
+      previousPublishedAtMs: 1_690_000_000_000,
+    });
+    const [key] = await orm
+      .select({ memberId: apiKey.memberId, accountId: apiKey.accountId })
+      .from(apiKey);
     expect(key).toEqual({ memberId, accountId });
   });
 });
