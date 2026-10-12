@@ -31,9 +31,6 @@ Build a multi-step form, score every answer, book the meeting and sync the lead 
 
 
 
-https://github.com/user-attachments/assets/8a594506-5424-4d63-bfa2-0ebdf79d287b
-
-
 
 ## What is dForms?
 
