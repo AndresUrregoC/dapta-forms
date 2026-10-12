@@ -24,17 +24,16 @@ Build a multi-step form, score every answer, book the meeting and sync the lead 
 
 <p align="center">
   <a href="https://dforms.ai">Website</a> ·
-  <a href="https://www.tella.tv/video/8-dforms-promo-en-dfdz">Watch the tour</a> ·
   <a href="#quickstart">Quickstart</a> ·
   <a href="SELF-HOSTING.md">Self-hosting</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-<p align="center">
-  <a href="https://www.tella.tv/video/8-dforms-promo-en-dfdz">
-    <img src="docs/images/video-poster.png" alt="Watch the 50-second dForms tour" width="820" />
-  </a>
-</p>
+
+
+https://github.com/user-attachments/assets/8a594506-5424-4d63-bfa2-0ebdf79d287b
+
+
 
 ## What is dForms?
 
