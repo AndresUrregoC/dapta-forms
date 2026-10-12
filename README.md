@@ -56,7 +56,8 @@ production; **SQLite** lets you clone and run it in a minute with no infrastruct
 
 
 
-https://github.com/user-attachments/assets/6a17e7b4-5332-4ea7-a567-7a96afd81f25
+
+https://github.com/user-attachments/assets/cf1985d2-63d9-4e68-8395-d8e647730503
 
 
 
