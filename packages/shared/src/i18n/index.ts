@@ -2076,6 +2076,45 @@ export interface FormsMessages {
         items: Record<ApiNotAllowed, string>;
       };
     };
+    // ── API docs page: keys the page needs beyond `apiDocs` (feat/api-docs-ui) ──
+    /**
+     * The API docs page's own extras: the Authentication section, the parts of
+     * Getting started that `developerDocs` does not word for this page, and a
+     * few labels of the endpoint cards. Backticks render as inline code.
+     */
+    apiDocsPage: {
+      /** The header link to the keys page. */
+      keysLink: string;
+      start: {
+        intro: string;
+        /** Under each step of the flow: the link down to its endpoint. */
+        flowLink: string;
+      };
+      auth: {
+        /** Section title and its entry in the index. */
+        title: string;
+        actsAs: string;
+        workspace: string;
+        invalid: string;
+      };
+      /** Under the empty search: what to try. */
+      searchHint: string;
+      /** Beside each area's title. // {count} */
+      endpointCount: { one: string; other: string };
+      endpoint: {
+        noParameters: string;
+        /** Beside "Response" when the answer is a CSV file. */
+        csv: string;
+        /** Unfolds a long example answer. // {lines} */
+        showMore: string;
+        showLess: string;
+        /** Accessible names of the copy buttons. */
+        copyCurl: string;
+        copyResponse: string;
+        copyUrl: string;
+      };
+    };
+    // ── end API docs page extras ─────────────────────────────────────────────
     /** Draft → publish controls in the form editor (publish button + badge). */
     publish: {
       publish: string;
@@ -4229,6 +4268,36 @@ export const en: FormsMessages = {
         },
       },
     },
+    // ── API docs page: keys the page needs beyond `apiDocs` (feat/api-docs-ui) ──
+    apiDocsPage: {
+      keysLink: 'API keys',
+      start: {
+        intro:
+          'Connect an AI agent (Claude Code, Codex, Cursor) or your own code to this workspace with an API key. The API is the same one the dashboard uses, so every form it creates shows up here.',
+        flowLink: 'See the endpoint',
+      },
+      auth: {
+        title: 'Authentication',
+        actsAs:
+          'A key acts as the person who created it, with that person’s current role. Routes marked `Owner or admin` answer `403 FORBIDDEN` to anyone else’s key.',
+        workspace:
+          'The key already belongs to one workspace. A workspace header naming another one answers `403 WORKSPACE_FORBIDDEN`.',
+        invalid:
+          'An unknown or revoked key, or one whose creator left the workspace, answers `401 INVALID_API_KEY`.',
+      },
+      searchHint: 'Try part of a path, like `/v1/forms`, or a word like `publish`.',
+      endpointCount: { one: '1 endpoint', other: '{count} endpoints' },
+      endpoint: {
+        noParameters: 'No parameters.',
+        csv: 'CSV file',
+        showMore: 'Show the full response ({lines} lines)',
+        showLess: 'Show less',
+        copyCurl: 'Copy the curl command',
+        copyResponse: 'Copy the example',
+        copyUrl: 'Copy the API URL',
+      },
+    },
+    // ── end API docs page extras ─────────────────────────────────────────────
     publish: {
       publish: 'Publish',
       publishing: 'Publishing…',
@@ -6381,6 +6450,36 @@ export const es: FormsMessages = {
         },
       },
     },
+    // ── API docs page: keys the page needs beyond `apiDocs` (feat/api-docs-ui) ──
+    apiDocsPage: {
+      keysLink: 'Llaves de API',
+      start: {
+        intro:
+          'Conecta un agente de IA (Claude Code, Codex, Cursor) o tu propio código a este workspace con una llave de API. La API es la misma que usa el dashboard, así que cada form que cree aparece aquí.',
+        flowLink: 'Ver el endpoint',
+      },
+      auth: {
+        title: 'Autenticación',
+        actsAs:
+          'Una llave actúa como la persona que la creó, con el rol que esa persona tenga hoy. Las rutas marcadas `Owner o admin` responden `403 FORBIDDEN` a la llave de cualquier otra persona.',
+        workspace:
+          'La llave ya pertenece a un workspace. Un header de workspace que nombre otro responde `403 WORKSPACE_FORBIDDEN`.',
+        invalid:
+          'Una llave desconocida o revocada, o una cuya persona ya no está en el workspace, responde `401 INVALID_API_KEY`.',
+      },
+      searchHint: 'Prueba con parte de una ruta, como `/v1/forms`, o con una palabra como `publica`.',
+      endpointCount: { one: '1 endpoint', other: '{count} endpoints' },
+      endpoint: {
+        noParameters: 'Sin parámetros.',
+        csv: 'Archivo CSV',
+        showMore: 'Ver la respuesta completa ({lines} líneas)',
+        showLess: 'Ver menos',
+        copyCurl: 'Copiar el comando curl',
+        copyResponse: 'Copiar el ejemplo',
+        copyUrl: 'Copiar la URL de la API',
+      },
+    },
+    // ── end API docs page extras ─────────────────────────────────────────────
     publish: {
       publish: 'Publicar',
       publishing: 'Publicando…',
