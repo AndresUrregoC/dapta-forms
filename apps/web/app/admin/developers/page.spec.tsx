@@ -19,3 +19,15 @@ describe('/admin/developers', () => {
     expect(redirect).toHaveBeenCalledWith('/admin/developers/keys');
   });
 });
+
+describe('next.config redirects', () => {
+  it('answers /admin/developers with a temporary HTTP redirect to the keys', async () => {
+    const { default: config } = await import('../../../next.config.mjs');
+    const rules = await config.redirects!();
+    expect(rules).toContainEqual({
+      source: '/admin/developers',
+      destination: '/admin/developers/keys',
+      permanent: false,
+    });
+  });
+});

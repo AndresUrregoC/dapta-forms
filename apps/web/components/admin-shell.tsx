@@ -75,7 +75,7 @@ interface SubNavItem {
 // there), so the group never links to it.
 const DEVELOPERS_PAGES: readonly SubNavItem[] = [
   { key: 'keys', href: '/admin/developers/keys', icon: 'pi-key' },
-  { key: 'docs', href: '/admin/developers/docs', icon: 'pi-file' },
+  { key: 'docs', href: '/admin/developers/docs', icon: 'pi-file-code' },
 ];
 
 // Forms information architecture: Home, Forms, Submissions, Analytics,

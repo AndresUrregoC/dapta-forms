@@ -52,7 +52,7 @@ export default async function DeveloperKeysPage() {
             data-testid="api-docs-link"
             className={buttonVariants({ variant: 'soft' })}
           >
-            <i aria-hidden className="pi pi-file" style={{ fontSize: 13 }} />
+            <i aria-hidden className="pi pi-file-code" style={{ fontSize: 13 }} />
             {m.chrome.developersMenu.docs}
           </Link>
         }
