@@ -43,7 +43,8 @@ description: Create, edit, publish and revert dForms forms (quizzes, lead forms,
 
 - API base URL: \`${apiUrl}\`
 - dForms dashboard: ${appUrl}
-- API keys: ${appUrl}/admin/developers
+- API keys: ${appUrl}/admin/developers/keys
+- API docs, every route with an example (for a person to read): ${appUrl}/admin/developers/docs
 
 Every path below is relative to the API base URL.
 
@@ -466,7 +467,8 @@ The CSV is not paginated: it has every response that matches the filters. \`ids=
 function installMd({ apiUrl, appUrl }: SkillUrls): string {
   return `# Installing the dForms API skill
 
-1. Create an API key on ${appUrl}/admin/developers. It is shown once: copy it then.
+1. Create an API key on ${appUrl}/admin/developers/keys. It is shown once: copy it then.
+   Every route, with a curl example and its answer, is on ${appUrl}/admin/developers/docs.
 2. Put it in the environment the agent runs in, never in a file you commit:
 
 ~~~bash
