@@ -55,6 +55,7 @@ import {
   renameFolder,
   setFormFolder,
 } from '@quill/db';
+import { revertForm } from '@quill/db';
 import { withNewFormBranding } from '@quill/engine';
 import { formLinks, type FormLinks } from '@quill/shared';
 import {
@@ -764,6 +765,25 @@ export class AdminCrudController {
       });
     }
     return this.formView(p.accountId, published);
+  }
+
+  /**
+   * Put the previously published version back live: the live config and the
+   * previous one swap, so reverting twice undoes the revert. Destinations stay
+   * as they are now and a pending draft is untouched (see `revertForm`).
+   * 409 NOTHING_TO_REVERT when the form was never published over an earlier
+   * version. Same gate as publishing, and an API key may call it.
+   */
+  @Post('forms/:id/revert')
+  @HttpCode(200)
+  async revertForm(@Req() req: ReqLike, @Param('id') id: string) {
+    const p = await this.auth.resolveHost(req);
+    const result = await revertForm(this.db, p.accountId, id);
+    if (!result.ok && result.reason === 'NOTHING_TO_REVERT') {
+      throw new ConflictException({ error: 'NOTHING_TO_REVERT', message: result.message });
+    }
+    const view = (f: FormRow) => this.formView(p.accountId, f);
+    return view(await unwrapGuarded(this.db, p.accountId, id, result, view));
   }
 
   @Delete('forms/:id')

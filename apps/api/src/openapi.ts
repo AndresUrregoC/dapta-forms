@@ -260,6 +260,19 @@ export const openapiSpec = {
         responses: { '200': { description: 'Published (no-op without a draft)' } },
       },
     },
+    '/v1/forms/{id}/revert': {
+      post: {
+        summary: 'Put the previously published version back live (host)',
+        description:
+          'Every publish keeps the config it replaces. This swaps the two: the previous version goes live again and the one it replaced becomes the previous, so a second revert undoes the first. The destinations the form has now are kept, and a pending draft is not touched. The answer is the form, with `previousPublishedAt` (epoch-ms of when the version a revert would bring back went live, or null when there is none). Allowed with an API key.',
+        security: [{ hostSession: [] }],
+        responses: {
+          '200': { description: 'The form with the reverted config live' },
+          '404': { description: 'No such form in this workspace' },
+          '409': { description: 'NOTHING_TO_REVERT: the form was never published over an earlier version' },
+        },
+      },
+    },
     '/v1/branding': {
       get: {
         summary: "The workspace brand kit (host)",
