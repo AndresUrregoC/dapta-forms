@@ -84,8 +84,12 @@ function toRecord(r: Record<string, unknown>): ApiKeyRecord {
  * holds `API_KEY_LIMIT_PER_MEMBER` active keys there.
  *
  * The count and the insert are ONE statement (`INSERT ... SELECT ... WHERE
- * count < limit`), so two creates racing at nine cannot both land as the
- * tenth. Whether the row exists afterwards is the answer.
+ * count < limit`). On SQLite that alone serializes two creates racing at nine.
+ * On Postgres it does not: under READ COMMITTED both statements can count nine
+ * and both insert. So there the statement runs in a transaction that first
+ * takes an advisory lock on this member in this workspace; the second create
+ * waits, then counts again with a fresh snapshot and sees the tenth.
+ * Whether the row exists afterwards is the answer.
  */
 export async function insertApiKey(
   db: Db,
@@ -101,14 +105,21 @@ export async function insertApiKey(
   limit: number = API_KEY_LIMIT_PER_MEMBER,
 ): Promise<InsertApiKeyResult> {
   const id = randomUUID();
-  await db.run(
-    sql`INSERT INTO api_key (id, account_id, member_id, name, prefix, last4, key_hash, created_at)
+  const insert = sql`INSERT INTO api_key (id, account_id, member_id, name, prefix, last4, key_hash, created_at)
         SELECT ${id}, ${input.accountId}, ${input.memberId}, ${input.name}, ${input.prefix},
                ${input.last4}, ${input.keyHash}, ${now}
         WHERE (SELECT COUNT(*) FROM api_key
                WHERE account_id = ${input.accountId} AND member_id = ${input.memberId}
-                 AND revoked_at_ms IS NULL) < ${limit}`,
-  );
+                 AND revoked_at_ms IS NULL) < ${limit}`;
+  if (db.dialect === "postgres" && db.pg) {
+    const lockKey = `api_key:${input.accountId}:${input.memberId}`;
+    await db.pg.drizzle.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+      await tx.execute(insert);
+    });
+  } else {
+    await db.run(insert);
+  }
   const row = await getApiKeyById(db, input.accountId, id);
   return row ? { ok: true, value: row } : { ok: false, reason: "KEY_LIMIT" };
 }

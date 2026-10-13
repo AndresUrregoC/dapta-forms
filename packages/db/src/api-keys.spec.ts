@@ -98,6 +98,14 @@ describe("insertApiKey", () => {
     expect(await revokeApiKey(db, accountId, first!.id)).toBe(true);
     expect((await key(accountId, bob)).ok).toBe(true);
   });
+
+  it("holds the limit when creates race (two requests at nine never both land)", async () => {
+    const results = await Promise.all(
+      Array.from({ length: API_KEY_LIMIT_PER_MEMBER + 5 }, () => key(accountId, bob)),
+    );
+    expect(results.filter((r) => r.ok)).toHaveLength(API_KEY_LIMIT_PER_MEMBER);
+    expect(await listApiKeys(db, accountId, bob)).toHaveLength(API_KEY_LIMIT_PER_MEMBER);
+  });
 });
 
 describe("listApiKeys", () => {
