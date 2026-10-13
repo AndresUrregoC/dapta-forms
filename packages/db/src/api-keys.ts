@@ -10,15 +10,21 @@
  *
  * Revoking is a soft delete (`revoked_at_ms`): a revoked key never lists and
  * never authenticates, but the row stays for the record.
+ *
+ * A key follows its member: whatever takes a member out of a workspace
+ * (disabled, removed, dropped by the identity service) revokes their keys in
+ * the same transaction (`revokeKeysOfInactiveMembersSql`), so reactivating the
+ * member later never brings an old key back.
  */
 import { randomUUID } from "node:crypto";
+import type { SQL } from "drizzle-orm";
 import { sql, type Db } from "./client";
 import type { AccountRole } from "./members";
 
 /** How many ACTIVE keys one member may hold in one workspace. */
 export const API_KEY_LIMIT_PER_MEMBER = 10;
 
-/** Who created a key, as the list names them. `name`/`email` are null once the member is gone. */
+/** Who created a key, as the list names them. `name`/`email` are null when the member row has none. */
 export interface ApiKeyCreator {
   memberId: string;
   name: string | null;
@@ -143,6 +149,11 @@ export async function getApiKeyById(
  * The ACTIVE keys of a workspace, newest first, with who created each.
  * `memberId` narrows to that member's own keys (what a plain member sees);
  * omitted, every active key of the workspace (owner and admin).
+ *
+ * Only keys of members who are active there: those are the only ones that
+ * authenticate. Taking a member out revokes their keys anyway; this also hides
+ * a key whose member was disabled some other way (by hand, or before keys
+ * followed their member).
  */
 export async function listApiKeys(
   db: Db,
@@ -154,7 +165,7 @@ export async function listApiKeys(
     sql`SELECT k.id, k.name, k.last4, k.created_at, k.last_used_at_ms, k.member_id,
                m.display_name, m.email
         FROM api_key k
-        LEFT JOIN member m ON m.id = k.member_id AND m.account_id = k.account_id
+        JOIN member m ON m.id = k.member_id AND m.account_id = k.account_id AND m.status = 'active'
         WHERE k.account_id = ${accountId} AND k.revoked_at_ms IS NULL${mine}
         ORDER BY k.created_at DESC, k.id ASC`,
   );
@@ -186,6 +197,21 @@ export async function revokeApiKey(
         WHERE account_id = ${accountId} AND id = ${id} AND revoked_at_ms IS NULL`,
   );
   return true;
+}
+
+/**
+ * Revoke every active key of `accountId` whose member is no longer an ACTIVE
+ * member there (disabled, back to invited, or gone). Run it in the same
+ * transaction as the write that takes a member out (`runAtomically`). Keys
+ * that predate `member_id` are left as they are: they never authenticate.
+ */
+export function revokeKeysOfInactiveMembersSql(accountId: string, now: number = Date.now()): SQL {
+  return sql`UPDATE api_key SET revoked_at_ms = ${now}
+      WHERE account_id = ${accountId} AND revoked_at_ms IS NULL AND member_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM member m
+          WHERE m.id = api_key.member_id AND m.account_id = api_key.account_id AND m.status = 'active'
+        )`;
 }
 
 /**
