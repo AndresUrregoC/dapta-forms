@@ -74,6 +74,22 @@ Authorization: Bearer $DFORMS_API_KEY
 7. **Respect other people's edits.** A 409 \`STALE\` means someone saved the form since you read it. Take the form from \`current\` in the error body, apply your change again on top of it, and retry with its \`updatedAt\`. Never drop their changes.
 8. **Destinations have their own route.** Webhooks and HubSpot are set with \`PUT /v1/forms/{id}/destinations\`. \`PUT /v1/forms/{id}\` ignores \`destinations\` inside the config: they are not saved, and the live ones stay as they are.
 
+## Step types
+
+Pick the \`type\` that matches what the step asks. \`name\`, \`email\` and \`phone\` are the contact fields: dForms names each response after its first answered \`name\` step (else \`email\`, else \`phone\`), so a name asked with \`text\` leaves every response without a name.
+
+| \`type\` | Use it for |
+|---|---|
+| \`name\` | The person's name. Always this type when the form asks for a name, never \`text\`. It collects first and last name by default. |
+| \`email\` | An email address. |
+| \`phone\` | A phone number. |
+| \`multiple_choice\` | Pick from a few options shown at once. Options score with \`points\`. |
+| \`dropdown\` | Pick from a long list. Options score with \`points\`. |
+| \`slider\` | A number on a range. Scores with \`sliderScoring\`. |
+| \`text\`, \`textarea\` | Any other written answer, short or long. |
+| \`url\`, \`file\` | A web address, an upload. |
+| \`message\`, \`reveal\`, \`scheduler\` | An info screen, a result screen, a booking page. They ask nothing. |
+
 ## Form lifecycle
 
 1. **Create:** \`POST /v1/forms\` with \`{ "name", "config" }\`. The config is live at once: the form answers at its \`publicUrl\` right away.
@@ -250,6 +266,7 @@ Each answer adds points; the total picks one of the \`outcomes\` by its \`minSco
 
 - \`multiple_choice\` and \`dropdown\` options score with \`points\`.
 - \`slider\` steps score with \`sliderScoring\` ranges.
+- Ask for the person's name with a \`name\` step and their email with an \`email\` step, never with \`text\` (see Step types in \`SKILL.md\`).
 - \`scoring: { "enabled": false }\` turns scoring and outcomes off; leave it true.
 - An outcome's \`message\` is the result screen text; \`[step_key]\` inserts an answer. \`redirectUrl\` sends the person to a page instead.
 

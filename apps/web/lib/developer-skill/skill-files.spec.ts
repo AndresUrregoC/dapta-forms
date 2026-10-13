@@ -120,6 +120,15 @@ describe('buildSkillFiles', () => {
     expect(errors).toContain('`reveal`, `message` and `scheduler` steps');
   });
 
+  it('says which step type asks for a name, and the quiz recipe shows one', () => {
+    const skill = files.get(`${SKILL_DIR}/SKILL.md`)!;
+    expect(skill).toContain('## Step types');
+    expect(skill).toMatch(/\| `name` \| The person's name\. Always this type/);
+    const quiz = EXAMPLE_CONFIGS.quiz!;
+    expect(quiz.steps.some((s) => s.type === 'name')).toBe(true);
+    expect(quiz.steps.some((s) => s.type === 'email')).toBe(true);
+  });
+
   it('says PUT /v1/forms/{id} ignores destinations', () => {
     expect(files.get(`${SKILL_DIR}/SKILL.md`)).toContain('`PUT /v1/forms/{id}` ignores `destinations`');
     expect(files.get(`${SKILL_DIR}/reference/endpoints.md`)).toContain('ignores `destinations`');
