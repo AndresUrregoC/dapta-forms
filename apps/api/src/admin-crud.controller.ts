@@ -664,7 +664,7 @@ export class AdminCrudController {
     const { config: sent, slug, expectedUpdatedAt, ...meta } = parse(
       formInputSchema.partial(),
       body,
-      await keyFormBodyIssues(this.db, p, body, { requireSteps: true, storesDestinations: false }),
+      await keyFormBodyIssues(this.db, p, body, { requireSteps: true, storesDestinations: false, formId: id }),
     );
     const config = keyNormalizedConfig(p, sent);
     if (slug !== undefined) {

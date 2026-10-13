@@ -17,7 +17,7 @@
  */
 import { isDeepStrictEqual } from 'node:util';
 import type { Db } from '@quill/db';
-import { getAccountBranding } from '@quill/db';
+import { getAccountBranding, getFormById } from '@quill/db';
 import {
   defaultFlowGroup,
   normalizeConfig,
@@ -58,12 +58,21 @@ const isSet = (v: unknown): boolean => v !== undefined && v !== null;
 interface StepField {
   path: Path;
   editorWrites?: (value: unknown, type: unknown) => boolean;
+  /**
+   * The editor shows the field but cannot change it, and its own templates
+   * write it: the value the form already stores on that step (same key, live
+   * or draft) passes, so a form made from a template saves as read. A new or
+   * changed value is still one nobody could edit afterwards.
+   */
+  keepsStored?: true;
 }
 
 /** The research list of config fields without an editor control (see the API spec). */
 const STEP_FIELDS: StepField[] = [
   { path: ['buttonText'], editorWrites: (v) => v === 'Continue' },
-  { path: ['sliderUnitLabel'] },
+  // The templates (and the old demo form) seed it on their sliders and the
+  // canvas renders it, but no control edits it.
+  { path: ['sliderUnitLabel'], keepsStored: true },
   { path: ['reveal', 'subtitleTemplate'] },
   { path: ['reveal', 'enabled'], editorWrites: (v) => v === true },
   { path: ['scheduler', 'prefill'], editorWrites: (v) => v === true },
@@ -81,6 +90,24 @@ const WEBHOOK_FIELDS: Path[] = [
   ['settings', 'signatureHeader'],
   ['settings', 'timeoutMs'],
 ];
+
+/**
+ * Step types the editor saves with a blank title on purpose, so a key may too.
+ *
+ * The editor itself never refuses a blank title (its only gate before saving
+ * is `formConfigSchema`, where `question` is optional), and every step the
+ * gallery adds starts with `question: ''`. So the line is not "what the editor
+ * refuses" but "what still makes a whole screen without a title":
+ * - `reveal`: asks nothing and has no title at all; the canvas edits its
+ *   headline and subtitle instead (`stepListLabel` names it by its headline).
+ * - `message`: an info screen with no input; its copy is the body text the
+ *   canvas edits under the title (`helper`, rendered as `pf-message__body`).
+ * - `scheduler`: the booking page itself is the content, and the canvas shows
+ *   its embed preview with or without a title.
+ * Every other type puts an input on screen, and an input with nothing asking
+ * for it is the broken form EMPTY_QUESTION exists to stop.
+ */
+const TITLE_OPTIONAL_TYPES: ReadonlySet<unknown> = new Set(['reveal', 'message', 'scheduler']);
 
 function at(value: unknown, path: Path): unknown {
   let node = value;
@@ -120,12 +147,28 @@ interface StrictConfigOptions {
    */
   kitClientLogos?: unknown;
   /**
+   * The configs the form already stores (live and draft), on an edit. A value
+   * they already hold for a field the editor writes but cannot edit (the kit's
+   * logos once the kit moved on, a template's slider unit) is the editor's own
+   * and passes, so a form read with a key saves back unchanged.
+   */
+  stored?: unknown[];
+  /**
    * Whether the route stores `config.destinations`. `POST /v1/forms` does;
    * `PUT /v1/forms/:id` drops them from the draft (the integrations screen owns
    * them live), so a webhook field there is never saved and refusing it would
    * refuse every edit of a form whose live webhook already carries one.
    */
   destinations: boolean;
+}
+
+/** The steps with this key in each stored config. */
+function storedSteps(stored: unknown[] | undefined, key: unknown): unknown[] {
+  if (typeof key !== 'string') return [];
+  return (stored ?? []).flatMap((c) => {
+    const steps = at(c, ['steps']);
+    return Array.isArray(steps) ? steps.filter((s) => isObj(s) && s.key === key) : [];
+  });
 }
 
 /** Every strict-rule issue of one config, steps in order. */
@@ -141,7 +184,7 @@ export function strictConfigIssues(config: unknown, opts: StrictConfigOptions): 
       // A question of the wrong type is the schema's to report, not ours.
       const question = step.question;
       const blank = !isSet(question) || (typeof question === 'string' && question.trim() === '');
-      if (step.type !== 'reveal' && blank) {
+      if (!TITLE_OPTIONAL_TYPES.has(step.type) && blank) {
         issues.push({
           path: dotPath([...prefix, 'steps', i, 'question']),
           message: EMPTY_QUESTION_MESSAGE,
@@ -151,6 +194,10 @@ export function strictConfigIssues(config: unknown, opts: StrictConfigOptions): 
       for (const field of STEP_FIELDS) {
         const value = at(step, field.path);
         if (!isSet(value) || field.editorWrites?.(value, step.type)) continue;
+        const kept = field.keepsStored
+          ? storedSteps(opts.stored, step.key).some((s) => isDeepStrictEqual(at(s, field.path), value))
+          : false;
+        if (kept) continue;
         issues.push(unsupported([...prefix, 'steps', i, ...field.path]));
       }
     });
@@ -166,7 +213,8 @@ export function strictConfigIssues(config: unknown, opts: StrictConfigOptions): 
 
   const logos = at(config, ['branding', 'clientLogos']);
   // Key order is not part of the value (Postgres jsonb reorders keys).
-  if (isSet(logos) && !isDeepStrictEqual(logos, opts.kitClientLogos)) {
+  const ownLogos = [opts.kitClientLogos, ...(opts.stored ?? []).map((c) => at(c, ['branding', 'clientLogos']))];
+  if (isSet(logos) && !ownLogos.some((own) => isSet(own) && isDeepStrictEqual(logos, own))) {
     issues.push(unsupported([...prefix, 'branding', 'clientLogos']));
   }
 
@@ -185,13 +233,14 @@ export function strictConfigIssues(config: unknown, opts: StrictConfigOptions): 
  * `PUT /v1/forms/:id`) for this principal: none for a session. `requireSteps`
  * is the PUT's: a `config` without `steps` there replaces every step with none.
  * The PUT's draft also drops `destinations`, so their webhook fields are only
- * checked on create (and on `PUT .../destinations`).
+ * checked on create (and on `PUT .../destinations`). `formId` is the PUT's
+ * form, whose stored configs vouch for values the editor cannot change.
  */
 export async function keyFormBodyIssues(
   db: Db,
   p: HostPrincipal,
   body: unknown,
-  opts: { requireSteps: boolean; storesDestinations: boolean },
+  opts: { requireSteps: boolean; storesDestinations: boolean; formId?: string },
 ): Promise<ValidationIssue[]> {
   if (!isApiKeyPrincipal(p) || !isObj(body) || !isObj(body.config)) return [];
   const config = body.config;
@@ -200,11 +249,21 @@ export async function keyFormBodyIssues(
     issues.push({ path: 'config.steps', message: STEPS_REQUIRED_MESSAGE, code: STEPS_REQUIRED });
   }
   // Only read the kit when there is something to compare it with.
-  const kitClientLogos = isSet(at(config, ['branding', 'clientLogos']))
-    ? (await getAccountBranding(db, p.accountId))?.config.clientLogos
-    : undefined;
+  const hasLogos = isSet(at(config, ['branding', 'clientLogos']));
+  const kitClientLogos = hasLogos ? (await getAccountBranding(db, p.accountId))?.config.clientLogos : undefined;
+  const hasKeptField =
+    Array.isArray(config.steps) &&
+    config.steps.some((s) => STEP_FIELDS.some((f) => f.keepsStored && isSet(at(s, f.path))));
+  // A form of another account reads as absent: nothing stored vouches.
+  const form = opts.formId && (hasLogos || hasKeptField) ? await getFormById(db, p.accountId, opts.formId) : null;
+  const stored = form ? [form.config, form.draftConfig].filter(isSet) : [];
   issues.push(
-    ...strictConfigIssues(config, { prefix: ['config'], kitClientLogos, destinations: opts.storesDestinations }),
+    ...strictConfigIssues(config, {
+      prefix: ['config'],
+      kitClientLogos,
+      stored,
+      destinations: opts.storesDestinations,
+    }),
   );
   return issues;
 }
