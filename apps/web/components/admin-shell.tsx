@@ -28,7 +28,15 @@ type ChromeMessages = FormsMessages['admin']['chrome'];
  *  a desktop collapse rail (cookie-persisted, no FOUC), and a <768px off-canvas
  *  drawer with a hamburger top bar. Tokens only; R22 press/hover; R27/R28. */
 
-type IconName = 'home' | 'forms' | 'submissions' | 'analytics' | 'integrations' | 'docs' | 'agents';
+type IconName =
+  | 'home'
+  | 'forms'
+  | 'submissions'
+  | 'analytics'
+  | 'integrations'
+  | 'developers'
+  | 'docs'
+  | 'agents';
 
 interface NavItem {
   key: keyof ChromeMessages['nav'];
@@ -52,6 +60,10 @@ interface NavItem {
 // profile button at the bottom of the rail, under /admin/account, the same
 // place Dapta's admin panel keeps it, so no rail item is active on those pages.
 //
+// "Developers" follows Integrations: the workspace's API keys, for connecting
+// an AI agent or a script. Its own page rather than a corner of Account
+// settings, so the API is found without being looked for.
+//
 // Then "Docs": the product documentation, always present, in the reader's
 // language (the URL lives in the message catalog, see `docsHref`). External
 // like the platform door below, and tagged the same way.
@@ -69,6 +81,7 @@ const NAV: NavItem[] = [
   { key: 'submissions', href: '/admin/submissions', icon: 'submissions' },
   { key: 'analytics', href: '/admin/analytics', icon: 'analytics' },
   { key: 'integrations', href: '/admin/integrations', icon: 'integrations' },
+  { key: 'developers', href: '/admin/developers', icon: 'developers' },
   { key: 'docs', href: '', icon: 'docs', external: true, localizedHref: 'docsHref' },
   ...(PLATFORM_URL
     ? [{ key: 'agents', href: suiteHref(PLATFORM_URL, 'sidebar'), icon: 'agents', external: true } as const]
@@ -92,6 +105,7 @@ const PI_BY_NAME: Record<IconName, string> = {
   submissions: 'pi-inbox',
   analytics: 'pi-chart-bar',
   integrations: 'pi-link',
+  developers: 'pi-code',
   docs: 'pi-book',
   agents: 'pi-microchip-ai',
 };
