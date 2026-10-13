@@ -20,7 +20,12 @@ vi.mock('@/lib/admin-api', () => ({
   isAdminRole: (role: string) => role === 'owner' || role === 'admin',
 }));
 vi.mock('@/lib/locale', () => ({ getLocale: async () => locale.value }));
-vi.mock('next/navigation', () => ({ unstable_rethrow: () => undefined }));
+vi.mock('next/navigation', () => ({
+  // Like the real one for what matters here: a redirect is rethrown, anything else is not.
+  unstable_rethrow: (e: unknown) => {
+    if ((e as { digest?: string } | null)?.digest === 'NEXT_REDIRECT') throw e;
+  },
+}));
 vi.mock('./actions', () => ({
   createApiKeyAction: vi.fn(),
   revokeApiKeyAction: vi.fn(),
@@ -79,6 +84,13 @@ describe('DevelopersPage', () => {
     const m = getMessages('en').admin.developers.keys;
     expect(html).toContain(m.loadError);
     expect(html).not.toContain(m.emptyTitle);
+  });
+
+  it('lets a redirect from the key list escape instead of showing the error state', async () => {
+    me.mockResolvedValue(caller('member'));
+    const redirect = Object.assign(new Error('NEXT_REDIRECT'), { digest: 'NEXT_REDIRECT' });
+    listApiKeys.mockRejectedValue(redirect);
+    await expect(render()).rejects.toBe(redirect);
   });
 
   it('shows the docs placeholder, in Spanish for a Spanish reader', async () => {

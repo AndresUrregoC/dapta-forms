@@ -41,12 +41,15 @@ export async function createApiKeyAction(name: string): Promise<CreateApiKeyStat
   }
 }
 
-export type RevokeApiKeyState = { ok: true } | { ok: false; code: 'FORBIDDEN' | 'FAILED' };
+export type RevokeApiKeyState = { ok: true } | { ok: false; code: 'GONE' | 'FORBIDDEN' | 'FAILED' };
 
 /**
- * Revoke one key. A 404 counts as done: the page only lists keys of this
- * workspace, so a key the API cannot find was already revoked (in another
- * tab, or by an admin), and what the person asked for is true.
+ * Revoke one key. A 404 is NOT reported as a revoke: the API answers 404 both
+ * for a key that is already revoked and for a key of another workspace, and
+ * the second happens when the workspace cookie changed in another tab after
+ * this page loaded. Claiming "revoked" there would leave a leaked key alive
+ * while the person believes it is dead. So a 404 is `GONE`: the page says the
+ * key is no longer in this workspace's list and refreshes it.
  */
 export async function revokeApiKeyAction(id: string): Promise<RevokeApiKeyState> {
   if (typeof id !== 'string' || !id) return { ok: false, code: 'FAILED' };
@@ -59,7 +62,7 @@ export async function revokeApiKeyAction(id: string): Promise<RevokeApiKeyState>
     if (e instanceof ApiError) {
       if (e.status === 404) {
         revalidatePath(PAGE);
-        return { ok: true };
+        return { ok: false, code: 'GONE' };
       }
       if (e.status === 403) return { ok: false, code: 'FORBIDDEN' };
     }

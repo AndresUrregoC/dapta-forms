@@ -21,14 +21,21 @@ export const dynamic = 'force-dynamic';
 export default async function DevelopersPage() {
   const locale = await getLocale();
   const m = getMessages(locale).admin;
-  const me = await adminApi.me();
+  // Independent reads, so in parallel. A failed key list is the error state;
+  // a failed `/v1/me` throws like on every other admin page.
+  const [me, listed] = await Promise.all([
+    adminApi.me(),
+    adminApi.listApiKeys().then(
+      (r) => ({ ok: true as const, keys: r.keys }),
+      (e: unknown) => ({ ok: false as const, error: e }),
+    ),
+  ]);
 
   let keys: ApiKey[] = [];
   let loadError = false;
-  try {
-    keys = (await adminApi.listApiKeys()).keys;
-  } catch (e) {
-    unstable_rethrow(e); // let a 401 redirect escape the catch
+  if (listed.ok) keys = listed.keys;
+  else {
+    unstable_rethrow(listed.error); // let a 401 redirect escape
     loadError = true;
   }
 

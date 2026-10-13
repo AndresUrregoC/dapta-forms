@@ -1890,6 +1890,8 @@ export interface FormsMessages {
         revokeConfirm: string;
         revokeSuccess: string;
         revokeErrorForbidden: string;
+        /** 404 on revoke: already revoked, or the workspace changed in another tab. */
+        revokeErrorGone: string;
         revokeErrorFailed: string;
         createTitle: string;
         nameLabel: string;
@@ -3725,6 +3727,8 @@ export const en: FormsMessages = {
         revokeConfirm: 'Anything using “{name}” stops working right away. This cannot be undone.',
         revokeSuccess: 'Key revoked',
         revokeErrorForbidden: 'You can only revoke your own keys.',
+        revokeErrorGone:
+          'That key is no longer in this workspace. It may have been revoked already. The list is up to date now.',
         revokeErrorFailed: 'Could not revoke the key. Try again.',
         createTitle: 'Create an API key',
         nameLabel: 'Name',
@@ -5559,6 +5563,8 @@ export const es: FormsMessages = {
         revokeConfirm: 'Todo lo que use «{name}» deja de funcionar de inmediato. No se puede deshacer.',
         revokeSuccess: 'Llave revocada',
         revokeErrorForbidden: 'Solo puedes revocar tus propias llaves.',
+        revokeErrorGone:
+          'Esa llave ya no está en este workspace. Puede que ya la hayan revocado. La lista ya está al día.',
         revokeErrorFailed: 'No se pudo revocar la llave. Inténtalo de nuevo.',
         createTitle: 'Crear una llave de API',
         nameLabel: 'Nombre',

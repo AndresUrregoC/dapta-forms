@@ -25,6 +25,8 @@ const actions = vi.hoisted(() => ({
   revokeApiKeyAction: vi.fn(),
 }));
 vi.mock('./actions', () => actions);
+const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), toast: vi.fn() }));
+vi.mock('@/components/toast', () => ({ useToast: () => toasts }));
 
 import { ApiKeysPanel, type ApiKeysViewer } from './api-keys';
 
@@ -90,7 +92,16 @@ const m = getMessages('en').admin.developers.keys;
 beforeEach(() => {
   actions.createApiKeyAction.mockReset();
   actions.revokeApiKeyAction.mockReset();
+  toasts.success.mockReset();
+  toasts.error.mockReset();
 });
+
+/** A promise the test settles by hand, to hold a server action in flight. */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
 
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -257,6 +268,25 @@ describe('ApiKeysPanel: create', () => {
     expect(actions.createApiKeyAction).not.toHaveBeenCalled();
   });
 
+  it('stays open while the key is being created, so its secret is not lost', async () => {
+    const pending = deferred<unknown>();
+    actions.createApiKeyAction.mockReturnValue(pending.promise);
+    await mount({ keys: [] });
+    await createNamed('Cursor');
+    // Escape and the backdrop both try to close it mid-request.
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect($('[role="dialog"]')).not.toBeNull();
+    await act(async () => {
+      pending.resolve({
+        ok: true,
+        key: { id: 'key-9', name: 'Cursor', last4: 'a1b2', createdAt: Date.UTC(2026, 9, 12), key: SECRET },
+      });
+    });
+    expect($<HTMLInputElement>('[data-testid="api-key-secret"]')?.value).toBe(SECRET);
+  });
+
   it('turns a dropped connection into the generic failure, not a crash', async () => {
     actions.createApiKeyAction.mockRejectedValue(new Error('Failed to find Server Action'));
     await mount({ keys: [] });
@@ -297,6 +327,32 @@ describe('ApiKeysPanel: revoke', () => {
     await click($('[data-testid="api-key-revoke"]'));
     await click($('[data-testid="confirm-dialog-confirm"]'));
     expect($$('[data-testid="api-key-row"]')).toHaveLength(1);
+  });
+
+  it('never says revoked when the key was not found in this workspace', async () => {
+    actions.revokeApiKeyAction.mockResolvedValue({ ok: false, code: 'GONE' });
+    await mount({ keys: [key()] });
+    await click($('[data-testid="api-key-revoke"]'));
+    await click($('[data-testid="confirm-dialog-confirm"]'));
+    expect(toasts.success).not.toHaveBeenCalled();
+    expect(toasts.error).toHaveBeenCalledWith(m.revokeErrorGone);
+  });
+
+  it('keeps a second revoke busy when the first one finishes', async () => {
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    actions.revokeApiKeyAction.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    await mount({ keys: [key(), key({ id: 'key-2', name: 'n8n', last4: 'k2k2' })] });
+    await click($$('[data-testid="api-key-revoke"]')[0]!);
+    await click($('[data-testid="confirm-dialog-confirm"]'));
+    await click($$('[data-testid="api-key-revoke"]')[1]!);
+    await click($('[data-testid="confirm-dialog-confirm"]'));
+    await act(async () => first.resolve({ ok: true }));
+    const rows = $$('[data-testid="api-key-row"]');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.querySelector<HTMLButtonElement>('[data-testid="api-key-revoke"]')!.disabled).toBe(true);
+    await act(async () => second.resolve({ ok: true }));
+    expect($('[data-testid="api-keys-empty"]')).not.toBeNull();
   });
 
   it('shows the empty state once the last key is revoked', async () => {

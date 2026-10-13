@@ -95,9 +95,12 @@ describe('revokeApiKeyAction', () => {
     expect(revalidatePath).toHaveBeenCalledWith('/admin/developers');
   });
 
-  it('treats a key that is already gone as revoked', async () => {
+  it('never reports a 404 as a revoke, and refreshes the list', async () => {
+    // 404 also means "a key of another workspace" (the cookie changed in another
+    // tab), where the key is still alive: saying "revoked" would be a lie.
     revokeApiKey.mockRejectedValue(new ApiError(404, 'gone', 'NOT_FOUND'));
-    await expect(revokeApiKeyAction('key-1')).resolves.toEqual({ ok: true });
+    await expect(revokeApiKeyAction('key-1')).resolves.toEqual({ ok: false, code: 'GONE' });
+    expect(revalidatePath).toHaveBeenCalledWith('/admin/developers');
   });
 
   it('says FORBIDDEN when the key belongs to someone else', async () => {

@@ -84,13 +84,17 @@ export function ApiKeysPanel({
       setRevokingId(k.id);
       startRevoke(async () => {
         const res = await callAction(() => revokeApiKeyAction(k.id));
-        setRevokingId(null);
+        // Only clear our own spinner: another revoke may have started meanwhile.
+        setRevokingId((cur) => (cur === k.id ? null : cur));
         if (!isTransportError(res) && res.ok) {
           setKeys((prev) => prev.filter((row) => row.id !== k.id));
           toast.success(m.revokeSuccess);
           return;
         }
-        toast.error(!isTransportError(res) && res.code === 'FORBIDDEN' ? m.revokeErrorForbidden : m.revokeErrorFailed);
+        const code = isTransportError(res) ? 'FAILED' : res.code;
+        toast.error(
+          code === 'FORBIDDEN' ? m.revokeErrorForbidden : code === 'GONE' ? m.revokeErrorGone : m.revokeErrorFailed,
+        );
       });
     });
   };
@@ -265,6 +269,11 @@ function CreateKeyDialogBody({
   const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [pending, start] = useTransition();
   const secretRef = useRef<HTMLInputElement>(null);
+  // While the create is in flight the dialog stays up (Esc and the backdrop
+  // included): closing it then would create a key whose secret nobody sees.
+  const close = () => {
+    if (!pending) onClose();
+  };
 
   useEffect(() => {
     if (secret) secretRef.current?.select();
@@ -348,7 +357,7 @@ function CreateKeyDialogBody({
   }
 
   return (
-    <Modal open onClose={onClose} title={m.createTitle} labelId={labelId}>
+    <Modal open onClose={close} title={m.createTitle} labelId={labelId}>
       <form onSubmit={submit} noValidate>
         <label htmlFor={nameId} className="mb-1.5 block text-sm font-medium text-foreground">
           {m.nameLabel}
