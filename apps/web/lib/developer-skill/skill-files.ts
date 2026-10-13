@@ -99,6 +99,12 @@ Pick the \`type\` that matches what the step asks. \`name\`, \`email\` and \`pho
 
 Tell the user what you changed, and give them the \`publicUrl\` and the \`editorUrl\`.
 
+## Responses and analytics
+
+- A form's responses: \`GET /v1/forms/{id}/submissions\` (there is no \`/responses\` route). Filters and sorting are in \`recipes/responses-with-filters.md\`.
+- Its funnel (views, starts, completions, drop-off per step): \`GET /v1/forms/{id}/analytics\`. See \`recipes/analytics-and-csv.md\`.
+- Every other route is in \`reference/endpoints.md\`. Read it before guessing a path.
+
 ## Files in this skill
 
 - \`reference/endpoints.md\`: every route a key can call, with parameters.

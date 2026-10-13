@@ -129,6 +129,12 @@ describe('buildSkillFiles', () => {
     expect(quiz.steps.some((s) => s.type === 'email')).toBe(true);
   });
 
+  it('names the responses and analytics routes in SKILL.md itself', () => {
+    const skill = files.get(`${SKILL_DIR}/SKILL.md`)!;
+    expect(skill).toContain('`GET /v1/forms/{id}/submissions` (there is no `/responses` route)');
+    expect(skill).toContain('`GET /v1/forms/{id}/analytics`');
+  });
+
   it('says PUT /v1/forms/{id} ignores destinations', () => {
     expect(files.get(`${SKILL_DIR}/SKILL.md`)).toContain('`PUT /v1/forms/{id}` ignores `destinations`');
     expect(files.get(`${SKILL_DIR}/reference/endpoints.md`)).toContain('ignores `destinations`');
