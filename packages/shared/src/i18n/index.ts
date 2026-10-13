@@ -1934,6 +1934,23 @@ export interface FormsMessages {
       saveFirst: string;
       unpublishedChanges: string;
       noChanges: string;
+      /** The publish menu (the chevron beside Publish), and what it holds: revert. */
+      moreOptions: string;
+      revert: string;
+      /** Under the revert item: when the version it brings back went live. `{date}`. */
+      revertAvailable: string;
+      /** Under the revert item, greyed out: there is no earlier published version. */
+      revertUnavailable: string;
+      revertTitle: string;
+      /** The confirmation: which version goes live, and that the draft stays. `{date}`. */
+      revertBody: string;
+      revertConfirm: string;
+      reverting: string;
+      reverted: string;
+      revertError: string;
+      /** The pending autosave failed, so nothing was reverted. */
+      revertSaveFirst: string;
+      nothingToRevert: string;
     };
     /**
      * First-run wizard: three questions, then the template the first form is
@@ -3765,6 +3782,19 @@ export const en: FormsMessages = {
       saveFirst: 'Your latest changes could not be saved, so nothing was published. Try again once they save.',
       unpublishedChanges: 'Unpublished changes',
       noChanges: 'All changes are published',
+      moreOptions: 'Publish options',
+      revert: 'Revert to the previous published version',
+      revertAvailable: 'Published on {date}',
+      revertUnavailable: 'No earlier published version yet',
+      revertTitle: 'Revert to the previous published version?',
+      revertBody:
+        'The version published on {date} goes live again, and the one live now becomes the previous version, so you can undo this. Your draft does not change.',
+      revertConfirm: 'Revert',
+      reverting: 'Reverting…',
+      reverted: 'The previous version is live again.',
+      revertError: 'Could not revert. Please try again.',
+      revertSaveFirst: 'Your latest changes could not be saved, so nothing was reverted. Try again once they save.',
+      nothingToRevert: 'There is no earlier published version to go back to.',
     },
     onboarding: {
       stages: { account: 'Your account', profile: 'Get to know you', firstForm: 'Your first form' },
@@ -5601,6 +5631,19 @@ export const es: FormsMessages = {
       saveFirst: 'Tus últimos cambios no se pudieron guardar, así que no se publicó nada. Inténtalo cuando se guarden.',
       unpublishedChanges: 'Cambios sin publicar',
       noChanges: 'Todos los cambios están publicados',
+      moreOptions: 'Opciones de publicación',
+      revert: 'Volver a la versión publicada anterior',
+      revertAvailable: 'Publicada el {date}',
+      revertUnavailable: 'Todavía no hay una versión publicada anterior',
+      revertTitle: '¿Volver a la versión publicada anterior?',
+      revertBody:
+        'La versión publicada el {date} vuelve a estar en línea, y la que está en línea ahora pasa a ser la anterior, así que puedes deshacerlo. Tu borrador no cambia.',
+      revertConfirm: 'Volver a esa versión',
+      reverting: 'Volviendo…',
+      reverted: 'La versión anterior está en línea de nuevo.',
+      revertError: 'No se pudo volver a la versión anterior. Inténtalo de nuevo.',
+      revertSaveFirst: 'Tus últimos cambios no se pudieron guardar, así que no se revirtió nada. Inténtalo cuando se guarden.',
+      nothingToRevert: 'No hay una versión publicada anterior a la que volver.',
     },
     onboarding: {
       stages: { account: 'Tu cuenta', profile: 'Conocerte', firstForm: 'Tu primer formulario' },
