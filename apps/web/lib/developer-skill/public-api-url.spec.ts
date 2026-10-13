@@ -23,6 +23,20 @@ describe('publicApiUrl', () => {
     expect(publicApiUrl({ API_URL: 'http://api:4000' })).toBeNull();
   });
 
+  it('never prints a private network address either', () => {
+    for (const internal of [
+      'http://10.0.3.7:4000',
+      'http://172.17.0.1:4000',
+      'http://192.168.1.20:4000',
+      'http://169.254.1.1',
+      'http://[fd00::1]:4000',
+    ]) {
+      expect(publicApiUrl({ API_URL: internal }), internal).toBeNull();
+    }
+    // A public address is still fine, and so is 172.x outside the private block.
+    expect(publicApiUrl({ API_URL: 'http://172.32.0.1:4000' })).toBe('http://172.32.0.1:4000');
+  });
+
   it('does not fall back to the build-time variable when API_URL is set', () => {
     // The image was built once with some host baked in; with API_URL set, that
     // host may belong to a different environment.

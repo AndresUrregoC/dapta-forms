@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { serverApiUrl } from '@/lib/api-url';
-import { getSession, hostHeaders } from '@/lib/auth-session';
+import { getSession, hostHeaders, refreshUpstreamSession, setSession } from '@/lib/auth-session';
 import { requestOrigin } from '@/lib/request-origin';
 import { buildSkillFiles, SKILL_ZIP_NAME } from '@/lib/developer-skill/skill-files';
 import { publicApiUrl } from '@/lib/developer-skill/public-api-url';
@@ -20,11 +20,25 @@ export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return unauthorized();
 
-  const me = await fetch(`${serverApiUrl}/v1/me`, {
-    headers: await hostHeaders(),
-    cache: 'no-store',
-  }).catch(() => null);
+  let me = await whoAmI();
+  if (me?.status === 401) {
+    // An expired access token is not a signed-out member: trade the refresh
+    // token once, like `hostFetch` does, and ask again. Without this, a click
+    // on the download long after the page loaded answered 401 to someone the
+    // dashboard still shows as signed in.
+    const refreshed = await refreshUpstreamSession(session);
+    if (refreshed) {
+      await setSession(refreshed);
+      me = await whoAmI();
+    }
+  }
   if (me?.status === 401) return unauthorized();
+  if (me?.status === 403) {
+    return NextResponse.json(
+      { error: 'FORBIDDEN', message: 'You are not a member of this workspace any more.' },
+      { status: 403, headers: { 'cache-control': 'no-store' } },
+    );
+  }
   if (!me?.ok) {
     return NextResponse.json(
       { error: 'UPSTREAM_UNAVAILABLE', message: 'Could not confirm your session. Try again.' },
@@ -53,6 +67,14 @@ export async function GET(request: NextRequest) {
       'cache-control': 'no-store',
     },
   });
+}
+
+/** The API's answer to "who is this session?", or null when it is unreachable. */
+async function whoAmI(): Promise<Response | null> {
+  return fetch(`${serverApiUrl}/v1/me`, {
+    headers: await hostHeaders(),
+    cache: 'no-store',
+  }).catch(() => null);
 }
 
 function unauthorized() {

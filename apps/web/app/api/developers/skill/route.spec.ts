@@ -5,9 +5,13 @@ import { serverApiUrl } from '@/lib/api-url';
 
 const getSession = vi.fn();
 const hostHeaders = vi.fn();
+const refreshUpstreamSession = vi.fn();
+const setSession = vi.fn();
 vi.mock('@/lib/auth-session', () => ({
   getSession: (...a: unknown[]) => getSession(...a),
   hostHeaders: (...a: unknown[]) => hostHeaders(...a),
+  refreshUpstreamSession: (...a: unknown[]) => refreshUpstreamSession(...a),
+  setSession: (...a: unknown[]) => setSession(...a),
 }));
 
 import { GET } from './route';
@@ -25,6 +29,7 @@ describe('GET /api/developers/skill', () => {
     vi.stubGlobal('fetch', fetchMock);
     hostHeaders.mockResolvedValue({ authorization: 'Bearer tok' });
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
+    refreshUpstreamSession.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -49,6 +54,41 @@ describe('GET /api/developers/skill', () => {
     const res = await GET(req());
 
     expect(res.status).toBe(401);
+  });
+
+  it('refreshes an expired access token once and serves the zip', async () => {
+    getSession.mockResolvedValue({ ...session, refreshToken: 'r1' });
+    const fresh = { provider: 'workos', accessToken: 'tok2', refreshToken: 'r2' };
+    refreshUpstreamSession.mockResolvedValue(fresh);
+    fetchMock
+      .mockResolvedValueOnce(new Response('{}', { status: 401 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const res = await GET(req());
+
+    expect(res.status).toBe(200);
+    expect(setSession).toHaveBeenCalledWith(fresh);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('answers 401 when the refreshed token is refused too', async () => {
+    getSession.mockResolvedValue({ ...session, refreshToken: 'r1' });
+    refreshUpstreamSession.mockResolvedValue({ provider: 'workos', accessToken: 'tok2' });
+    fetchMock.mockImplementation(async () => new Response('{}', { status: 401 }));
+
+    const res = await GET(req());
+
+    expect(res.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('answers 403 when the API refuses the workspace, not a 502', async () => {
+    getSession.mockResolvedValue(session);
+    fetchMock.mockResolvedValue(new Response('{}', { status: 403 }));
+
+    const res = await GET(req());
+
+    expect(res.status).toBe(403);
   });
 
   it('confirms the session against the API with the member identity', async () => {

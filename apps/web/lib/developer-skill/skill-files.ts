@@ -107,7 +107,7 @@ Base URL: \`${apiUrl}\`. Every request carries \`Authorization: Bearer $DFORMS_A
 
 | Method | Path | What it does |
 |---|---|---|
-| GET | \`/v1/forms\` | List the workspace's forms, newest first: \`id\`, \`name\`, \`slug\`, \`hasDraft\`, \`folderId\`, \`createdAt\`, \`updatedAt\`, \`publicUrl\`, \`editorUrl\`. |
+| GET | \`/v1/forms\` | List the workspace's forms, most recently updated first: \`id\`, \`name\`, \`slug\`, \`hasDraft\`, \`folderId\`, \`createdAt\`, \`updatedAt\`, \`publicUrl\`, \`editorUrl\`. |
 | GET | \`/v1/forms/{id}\` | One form: \`config\` (live), \`draftConfig\` (pending edits or null), \`publishedAt\`, \`updatedAt\`, \`publicUrl\`, \`editorUrl\`. |
 | POST | \`/v1/forms\` | Create. Body \`{ "name", "slug"?, "config"?, "folderId"? }\`. 201 with the form. The config is live at once. |
 | PUT | \`/v1/forms/{id}\` | Edit. Body \`{ "name"?, "config"?, "expectedUpdatedAt"? }\`. \`config\` replaces the whole draft and must carry \`steps\`. |
@@ -132,7 +132,7 @@ Base URL: \`${apiUrl}\`. Every request carries \`Authorization: Bearer $DFORMS_A
 | Method | Path | What it does |
 |---|---|---|
 | PUT | \`/v1/forms/{id}/destinations\` | Replace the form's destinations. Body \`{ "destinations": [...] }\`, each one a \`webhook\` or \`hubspot\` destination as in the schema. Takes effect at once, no publish needed. |
-| POST | \`/v1/forms/{id}/destinations/webhook/ping\` | Send a test event to a webhook. |
+| POST | \`/v1/forms/{id}/destinations/webhook/ping\` | Send a test event to a webhook. Needs an owner or admin key. |
 
 ## Responses
 
@@ -171,9 +171,11 @@ Each item has \`id\`, \`data\` (answers keyed by step key), \`score\`, \`started
 
 ## Workspace settings a key can use
 
+Everything here except reading the brand kit and the integrations needs a key whose owner is an owner or admin of the workspace; a member's key gets 403 \`FORBIDDEN\`.
+
 | Method | Path | What it does |
 |---|---|---|
-| GET, PUT | \`/v1/branding\` | The workspace brand kit. Writing it needs an owner or admin key. |
+| GET, PUT | \`/v1/branding\` | The workspace brand kit. Reading it works with any key. |
 | POST | \`/v1/branding/apply\`, \`/v1/branding/revert\` | Apply the kit to forms, or undo it. Body \`{ "formIds": [...] }\`. |
 | GET | \`/v1/notifications\` | The workspace's email notifications. |
 | PUT | \`/v1/notifications/{emailKey}\` | Change one. Body \`{ "enabled"?, "subject"?, "body"?, "recipients"? }\`. |
@@ -215,7 +217,7 @@ Every error is JSON with a stable \`error\` code and an English \`message\`:
 | 401 | \`INVALID_API_KEY\` | The key is unknown, revoked, or its owner is no longer in the workspace. Ask the user for a new key. |
 | 403 | \`KEY_NOT_ALLOWED\` | This route is dashboard only. Tell the user to do it in dForms. |
 | 403 | \`WORKSPACE_FORBIDDEN\` | You sent a workspace header for another workspace. Drop the header. |
-| 403 | \`FORBIDDEN\` | The key's owner lacks the role (brand kit writes need owner or admin). |
+| 403 | \`FORBIDDEN\` | The key's owner lacks the role: brand kit writes, notifications and the webhook test need an owner or admin. Tell the user. |
 | 404 | \`NOT_FOUND\` | The id is wrong or belongs to another workspace. List again. |
 | 409 | \`STALE\` | The form changed since you read it. The body has \`updatedAt\` and \`current\` (the form now). Reapply your change on \`current\` and retry. |
 | 409 | \`NOTHING_TO_REVERT\` | The form has no earlier published version. |

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import type { ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { DeveloperDocsView, SKILL_DOWNLOAD_PATH } from './developer-docs';
+import { DeveloperDocs, DeveloperDocsView, SKILL_DOWNLOAD_PATH } from './developer-docs';
 import { getDeveloperDocsMessages, type DeveloperDocsMessages } from './developer-docs-messages';
 
 const en = getDeveloperDocsMessages('en');
@@ -74,6 +75,11 @@ describe('DeveloperDocsView', () => {
     for (const s of strings(es)) {
       expect(s).not.toMatch(/\b(vos|tenés|querés|podés|pedile|mandá|esperá|leé|cambiá)\b/i);
     }
+  });
+
+  it('takes the locale the Developers page already read, as <DeveloperDocs locale={locale} />', async () => {
+    const el = (await DeveloperDocs({ locale: 'es' })) as ReactElement<{ m: DeveloperDocsMessages }>;
+    expect(el.props.m).toBe(es);
   });
 
   it('keeps the same keys in both languages', () => {

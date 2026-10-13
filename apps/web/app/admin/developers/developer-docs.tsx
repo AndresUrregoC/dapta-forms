@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { Locale } from '@quill/shared';
 import { buttonVariants } from '@/components/ui/button';
 import { getLocale } from '@/lib/locale';
 import { publicApiUrl } from '@/lib/developer-skill/public-api-url';
@@ -16,10 +17,14 @@ export const SKILL_DOWNLOAD_PATH = '/api/developers/skill';
  * every render (`publicApiUrl`), never from the build, so one image shows each
  * environment its own address. Nothing here is interactive: the download is a
  * plain link to a route that requires the session.
+ *
+ * `locale` is optional: the Developers page renders `<DeveloperDocs
+ * locale={locale} />` with the locale it already read, and without it the
+ * section reads the same cookie itself.
  */
-export async function DeveloperDocs() {
-  const locale = await getLocale();
-  return <DeveloperDocsView m={getDeveloperDocsMessages(locale)} apiUrl={publicApiUrl()} />;
+export async function DeveloperDocs({ locale }: { locale?: Locale } = {}) {
+  const lang = locale ?? (await getLocale());
+  return <DeveloperDocsView m={getDeveloperDocsMessages(lang)} apiUrl={publicApiUrl()} />;
 }
 
 const FLOW = [
