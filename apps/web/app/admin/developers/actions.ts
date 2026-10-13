@@ -12,7 +12,7 @@ import { API_KEY_NAME_MAX } from './limits';
  * stable code the page localizes, never a raw server string.
  */
 
-const PAGE = '/admin/developers';
+const PAGE = '/admin/developers/keys';
 
 export type CreateApiKeyState =
   | { ok: true; key: CreatedApiKey }

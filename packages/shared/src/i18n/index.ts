@@ -216,7 +216,7 @@ export interface FormsMessages {
         submissions: string;
         analytics: string;
         integrations: string;
-        /** The API keys page (/admin/developers), between Integrations and Docs. */
+        /** Developers (/admin/developers/*), between Integrations and Docs. Opens `developersMenu`. */
         developers: string;
         /** The product documentation, an EXTERNAL link (see `docsHref`). */
         docs: string;
@@ -226,6 +226,17 @@ export interface FormsMessages {
          * never carries a dead item.
          */
         agents: string;
+      };
+      /**
+       * The two pages under the rail's Developers item: an accordion in the
+       * wide rail and the drawer, a flyout on the collapsed rail. `docs` also
+       * names the docs page itself and the link to it from the keys page.
+       */
+      developersMenu: {
+        /** /admin/developers/keys */
+        keys: string;
+        /** /admin/developers/docs */
+        docs: string;
       };
       /** The bottom-left profile button (avatar + name) and its menu. */
       profileMenu: {
@@ -2336,6 +2347,10 @@ export const en: FormsMessages = {
         docs: 'Docs',
         agents: 'Dapta Agents',
       },
+      developersMenu: {
+        keys: 'API keys',
+        docs: 'API docs',
+      },
       profileMenu: {
         label: 'Account menu',
         accountSettings: 'Account settings',
@@ -4216,6 +4231,10 @@ export const es: FormsMessages = {
         developers: 'Developers',
         docs: 'Documentación',
         agents: 'Dapta Agents',
+      },
+      developersMenu: {
+        keys: 'Llaves de API',
+        docs: 'Docs de la API',
       },
       profileMenu: {
         label: 'Menú de cuenta',
