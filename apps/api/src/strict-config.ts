@@ -49,6 +49,11 @@ const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON
  * accepted: every step the builder makes carries it, and so does every config
  * this API answers with, so refusing it would refuse a form read and sent
  * straight back. Any other value is one the builder cannot show.
+ *
+ * The seeded values pass on ANY step type, not only the type that seeds them:
+ * changing a step's type in the builder keeps them (a message turned into a
+ * text question still carries `buttonText` "Continue"). `flowGroup` is the
+ * exception, because the type change rewrites it to the new type's default.
  */
 interface StepField {
   path: Path;
@@ -57,11 +62,11 @@ interface StepField {
 
 /** The research list of config fields without an editor control (see the API spec). */
 const STEP_FIELDS: StepField[] = [
-  { path: ['buttonText'], editorWrites: (v, type) => type === 'message' && v === 'Continue' },
+  { path: ['buttonText'], editorWrites: (v) => v === 'Continue' },
   { path: ['sliderUnitLabel'] },
   { path: ['reveal', 'subtitleTemplate'] },
-  { path: ['reveal', 'enabled'], editorWrites: (v, type) => type === 'reveal' && v === true },
-  { path: ['scheduler', 'prefill'], editorWrites: (v, type) => type === 'scheduler' && v === true },
+  { path: ['reveal', 'enabled'], editorWrites: (v) => v === true },
+  { path: ['scheduler', 'prefill'], editorWrites: (v) => v === true },
   {
     path: ['flowGroup'],
     editorWrites: (v, type) => typeof type === 'string' && v === defaultFlowGroup(type as FormFieldType),

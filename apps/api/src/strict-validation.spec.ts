@@ -244,6 +244,26 @@ describe('strict rules with an API key', () => {
     expect(back.draftConfig).toEqual(created.config);
   });
 
+  it('accepts the seeded values on a step whose type the builder changed', async () => {
+    // The builder's type change keeps what `createEmptyStep` seeded and only
+    // resets `flowGroup`: a message, reveal and scheduler turned into text.
+    const created = await session.forms.createForm(req(), {
+      name: 'Retyped',
+      config: config([
+        step({ key: 'was_message', flowGroup: 'qualification', buttonText: 'Continue' }),
+        step({ key: 'was_reveal', flowGroup: 'qualification', reveal: { enabled: true, headline: '' } }),
+        step({
+          key: 'was_scheduler',
+          flowGroup: 'qualification',
+          scheduler: { provider: 'calendly', prefill: true },
+        }),
+      ]),
+    });
+    await expect(
+      key.forms.updateForm(req(), created.id, { config: created.config, expectedUpdatedAt: created.updatedAt }),
+    ).resolves.toBeTruthy();
+  });
+
   it('accepts the brand kit client logos the server put on the form', async () => {
     const logos = [{ name: 'Example' }];
     await session.branding.put(req(), { clientLogos: logos });
