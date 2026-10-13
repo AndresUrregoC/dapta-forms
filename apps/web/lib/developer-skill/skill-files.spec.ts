@@ -101,6 +101,39 @@ describe('buildSkillFiles', () => {
     }
   });
 
+  it('gives error paths with the body prefix, on both routes', () => {
+    const skill = files.get(`${SKILL_DIR}/SKILL.md`)!;
+    const errors = files.get(`${SKILL_DIR}/reference/errors.md`)!;
+    for (const doc of [skill, errors]) {
+      expect(doc).toContain('`config.steps.2.flowGroup`');
+      expect(doc).toContain('`destinations.0.settings.timeoutMs`');
+    }
+  });
+
+  it('says which editor defaults are accepted and which steps need no question', () => {
+    const skill = files.get(`${SKILL_DIR}/SKILL.md`)!;
+    for (const token of ['`flowGroup`', '`buttonText` `"Continue"`', '`reveal.enabled`', '`scheduler.prefill`']) {
+      expect(skill, token).toContain(token);
+    }
+    expect(skill).toContain('`reveal`, `message` and `scheduler` steps');
+    const errors = files.get(`${SKILL_DIR}/reference/errors.md`)!;
+    expect(errors).toContain('`reveal`, `message` and `scheduler` steps');
+  });
+
+  it('says PUT /v1/forms/{id} ignores destinations', () => {
+    expect(files.get(`${SKILL_DIR}/SKILL.md`)).toContain('`PUT /v1/forms/{id}` ignores `destinations`');
+    expect(files.get(`${SKILL_DIR}/reference/endpoints.md`)).toContain('ignores `destinations`');
+  });
+
+  it('documents previousPublishedAt and a revert with no body that answers 200 with the form', () => {
+    for (const path of ['SKILL.md', 'reference/endpoints.md', 'recipes/publish-and-revert.md']) {
+      const doc = files.get(`${SKILL_DIR}/${path}`)!;
+      expect(doc, path).toContain('previousPublishedAt');
+      expect(doc, path).toMatch(/no body/i);
+      expect(doc, path).toContain('200');
+    }
+  });
+
   it('ships a JSON Schema that parses', () => {
     const schema = JSON.parse(files.get(`${SKILL_DIR}/reference/form-config.schema.json`)!);
     expect(schema.properties.steps).toBeDefined();

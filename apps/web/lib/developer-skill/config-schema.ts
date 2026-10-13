@@ -31,6 +31,34 @@ export const UNSUPPORTED_CONFIG_FIELDS = [
 
 type JsonSchema = Record<string, unknown>;
 
+/**
+ * Of those fields, the ones the editor writes itself, with the only value the
+ * API accepts for each. Every step the builder makes carries them and so does
+ * every config the API answers with, so a config read and sent straight back
+ * must validate. The schema keeps them, pinned to that value, instead of
+ * dropping them; any other value still fails, as it does at the API.
+ */
+export const EDITOR_DEFAULT_FIELDS: Partial<Record<(typeof UNSUPPORTED_CONFIG_FIELDS)[number], JsonSchema>> = {
+  'steps.[].flowGroup': {
+    type: 'string',
+    enum: ['qualification', 'lead_capture'],
+    description:
+      'Derived from the step type: lead_capture for name, email and phone, qualification for every other type. Leave it out on a new step; on a step you read, send back what it carries.',
+  },
+  'steps.[].buttonText': {
+    const: 'Continue',
+    description: 'The editor default on a message step. Leave it out, or send back "Continue" as read.',
+  },
+  'steps.[].reveal.enabled': {
+    const: true,
+    description: 'The editor default on a reveal step. Leave it out, or send back true as read.',
+  },
+  'steps.[].scheduler.prefill': {
+    const: true,
+    description: 'The editor default on a scheduler step. Leave it out, or send back true as read.',
+  },
+};
+
 /** The schema itself and every object variant of a nullable or union node. */
 function variants(node: unknown): JsonSchema[] {
   if (!node || typeof node !== 'object') return [];
@@ -60,11 +88,12 @@ function step(nodes: JsonSchema[], segment: string): JsonSchema[] {
 }
 
 /**
- * Remove the field at `path` from every object it can appear in. Returns how
- * many properties were removed, so a path that no longer matches the schema
- * (a field renamed in `@quill/types`) is noticed instead of silently ignored.
+ * Remove the field at `path` from every object it can appear in, or pin it to
+ * `replacement` when one is given. Returns how many properties were touched,
+ * so a path that no longer matches the schema (a field renamed in
+ * `@quill/types`) is noticed instead of silently ignored.
  */
-function removeField(root: JsonSchema, path: string): number {
+function removeField(root: JsonSchema, path: string, replacement?: JsonSchema): number {
   const segments = path.split('.');
   const field = segments.pop()!;
   let nodes: JsonSchema[] = [root];
@@ -74,7 +103,8 @@ function removeField(root: JsonSchema, path: string): number {
     for (const v of variants(node)) {
       const props = v.properties as Record<string, unknown> | undefined;
       if (props && field in props) {
-        delete props[field];
+        if (replacement) props[field] = { ...replacement };
+        else delete props[field];
         if (Array.isArray(v.required)) v.required = v.required.filter((r) => r !== field);
         removed++;
       }
@@ -86,7 +116,8 @@ function removeField(root: JsonSchema, path: string): number {
 /**
  * The form config as a JSON Schema (draft-07), generated from
  * `formConfigSchema` so it can never drift from what the API parses, minus the
- * fields in `UNSUPPORTED_CONFIG_FIELDS`.
+ * fields in `UNSUPPORTED_CONFIG_FIELDS` (the editor defaults among them stay,
+ * pinned to the value the editor writes: `EDITOR_DEFAULT_FIELDS`).
  *
  * Every sub-schema is inlined (`$refStrategy: 'none'`): the reveal shape is
  * used both at the top level and inside steps, and a `$ref` from one to the
@@ -102,7 +133,7 @@ export function formConfigJsonSchema(): JsonSchema {
     target: 'jsonSchema7',
   }) as JsonSchema;
   for (const path of UNSUPPORTED_CONFIG_FIELDS) {
-    if (removeField(schema, path) === 0) {
+    if (removeField(schema, path, EDITOR_DEFAULT_FIELDS[path]) === 0) {
       throw new Error(`Unsupported config field ${path} is not in formConfigSchema any more.`);
     }
   }
@@ -113,7 +144,7 @@ export function formConfigJsonSchema(): JsonSchema {
     $id: 'form-config.schema.json',
     title: 'dForms form config (version 1)',
     description:
-      'The `config` object of a dForms form, as POST /v1/forms and PUT /v1/forms/{id} accept it. Fields the editor cannot show are left out; the API refuses them with UNSUPPORTED_FIELD.',
+      'The `config` object of a dForms form, as POST /v1/forms and PUT /v1/forms/{id} accept it. Fields the editor cannot show are left out (the API refuses them with UNSUPPORTED_FIELD), except the defaults the editor writes itself, which only take that value.',
     ...Object.fromEntries(Object.entries(schema).filter(([k]) => k !== '$schema')),
     required: [...required],
   };

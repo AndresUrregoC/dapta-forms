@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import Ajv from 'ajv';
+import { createEmptyStep, normalizeConfig, type FormConfig as EngineConfig } from '@quill/engine';
 import { formConfigSchema } from '@quill/types';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { formConfigJsonSchema, UNSUPPORTED_CONFIG_FIELDS } from './config-schema';
+import { EDITOR_DEFAULT_FIELDS, formConfigJsonSchema, UNSUPPORTED_CONFIG_FIELDS } from './config-schema';
 import { EXAMPLE_CONFIGS, QUIZ_CONFIG } from './examples';
 
 /** Does `path` (dot segments, `[]` for array items) resolve to a property anywhere in `schema`? */
@@ -34,13 +35,42 @@ describe('formConfigJsonSchema', () => {
     expect(() => ajv.compile(schema)).not.toThrow();
   });
 
-  it('carries none of the fields the editor has no control for', () => {
+  it('carries none of the fields the editor has no control for, but the defaults it writes itself', () => {
     const raw = zodToJsonSchema(formConfigSchema, { $refStrategy: 'none' });
     for (const path of UNSUPPORTED_CONFIG_FIELDS) {
       // Present in the source schema, so the test cannot pass by a typo.
       expect(hasField(raw, path), `${path} in formConfigSchema`).toBe(true);
-      expect(hasField(schema, path), `${path} in the published schema`).toBe(false);
+      expect(hasField(schema, path), `${path} in the published schema`).toBe(path in EDITOR_DEFAULT_FIELDS);
     }
+  });
+
+  it('accepts a config as the API answers it: the editor defaults and untitled content steps', () => {
+    // What the builder adds and the API returns after normalizing: a derived
+    // `flowGroup` on every step, `buttonText` "Continue" on a message,
+    // `reveal.enabled` and `scheduler.prefill`, and blank titles on the steps
+    // that may go without one.
+    const read = normalizeConfig({
+      version: 1,
+      steps: [
+        { key: 'email', type: 'email', question: 'Email?' },
+        createEmptyStep('message'),
+        createEmptyStep('reveal'),
+        createEmptyStep('scheduler'),
+      ],
+    } as EngineConfig);
+    const validate = ajv.compile(schema);
+    expect(validate(read), ajv.errorsText(validate.errors)).toBe(true);
+  });
+
+  it('still rejects any other value for those defaults', () => {
+    const validate = ajv.compile(schema);
+    const withStep = (over: Record<string, unknown>) => ({
+      ...QUIZ_CONFIG,
+      steps: QUIZ_CONFIG.steps.map((s, i) => (i === 0 ? { ...s, ...over } : s)),
+    });
+    expect(validate(withStep({ flowGroup: 'scoring' }))).toBe(false);
+    expect(validate(withStep({ type: 'reveal', reveal: { enabled: false } }))).toBe(false);
+    expect(validate(withStep({ type: 'scheduler', scheduler: { provider: 'calendly', prefill: false } }))).toBe(false);
   });
 
   it('keeps the controlled look-alikes the strip must not touch', () => {
