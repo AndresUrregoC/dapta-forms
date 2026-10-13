@@ -1945,6 +1945,10 @@ export interface FormsMessages {
       gotchas: {
         put: string;
         stale: string;
+        /** Where a validation error's `issues[].path` points, with the body prefix. */
+        errors: string;
+        /** The editor defaults a key may send back, and the steps that need no question. */
+        editorDefaults: string;
         destinations: string;
         rateLimit: string;
       };
@@ -3816,7 +3820,8 @@ export const en: FormsMessages = {
           'Creates the form with its config, live right away. The answer carries `publicUrl` and `editorUrl`: share those links as they come.',
         edit: 'Saves the whole config as a draft. The public form does not change until you publish.',
         publish: 'Makes the draft live.',
-        revert: 'Puts the previously published version back live. Calling it again undoes the revert.',
+        revert:
+          'No body. Puts the previously published version back live and answers `200` with the form. Calling it again undoes the revert. Every form carries `previousPublishedAt`: when that version went live (epoch ms), or `null` when there is nothing to go back to.',
       },
       flowLabels: {
         create: 'Create',
@@ -3829,8 +3834,12 @@ export const en: FormsMessages = {
         put: '`PUT` replaces the whole config. Read the form, change what you need and send every step back: a config without `steps` is refused, and the steps you leave out are deleted.',
         stale:
           'Send `expectedUpdatedAt` with the `updatedAt` you read. If someone saved the form in the editor since then, you get a `409` with the current version instead of overwriting their work.',
+        errors:
+          'A `400` lists every problem in `issues[]`, each with its path inside the body you sent: `config.steps.2.flowGroup` when you create or edit a form, `destinations.0.settings.timeoutMs` on the destinations route. Fix them all before you send again.',
+        editorDefaults:
+          'Fields the editor cannot show are refused, but the defaults it writes itself are accepted, so a form you read saves back unchanged: the `flowGroup` derived from the step type, `buttonText` `Continue` on a message step, `reveal.enabled` on a reveal step and `scheduler.prefill` on a scheduler step. `reveal`, `message` and `scheduler` steps can go without a `question`; every other step needs one.',
         destinations:
-          'Webhooks and HubSpot have their own route, `PUT /v1/forms/{id}/destinations`. They never go inside the config.',
+          'Webhooks and HubSpot have their own route, `PUT /v1/forms/{id}/destinations`. `PUT /v1/forms/{id}` ignores `destinations` inside the config.',
         rateLimit:
           'Each key can make 120 requests per minute. Past that you get a `429` with a `Retry-After` header: wait that many seconds and continue.',
       },
@@ -5703,7 +5712,8 @@ export const es: FormsMessages = {
           'Crea el form con su config, publicado de inmediato. La respuesta trae `publicUrl` y `editorUrl`: comparte esos links tal cual.',
         edit: 'Guarda la config completa como borrador. El form público no cambia hasta que publiques.',
         publish: 'Publica el borrador.',
-        revert: 'Vuelve a publicar la versión anterior. Si la llamas otra vez, deshaces el cambio.',
+        revert:
+          'Sin body. Vuelve a publicar la versión anterior y responde `200` con el form. Si la llamas otra vez, deshaces el cambio. Cada form trae `previousPublishedAt`: cuándo se publicó esa versión (epoch ms), o `null` si no hay a qué volver.',
       },
       flowLabels: {
         create: 'Crear',
@@ -5716,8 +5726,12 @@ export const es: FormsMessages = {
         put: '`PUT` reemplaza la config entera. Lee el form, cambia lo que necesites y manda todos los pasos de vuelta: una config sin `steps` se rechaza, y los pasos que no mandes se borran.',
         stale:
           'Manda `expectedUpdatedAt` con el `updatedAt` que leíste. Si alguien guardó el form en el editor desde entonces, recibes un `409` con la versión actual en vez de pisar su trabajo.',
+        errors:
+          'Un `400` trae todos los problemas en `issues[]`, cada uno con su ruta dentro del body que mandaste: `config.steps.2.flowGroup` al crear o editar un form, `destinations.0.settings.timeoutMs` en la ruta de destinos. Corrígelos todos antes de volver a mandar.',
+        editorDefaults:
+          'Los campos que el editor no muestra se rechazan, pero los defaults que el editor escribe solo se aceptan, así que un form que leíste se guarda tal cual: el `flowGroup` que sale del tipo de paso, `buttonText` `Continue` en un paso de mensaje, `reveal.enabled` en un paso de reveal y `scheduler.prefill` en un paso de agenda. Los pasos `reveal`, `message` y `scheduler` pueden ir sin `question`; los demás necesitan una.',
         destinations:
-          'Los webhooks y HubSpot van por su propia ruta, `PUT /v1/forms/{id}/destinations`. Nunca dentro de la config.',
+          'Los webhooks y HubSpot van por su propia ruta, `PUT /v1/forms/{id}/destinations`. `PUT /v1/forms/{id}` ignora los `destinations` que vengan dentro de la config.',
         rateLimit:
           'Cada llave puede hacer 120 requests por minuto. Si te pasas, recibes un `429` con el header `Retry-After`: espera esos segundos y sigue.',
       },

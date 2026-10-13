@@ -63,19 +63,23 @@ Authorization: Bearer $DFORMS_API_KEY
 
 1. **Never retry a \`POST /v1/forms\` blindly.** It is not idempotent. If it failed, timed out or you are not sure it went through, call \`GET /v1/forms\` first and look for the form by name. Only create it again if it is not there.
 2. **Always send the whole \`steps\` array.** \`PUT /v1/forms/{id}\` replaces the whole config. Read the form first, change what you need on a copy of its config, and send the full config back with \`expectedUpdatedAt\` set to the form's \`updatedAt\`. A config without \`steps\` is refused (\`STEPS_REQUIRED\`); a partial list deletes the steps you left out.
-3. **Only use fields from \`reference/form-config.schema.json\`.** Fields the dForms editor cannot show are refused with \`UNSUPPORTED_FIELD\`. Every step needs a non-empty \`question\` (\`EMPTY_QUESTION\`). A form made earlier may already carry such a field: if a \`PUT\` is refused with \`UNSUPPORTED_FIELD\` on a field you did not add, tell the user which one and ask before removing it.
+3. **Only use fields from \`reference/form-config.schema.json\`.** Fields the dForms editor cannot show are refused with \`UNSUPPORTED_FIELD\`.
+   - The defaults the editor writes itself are accepted, so a form you read saves back unchanged: the \`flowGroup\` derived from the step type, \`buttonText\` \`"Continue"\` on a message step, \`reveal.enabled\` \`true\` on a reveal step and \`scheduler.prefill\` \`true\` on a scheduler step. Leave them out on new steps; any other value is refused.
+   - A form may also carry a \`sliderUnitLabel\` or \`branding.clientLogos\` it got from a template or the brand kit. Send them back exactly as you read them; never add or change them.
+   - Every step needs a non-empty \`question\` (\`EMPTY_QUESTION\`), except \`reveal\`, \`message\` and \`scheduler\` steps: a reveal has its own headline, a message its body text (\`helper\`), and a scheduler shows the booking page.
+   - An older form may carry a legacy field (\`reveal\` or \`revealAfterStep\` on the config, \`triggersReveal\` on a step). If a \`PUT\` is refused with \`UNSUPPORTED_FIELD\` on a field you did not add, tell the user which one and ask before removing it.
 4. **Hand the user the \`publicUrl\` exactly as the API returns it.** Never build a form link yourself. Use \`editorUrl\` when the user wants to open the form in the editor.
 5. **On a 429, wait.** Sleep the number of seconds in the \`Retry-After\` header (also \`retryAfterSec\` in the body), then continue. The limit is 120 requests per minute per key.
-6. **Fix every issue at once.** A 400 lists all problems in \`issues[]\`, each with a dot path such as \`config.steps.2.question\`. Correct all of them before sending again.
+6. **Fix every issue at once.** A 400 lists all problems in \`issues[]\`. Each \`path\` is the field's dot path inside the request body, so it starts with the body's own key: \`config.steps.2.flowGroup\` on \`POST /v1/forms\` and \`PUT /v1/forms/{id}\`, \`destinations.0.settings.timeoutMs\` on \`PUT /v1/forms/{id}/destinations\`. Correct all of them before sending again.
 7. **Respect other people's edits.** A 409 \`STALE\` means someone saved the form since you read it. Take the form from \`current\` in the error body, apply your change again on top of it, and retry with its \`updatedAt\`. Never drop their changes.
-8. **Destinations have their own route.** Webhooks and HubSpot are set with \`PUT /v1/forms/{id}/destinations\`, never inside the config of \`PUT /v1/forms/{id}\`.
+8. **Destinations have their own route.** Webhooks and HubSpot are set with \`PUT /v1/forms/{id}/destinations\`. \`PUT /v1/forms/{id}\` ignores \`destinations\` inside the config: they are not saved, and the live ones stay as they are.
 
 ## Form lifecycle
 
 1. **Create:** \`POST /v1/forms\` with \`{ "name", "config" }\`. The config is live at once: the form answers at its \`publicUrl\` right away.
 2. **Edit:** \`PUT /v1/forms/{id}\` with \`{ "config", "expectedUpdatedAt" }\` saves a draft (\`draftConfig\`). The public form does not change yet. When the form already has a draft, start from \`draftConfig\`, not \`config\`.
 3. **Publish:** \`POST /v1/forms/{id}/publish\` with \`{ "expectedUpdatedAt" }\` makes the draft live.
-4. **Revert:** \`POST /v1/forms/{id}/revert\` puts the previously published version back live. Calling it again undoes the revert. With nothing to go back to it answers 409 \`NOTHING_TO_REVERT\`.
+4. **Revert:** \`POST /v1/forms/{id}/revert\`, with no body, puts the previously published version back live and answers 200 with the form. Calling it again undoes the revert. Every form carries \`previousPublishedAt\`: when the version a revert would bring back went live (epoch ms), or \`null\` when there is nothing to go back to, in which case the revert answers 409 \`NOTHING_TO_REVERT\`.
 
 Tell the user what you changed, and give them the \`publicUrl\` and the \`editorUrl\`.
 
@@ -108,11 +112,11 @@ Base URL: \`${apiUrl}\`. Every request carries \`Authorization: Bearer $DFORMS_A
 | Method | Path | What it does |
 |---|---|---|
 | GET | \`/v1/forms\` | List the workspace's forms, most recently updated first: \`id\`, \`name\`, \`slug\`, \`hasDraft\`, \`folderId\`, \`createdAt\`, \`updatedAt\`, \`publicUrl\`, \`editorUrl\`. |
-| GET | \`/v1/forms/{id}\` | One form: \`config\` (live), \`draftConfig\` (pending edits or null), \`publishedAt\`, \`updatedAt\`, \`publicUrl\`, \`editorUrl\`. |
+| GET | \`/v1/forms/{id}\` | One form: \`config\` (live), \`draftConfig\` (pending edits or null), \`publishedAt\`, \`previousPublishedAt\` (when the version a revert brings back went live, or null), \`updatedAt\`, \`publicUrl\`, \`editorUrl\`. |
 | POST | \`/v1/forms\` | Create. Body \`{ "name", "slug"?, "config"?, "folderId"? }\`. 201 with the form. The config is live at once. |
-| PUT | \`/v1/forms/{id}\` | Edit. Body \`{ "name"?, "config"?, "expectedUpdatedAt"? }\`. \`config\` replaces the whole draft and must carry \`steps\`. |
+| PUT | \`/v1/forms/{id}\` | Edit. Body \`{ "name"?, "config"?, "expectedUpdatedAt"? }\`. \`config\` replaces the whole draft and must carry \`steps\`. It ignores \`destinations\` inside the config: use the destinations route. |
 | POST | \`/v1/forms/{id}/publish\` | Publish the draft. Body \`{ "expectedUpdatedAt"? }\`. No draft: returns the form unchanged. |
-| POST | \`/v1/forms/{id}/revert\` | Put the previously published version back live. 409 \`NOTHING_TO_REVERT\` when there is none. The pending draft and the destinations are left as they are. |
+| POST | \`/v1/forms/{id}/revert\` | Put the previously published version back live. No body; 200 with the form. 409 \`NOTHING_TO_REVERT\` when there is none (\`previousPublishedAt\` is null). The pending draft and the destinations are left as they are. |
 | PUT | \`/v1/forms/{id}/slug\` | Change the public URL segment. Body \`{ "slug" }\`. The old slug keeps redirecting. 409 \`SLUG_TAKEN\` or \`SLUG_INVALID\`. |
 | POST | \`/v1/forms/{id}/duplicate\` | Copy a form. 201 with the copy. |
 | DELETE | \`/v1/forms/{id}\` | Delete a form. 204. Ask the user before you do this. |
@@ -200,13 +204,16 @@ Every error is JSON with a stable \`error\` code and an English \`message\`:
   "error": "BAD_REQUEST",
   "message": "Every step needs a question.",
   "issues": [
-    { "path": "config.steps.2.question", "message": "Every step needs a question.", "code": "EMPTY_QUESTION" },
-    { "path": "config.steps.0.buttonText", "message": "This field has no control in the editor.", "code": "UNSUPPORTED_FIELD" }
+    { "path": "config.steps.1.question", "message": "Every step needs a question.", "code": "EMPTY_QUESTION" },
+    { "path": "config.steps.2.flowGroup", "message": "This field has no control in the editor.", "code": "UNSUPPORTED_FIELD" }
   ]
 }
 ~~~
 
-\`issues[]\` comes with validation errors (400). It lists every problem, not only the first; \`message\` repeats the first one. \`path\` is the field's dot path inside the request body, where numbers are array positions: \`config.steps.2.question\` is the question of the third step.
+\`issues[]\` comes with validation errors (400). It lists every problem, not only the first; \`message\` repeats the first one. \`path\` is the field's dot path inside the request body, so it starts with the body's own key, and numbers are array positions:
+
+- \`config.steps.2.flowGroup\` is the \`flowGroup\` of the third step, on \`POST /v1/forms\` and \`PUT /v1/forms/{id}\`.
+- \`destinations.0.settings.timeoutMs\` is a setting of the first destination, on \`PUT /v1/forms/{id}/destinations\`.
 
 ## Codes
 
@@ -230,8 +237,8 @@ Every error is JSON with a stable \`error\` code and an English \`message\`:
 
 | \`code\` | Meaning |
 |---|---|
-| \`UNSUPPORTED_FIELD\` | A field the editor cannot show. Remove it; \`reference/form-config.schema.json\` has none of them. |
-| \`EMPTY_QUESTION\` | A step without \`question\` text. |
+| \`UNSUPPORTED_FIELD\` | A field the editor cannot show, or a value other than the editor's own default (\`flowGroup\` derived from the type, \`buttonText\` "Continue", \`reveal.enabled\` and \`scheduler.prefill\` true). Remove it or send back the value you read; \`reference/form-config.schema.json\` allows only those. |
+| \`EMPTY_QUESTION\` | A step without \`question\` text. \`reveal\`, \`message\` and \`scheduler\` steps are exempt. |
 | \`invalid_type\`, \`too_small\`, \`too_big\`, \`invalid_enum_value\`, \`invalid_string\`, \`invalid_literal\`, \`invalid_union_discriminator\`, \`custom\` | Standard schema checks: wrong type, length or range out of bounds, a value outside the allowed list, a bad URL or email, \`version\` not 1, an unknown destination \`type\`, or a rule such as \`maxChars\` lower than \`minChars\`. |
 `;
 }
@@ -330,13 +337,14 @@ curl -sS -X POST "${apiUrl}/v1/forms/$FORM_ID/publish" \\
 
 The answer is the form with the new \`config\`, \`draftConfig: null\` and a new \`publishedAt\`. Check the \`publicUrl\` and hand it to the user as is.
 
-If the published version is wrong, put the previous one back:
+If the published version is wrong, put the previous one back. Check first that the form's \`previousPublishedAt\` is not null: it is when the version a revert brings back went live (epoch ms). The call takes no body:
 
 ~~~bash
 curl -sS -X POST "${apiUrl}/v1/forms/$FORM_ID/revert" \\
   -H "Authorization: Bearer $DFORMS_API_KEY"
 ~~~
 
+- It answers 200 with the form, now serving the previous config.
 - The previously published config becomes live again, and the one you replaced becomes the previous one: reverting twice undoes the revert.
 - Destinations stay as they are, and a pending draft is not touched.
 - 409 \`NOTHING_TO_REVERT\`: the form was never published over an earlier version.

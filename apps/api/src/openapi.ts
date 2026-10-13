@@ -120,7 +120,7 @@ export const openapiSpec = {
       get: {
         summary: 'List API keys (host session only)',
         description:
-          'Body { keys: [{ id, name, last4, createdAt, lastUsedAt, createdBy: { memberId, name, email } }] }. A member sees their own keys; an owner or admin sees every active key of the workspace. Revoked keys are never listed, and the key itself never appears. 403 `KEY_NOT_ALLOWED` when called with an API key.',
+          'Body { keys: [{ id, name, last4, createdAt, lastUsedAt, createdBy: { memberId, name, email } }] }. A member sees their own keys; an owner or admin sees every active key of the workspace. Revoked keys, and keys of members who are not active, are never listed, and the key itself never appears. Disabling or removing a member revokes their keys for good: reactivating them does not bring the keys back. 403 `KEY_NOT_ALLOWED` when called with an API key.',
         security: [{ hostSession: [] }],
         responses: { '200': { description: 'Keys' }, '403': { description: 'KEY_NOT_ALLOWED' } },
       },

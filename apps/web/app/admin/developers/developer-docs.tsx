@@ -36,7 +36,7 @@ const FLOW = [
   { id: 'revert', method: 'POST', path: '/v1/forms/{id}/revert' },
 ] as const;
 
-const GOTCHAS = ['put', 'stale', 'destinations', 'rateLimit'] as const;
+const GOTCHAS = ['put', 'stale', 'errors', 'editorDefaults', 'destinations', 'rateLimit'] as const;
 
 /** Render `text` with every backtick-quoted run as inline code. */
 function rich(text: string): ReactNode[] {

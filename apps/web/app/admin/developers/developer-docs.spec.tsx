@@ -50,6 +50,29 @@ describe('DeveloperDocsView', () => {
     }
   });
 
+  it('explains error paths, the accepted editor defaults, the ignored destinations and the revert', () => {
+    for (const m of [en, es]) {
+      const html = render(m);
+      for (const token of [
+        'issues[]',
+        'config.steps.2.flowGroup',
+        'destinations.0.settings.timeoutMs',
+        'flowGroup',
+        'Continue',
+        'reveal.enabled',
+        'scheduler.prefill',
+        'PUT /v1/forms/{id}',
+        'destinations',
+        'previousPublishedAt',
+        '200',
+      ]) {
+        expect(html, token).toContain(`${token}</code>`);
+      }
+      expect(html).toContain('data-testid="developer-docs-gotcha-errors"');
+      expect(html).toContain('data-testid="developer-docs-gotcha-editorDefaults"');
+    }
+  });
+
   it('offers the skill as a download from the session-protected route', () => {
     const html = render(en);
     expect(html).toContain(`href="${SKILL_DOWNLOAD_PATH}"`);

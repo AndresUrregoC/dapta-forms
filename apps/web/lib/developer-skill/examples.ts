@@ -6,8 +6,9 @@ import type { FormConfig } from '@quill/types';
  * against the JSON Schema the zip ships, so a recipe can never teach an agent a
  * config the API would refuse.
  *
- * Every step has a `question` (the API refuses an empty one) and none uses a
- * field without a control in the editor.
+ * Every step has a `question` (the API refuses an empty one on any step but a
+ * reveal, message or scheduler) and none uses a field without a control in the
+ * editor.
  */
 
 /** A scored quiz: three questions, points per answer, three result ranges. */

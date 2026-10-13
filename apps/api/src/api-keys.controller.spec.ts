@@ -303,6 +303,39 @@ describe('Authorization: Bearer dforms_...', () => {
     await expectError(crud.listForms(withKey(carols.key).req), UnauthorizedException, 'INVALID_API_KEY');
   });
 
+  it('disabling or removing a member revokes their keys for good; reactivating does not revive them', async () => {
+    const bobs = await keys.create(as(bobId), { name: 'bob' });
+    const carols = await keys.create(as(carolId), { name: 'carol' });
+    const owners = await keys.create(as(ownerId), { name: 'owner' });
+
+    await crud.updateMember(as(ownerId), bobId, { status: 'disabled' });
+    await crud.removeMember(as(ownerId), carolId);
+    const revoked = await db.all<{ member_id: string; revoked_at_ms: number | null }>(
+      sql`SELECT member_id, revoked_at_ms FROM api_key WHERE id IN (${bobs.id}, ${carols.id}, ${owners.id})`,
+    );
+    expect(Object.fromEntries(revoked.map((r) => [r.member_id, r.revoked_at_ms != null]))).toEqual({
+      [bobId]: true,
+      [carolId]: true,
+      [ownerId]: false,
+    });
+    expect((await keys.list(as(ownerId))).keys.map((k) => k.name)).toEqual(['owner']);
+
+    await crud.updateMember(as(ownerId), bobId, { status: 'active' });
+    await expectError(crud.listForms(withKey(bobs.key).req), UnauthorizedException, 'INVALID_API_KEY');
+    expect((await keys.list(as(bobId))).keys).toEqual([]);
+    expect((await keys.list(as(ownerId))).keys.map((k) => k.name)).toEqual(['owner']);
+    await expect(crud.listForms(withKey(owners.key).req)).resolves.toBeTruthy();
+  });
+
+  it('GET /v1/api-keys never lists the keys of a member who is not active', async () => {
+    // A row disabled behind the members API's back (an older deployment, a
+    // manual fix) still has its keys unrevoked: the list hides them anyway.
+    await keys.create(as(bobId), { name: 'bob' });
+    await keys.create(as(carolId), { name: 'carol' });
+    await db.run(sql`UPDATE member SET status = 'disabled' WHERE id = ${bobId}`);
+    expect((await keys.list(as(ownerId))).keys.map((k) => k.name)).toEqual(['carol']);
+  });
+
   it("the key fixes the workspace: another x-quill-workspace is a 403, its own is fine", async () => {
     const k = await keys.create(as(bobId), { name: 'agent' });
     await expectError(
