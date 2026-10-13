@@ -864,8 +864,11 @@ export async function publishForm(
  * Duck-typed (no schema parse): a legacy config that fails validation must
  * still come out with its guid stripped, for the same reason
  * `storedMirrorState` in the API reads it duck-typed.
+ *
+ * Exported for `POST /v1/forms`, the other way a config that names another
+ * form's mirror can arrive: a config copied from an existing form.
  */
-function withoutOwnedMirrorState(config: unknown): unknown {
+export function withoutOwnedMirrorState(config: unknown): unknown {
   if (!config || typeof config !== 'object' || Array.isArray(config)) return config;
   const destinations = (config as { destinations?: unknown }).destinations;
   if (!Array.isArray(destinations)) return config;

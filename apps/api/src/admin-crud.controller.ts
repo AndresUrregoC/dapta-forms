@@ -45,6 +45,7 @@ import {
   setMemberStatus,
   updateForm,
   upsertNotificationSetting,
+  withoutOwnedMirrorState,
   type CrudResult,
   getMemberProfileRaw,
   setMemberLocale,
@@ -88,7 +89,6 @@ import {
   workspaceTimezoneSchema,
   type FormConfig,
 } from '@quill/types';
-import { ZodError } from 'zod';
 import { AdminService } from './admin.service';
 import { SubmissionService } from './submission.service';
 import { AnalyticsService } from './analytics.service';
@@ -98,22 +98,14 @@ import { EmailEffects } from './email-effects';
 import { AnalyticsEffects } from './analytics-effects';
 import { UploadService } from './upload.service';
 import { unwrap } from './http';
+import { parse } from './validation';
+import { keyFormBodyIssues, keyNormalizedConfig } from './strict-config';
 import type { ServerEnv } from '@quill/config/env';
 import { assertAdmin, assertCanManageTarget, assertNotSelf, assertOwner } from './permissions';
 import { parseIntParam, parseKinds, parseOutboxStatuses } from './query-params';
 import { parseSort, parseSubmissionFilter, workspaceZone, type FilterQuery } from './submission-filter';
 import type { CaptchaVerifier } from './captcha';
 import { CAPTCHA, DB, ENV } from './tokens';
-
-function parse<T>(schema: { parse: (v: unknown) => T }, body: unknown): T {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException({ error: 'BAD_REQUEST', message: err.issues[0]?.message });
-    throw err;
-  }
-}
 
 function unwrapCrud<T>(r: CrudResult<T>): T {
   if (r.ok) return r.value;
@@ -585,7 +577,11 @@ export class AdminCrudController {
     const p = await this.auth.resolveHost(req);
     // The create schema (not the shared input one): only creation may name a
     // folder; PUT /v1/forms/:id never moves a form, PATCH /forms/:id/folder does.
-    const input = parse(formCreateInputSchema, body);
+    const input = parse(
+      formCreateInputSchema,
+      body,
+      await keyFormBodyIssues(this.db, p, body, { requireSteps: false, storesDestinations: true }),
+    );
     // The other path that AUTHORS a `destinations` array (PUT /forms/:id stages
     // a draft, and drafts strip the key; duplicate copies stored state and is
     // exempt — see `hasExtraHubspotDestination`). Same one-HubSpot rule as
@@ -602,7 +598,9 @@ export class AdminCrudController {
     // kit exactly like dashboard-created ones. Caller-supplied branding wins
     // over the kit (explicit input beats a default).
     const kit = await getAccountBranding(this.db, p.accountId);
-    let config: unknown = input.config;
+    // The HubSpot mirror's `formGuid`/`formSignature` belong to the form that
+    // made them (a copied config would aim this one at it), as on duplicate.
+    let config: unknown = withoutOwnedMirrorState(keyNormalizedConfig(p, input.config));
     if (kit) {
       const base =
         config && typeof config === 'object' && !Array.isArray(config)
@@ -657,7 +655,12 @@ export class AdminCrudController {
   @Put('forms/:id')
   async updateForm(@Req() req: ReqLike, @Param('id') id: string, @Body() body: unknown) {
     const p = await this.auth.resolveHost(req);
-    const { config, slug, expectedUpdatedAt, ...meta } = parse(formInputSchema.partial(), body);
+    const { config: sent, slug, expectedUpdatedAt, ...meta } = parse(
+      formInputSchema.partial(),
+      body,
+      await keyFormBodyIssues(this.db, p, body, { requireSteps: true, storesDestinations: false }),
+    );
+    const config = keyNormalizedConfig(p, sent);
     if (slug !== undefined) {
       unwrapCrud(await setFormSlug(this.db, p.accountId, id, slugify(slug)));
     }
