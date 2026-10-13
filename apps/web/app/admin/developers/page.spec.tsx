@@ -26,6 +26,16 @@ vi.mock('next/navigation', () => ({
     if ((e as { digest?: string } | null)?.digest === 'NEXT_REDIRECT') throw e;
   },
 }));
+// The docs section is an async server component with its own spec; stub it
+// with a synchronous one so this static render stays about the page.
+vi.mock('./developer-docs', async () => {
+  const { getMessages: messages } = await vi.importActual<typeof import('@quill/shared')>('@quill/shared');
+  return {
+    DeveloperDocs: ({ locale: lang }: { locale?: Locale }) => (
+      <section data-testid="developer-docs">{messages(lang ?? 'en').admin.developerDocs.title}</section>
+    ),
+  };
+});
 vi.mock('./actions', () => ({
   createApiKeyAction: vi.fn(),
   revokeApiKeyAction: vi.fn(),
@@ -93,14 +103,14 @@ describe('DevelopersPage', () => {
     await expect(render()).rejects.toBe(redirect);
   });
 
-  it('shows the docs placeholder, in Spanish for a Spanish reader', async () => {
+  it('shows the docs section, in Spanish for a Spanish reader', async () => {
     locale.value = 'es';
     me.mockResolvedValue(caller('member'));
     listApiKeys.mockResolvedValue({ keys: [] });
     const html = await render();
     const es = getMessages('es').admin;
     expect(html).toContain('data-testid="developer-docs"');
-    expect(html).toContain(es.developerDocs.comingSoon);
+    expect(html).toContain(es.developerDocs.title);
     expect(html).toContain(es.developers.keys.emptyTitle);
   });
 });

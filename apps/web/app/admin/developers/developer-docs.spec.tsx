@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { DeveloperDocs, DeveloperDocsView, SKILL_DOWNLOAD_PATH } from './developer-docs';
-import { getDeveloperDocsMessages, type DeveloperDocsMessages } from './developer-docs-messages';
+import { getMessages } from '@quill/shared';
+import {
+  DeveloperDocs,
+  DeveloperDocsView,
+  SKILL_DOWNLOAD_PATH,
+  type DeveloperDocsMessages,
+} from './developer-docs';
 
-const en = getDeveloperDocsMessages('en');
-const es = getDeveloperDocsMessages('es');
+const en = getMessages('en').admin.developerDocs;
+const es = getMessages('es').admin.developerDocs;
 const API = 'https://api.forms.example.com';
 
 const render = (m: DeveloperDocsMessages, apiUrl: string | null = API) =>

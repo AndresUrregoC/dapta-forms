@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react';
-import type { Locale } from '@quill/shared';
+import { getMessages, type Locale } from '@quill/shared';
 import { buttonVariants } from '@/components/ui/button';
 import { getLocale } from '@/lib/locale';
 import { publicApiUrl } from '@/lib/developer-skill/public-api-url';
-import { getDeveloperDocsMessages, type DeveloperDocsMessages } from './developer-docs-messages';
+
+/** The section's copy, from the shared catalog. */
+export type DeveloperDocsMessages = ReturnType<typeof getMessages>['admin']['developerDocs'];
 
 /** Where the skill zip is served; the route builds it for this environment. */
 export const SKILL_DOWNLOAD_PATH = '/api/developers/skill';
@@ -24,7 +26,7 @@ export const SKILL_DOWNLOAD_PATH = '/api/developers/skill';
  */
 export async function DeveloperDocs({ locale }: { locale?: Locale } = {}) {
   const lang = locale ?? (await getLocale());
-  return <DeveloperDocsView m={getDeveloperDocsMessages(lang)} apiUrl={publicApiUrl()} />;
+  return <DeveloperDocsView m={getMessages(lang).admin.developerDocs} apiUrl={publicApiUrl()} />;
 }
 
 const FLOW = [
