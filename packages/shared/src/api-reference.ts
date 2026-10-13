@@ -210,7 +210,7 @@ const EXAMPLE_CONFIG_EDITED = {
  * it (each step gains its `flowGroup`, a choice step its `selectionMode`) and,
  * on a new form, the brand colours.
  */
-function asSaved(config: { steps: readonly { type: string }[] }) {
+function asSaved(config: { steps: readonly { type: string }[] }, { branded = true } = {}) {
   return {
     ...config,
     steps: config.steps.map((step) => ({
@@ -218,7 +218,9 @@ function asSaved(config: { steps: readonly { type: string }[] }) {
       flowGroup: step.type === 'name' || step.type === 'email' ? 'lead_capture' : 'qualification',
       ...(step.type === 'multiple_choice' ? { selectionMode: 'single' } : {}),
     })),
-    branding: { background: '#ffffff', foreground: '#1a1a1c', primaryColor: '#3ddc84', themePreset: 'dforms' },
+    ...(branded
+      ? { branding: { background: '#ffffff', foreground: '#1a1a1c', primaryColor: '#3ddc84', themePreset: 'dforms' } }
+      : {}),
   };
 }
 
@@ -306,7 +308,8 @@ const CHOICE_COUNTS = [
 // ── The reference ──────────────────────────────────────────────────────────
 
 const SAVED = asSaved(EXAMPLE_CONFIG);
-const SAVED_EDITED = asSaved(EXAMPLE_CONFIG_EDITED);
+/** The edited config as a draft and once published: as sent, normalized (a PUT adds no brand colours). */
+const SAVED_EDITED = asSaved(EXAMPLE_CONFIG_EDITED, { branded: false });
 const WEBHOOK = {
   type: 'webhook',
   id: ID.webhook,
@@ -491,7 +494,10 @@ export const API_REFERENCE = {
     params: [FORM_PATH, { name: 'destinations', in: 'body', type: 'object[]', required: true, doc: 'destinations' }],
     body: { destinations: [WEBHOOK] },
     status: 200,
-    response: { ...FORM_VIEW, config: { ...SAVED, destinations: [WEBHOOK] } },
+    // The form as saved, without `publicUrl` and `editorUrl`: this route does not add them.
+    response: (({ publicUrl: _p, editorUrl: _e, ...form }) => ({ ...form, config: { ...SAVED, destinations: [WEBHOOK] } }))(
+      FORM_VIEW,
+    ),
   },
   'POST /v1/forms/:id/destinations/webhook/ping': {
     area: 'destinations',
@@ -929,3 +935,85 @@ export function apiCurl(endpoint: Pick<ApiEndpoint, 'method' | 'path' | 'params'
   if (endpoint.responseType === 'csv') lines.push('  -o responses.csv');
   return lines.join(' \\\n');
 }
+
+// ── Errors, limits and what a key cannot do ───────────────────────────────
+
+/** The limits the docs state. The API's spec checks them against the API's own constants. */
+export const API_LIMITS = {
+  /** Requests a minute per key, then 429 `RATE_LIMITED` with `Retry-After`. */
+  callsPerMinute: 120,
+  /** Active keys per member per workspace, then 409 `KEY_LIMIT`. */
+  activeKeysPerMember: 10,
+} as const;
+
+/** An `error` code the API answers with, and its status. The prose is `admin.apiDocs.errors.codes`. */
+export type ApiErrorCode =
+  | 'BAD_REQUEST'
+  | 'STEPS_REQUIRED'
+  | 'INVALID_API_KEY'
+  | 'KEY_NOT_ALLOWED'
+  | 'WORKSPACE_FORBIDDEN'
+  | 'FORBIDDEN'
+  | 'NOT_FOUND'
+  | 'STALE'
+  | 'NOTHING_TO_REVERT'
+  | 'SLUG_TAKEN'
+  | 'SLUG_INVALID'
+  | 'NAME_TAKEN'
+  | 'RATE_LIMITED';
+
+export const API_ERROR_CODES: readonly { status: number; code: ApiErrorCode }[] = [
+  { status: 400, code: 'BAD_REQUEST' },
+  { status: 400, code: 'STEPS_REQUIRED' },
+  { status: 401, code: 'INVALID_API_KEY' },
+  { status: 403, code: 'KEY_NOT_ALLOWED' },
+  { status: 403, code: 'WORKSPACE_FORBIDDEN' },
+  { status: 403, code: 'FORBIDDEN' },
+  { status: 404, code: 'NOT_FOUND' },
+  { status: 409, code: 'STALE' },
+  { status: 409, code: 'NOTHING_TO_REVERT' },
+  { status: 409, code: 'SLUG_TAKEN' },
+  { status: 409, code: 'SLUG_INVALID' },
+  { status: 409, code: 'NAME_TAKEN' },
+  { status: 429, code: 'RATE_LIMITED' },
+];
+
+/** A `code` inside `issues[]` that is the API's own rather than the schema's. Prose: `admin.apiDocs.errors.issueCodes`. */
+export type ApiIssueCode = 'UNSUPPORTED_FIELD' | 'EMPTY_QUESTION' | 'STEPS_REQUIRED';
+
+export const API_ISSUE_CODES: readonly ApiIssueCode[] = ['UNSUPPORTED_FIELD', 'EMPTY_QUESTION', 'STEPS_REQUIRED'];
+
+/** The body `API_EXAMPLE_ERROR` answers: a `POST /v1/forms` with these two mistakes, sent with a key. */
+export const API_EXAMPLE_ERROR_REQUEST = {
+  name: 'Talk to sales',
+  config: {
+    version: 1,
+    steps: [
+      { key: 'name', type: 'name', question: 'What is your name?' },
+      { key: 'company', type: 'text', question: '' },
+      { key: 'email', type: 'email', question: 'Your email?', buttonText: 'Next' },
+    ],
+  },
+} as const;
+
+/** A 400 as the API answers it: every problem, each with its dot path inside the body. */
+export const API_EXAMPLE_ERROR = {
+  error: 'BAD_REQUEST',
+  message: 'Every step needs a question.',
+  issues: [
+    { path: 'config.steps.1.question', message: 'Every step needs a question.', code: 'EMPTY_QUESTION' },
+    { path: 'config.steps.2.buttonText', message: 'This field has no control in the editor.', code: 'UNSUPPORTED_FIELD' },
+  ],
+} as const;
+
+/** What a key may not do (each answers 403 `KEY_NOT_ALLOWED`). Prose: `admin.apiDocs.notAllowed.items`. */
+export type ApiNotAllowed = 'keys' | 'members' | 'workspaces' | 'onboarding' | 'profile' | 'integrations';
+
+export const API_NOT_ALLOWED: readonly ApiNotAllowed[] = [
+  'keys',
+  'members',
+  'workspaces',
+  'onboarding',
+  'profile',
+  'integrations',
+];

@@ -23,9 +23,13 @@
 import 'reflect-metadata';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BadRequestException, HttpException, RequestMethod } from '@nestjs/common';
-import { createDb, migrate, seed, upsertSubmission, type Db } from '@quill/db';
+import { API_KEY_LIMIT_PER_MEMBER, createDb, migrate, seed, upsertSubmission, type Db } from '@quill/db';
 import {
+  API_EXAMPLE_ANSWERS,
+  API_EXAMPLE_ERROR,
+  API_EXAMPLE_ERROR_REQUEST,
   API_EXAMPLE_IDS,
+  API_LIMITS,
   API_EXAMPLE_STAMP,
   apiEndpoints,
   type ApiEndpoint,
@@ -33,6 +37,7 @@ import {
 } from '@quill/shared';
 import type { ServerEnv } from '@quill/config/env';
 import { API_KEY_ALLOWED_ROUTES, routeOf } from './api-key-routes';
+import { API_KEY_CALLS_PER_MINUTE } from './api-key-auth';
 import { AdminCrudController } from './admin-crud.controller';
 import { AdminService } from './admin.service';
 import { AnalyticsController } from './analytics.controller';
@@ -78,6 +83,11 @@ describe('API_REFERENCE against API_KEY_ALLOWED_ROUTES', () => {
       if (e.status === 204) expect(e.response, e.route).toBeUndefined();
       else expect(e.response ?? null, e.route).not.toBeNull();
     }
+  });
+
+  it('states the limits the API enforces', () => {
+    expect(API_LIMITS.callsPerMinute).toBe(API_KEY_CALLS_PER_MINUTE);
+    expect(API_LIMITS.activeKeysPerMember).toBe(API_KEY_LIMIT_PER_MEMBER);
   });
 
   it('sends a body only on a method that takes one', () => {
@@ -192,17 +202,24 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 /**
  * The paths of fields an example answer shows that the real answer lacks.
  * Only presence is compared, never values: an example is an illustration, and
- * ids, stamps and counts differ by design. Arrays compare their first items
- * when both have one.
+ * ids, stamps and counts differ by design. Each item of an example array must
+ * match some item of the real one, when the real one has any.
  */
 function missingFields(example: unknown, real: unknown, path = ''): string[] {
+  // A nullable field that is null right now still exists.
+  if (real === null) return [];
   if (Array.isArray(example)) {
     if (!Array.isArray(real)) return [path || '(root)'];
     if (example.length === 0 || real.length === 0) return [];
-    return missingFields(example[0], real[0], `${path}[0]`);
+    // Items can differ in shape (a choice question and a text one), so each
+    // example item has to match SOME real item; report the closest miss.
+    return example.flatMap((item, i) => {
+      const misses = real.map((r) => missingFields(item, r, `${path}[${i}]`));
+      return misses.some((m) => m.length === 0) ? [] : misses.sort((a, b) => a.length - b.length)[0]!;
+    });
   }
   if (!isPlainObject(example)) return [];
-  if (!isPlainObject(real)) return real === null ? [] : [path || '(root)'];
+  if (!isPlainObject(real)) return [path || '(root)'];
   return Object.keys(example).flatMap((key) => {
     const at = path ? `${path}.${key}` : key;
     if (!(key in real)) return [at];
@@ -288,8 +305,44 @@ describe('every API_REFERENCE example, through the real handlers with an API key
       via: 'api_key',
       apiKeyId: 'key_test',
     });
-    const env = { NODE_ENV: 'test', PUBLIC_APP_URL: 'https://forms.example.com' } as unknown as ServerEnv;
-    const noFetch = (async () => new Response('{}', { status: 200 })) as unknown as typeof fetch;
+    // Server tokens for HubSpot and Calendly, so their pickers answer with a
+    // list (from `providers` below) instead of the disabled state.
+    const env = {
+      NODE_ENV: 'test',
+      PUBLIC_APP_URL: 'https://forms.example.com',
+      HUBSPOT_PRIVATE_APP_TOKEN: 'test-token',
+      CALENDLY_API_TOKEN: 'test-token',
+    } as unknown as ServerEnv;
+    const providers = (async (input: string | URL) => {
+      const url = String(input);
+      const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+      if (url.includes('/crm/v3/properties/contacts')) {
+        return json({
+          results: [
+            { name: 'company', label: 'Company name', type: 'string' },
+            { name: 'lifecyclestage', label: 'Lifecycle stage', type: 'enumeration', options: [{ value: 'lead', label: 'Lead' }] },
+          ],
+        });
+      }
+      if (url.includes('/users/me')) {
+        return json({ resource: { uri: 'https://api.calendly.example/users/me', email: 'alex@example.com' } });
+      }
+      if (url.includes('/event_types')) {
+        return json({
+          collection: [
+            {
+              uri: 'https://api.calendly.example/event_types/demo',
+              name: 'Demo',
+              scheduling_url: 'https://calendly.example/acme/demo',
+              active: true,
+              duration: 30,
+              custom_questions: [{ name: 'Company', position: 0, enabled: true, required: true }],
+            },
+          ],
+        });
+      }
+      return new Response('{}', { status: 404 });
+    }) as unknown as typeof fetch;
     const destinations = new FormDestinationsController(db, key, env);
     // The webhook test call answers from here instead of the network.
     destinations.fetchImpl = (async () => new Response('ok', { status: 200 })) as unknown as typeof fetch;
@@ -310,8 +363,8 @@ describe('every API_REFERENCE example, through the real handlers with an API key
       new BrandingController(db, key),
       new IntegrationsController(
         key,
-        new HubspotPropertiesService(env, db, noFetch),
-        new CalendlyEventTypesService(env, db, noFetch),
+        new HubspotPropertiesService(env, db, providers),
+        new CalendlyEventTypesService(env, db, providers),
         db,
         env,
       ),
@@ -331,7 +384,7 @@ describe('every API_REFERENCE example, through the real handlers with an API key
     const row = await upsertSubmission(db, {
       formId,
       sessionId: 'api-reference-spec',
-      data: { name: 'Ana Rivera', email: 'ana@example.com', interest: 'demo', notes: 'We run ads in three countries.' },
+      data: API_EXAMPLE_ANSWERS,
       score: 0,
       now: Date.UTC(2026, 9, 5, 15, 1),
     });
@@ -344,15 +397,6 @@ describe('every API_REFERENCE example, through the real handlers with an API key
     // The form goes last: the other deletes hang off it.
     const lastly = (e: ApiEndpoint) => (e.route === 'DELETE /v1/forms/:id' ? 1 : 0);
     for (const e of rest.filter(deletes).sort((a, b) => lastly(a) - lastly(b))) await run(e);
-
-    if (process.env.API_REFERENCE_DUMP) {
-      const { writeFileSync } = await import('node:fs');
-      const dump = Object.fromEntries([...answers].map(([r, a]) => [r, a]));
-      const errors = Object.fromEntries(
-        [...failures].map(([r, e]) => [r, e instanceof HttpException ? e.getResponse() : String(e)]),
-      );
-      writeFileSync(process.env.API_REFERENCE_DUMP, JSON.stringify({ answers: dump, errors }, null, 2));
-    }
   });
 
   afterAll(async () => {
@@ -389,6 +433,17 @@ describe('every API_REFERENCE example, through the real handlers with an API key
       }
       expect(missingFields(e.response, a.body), e.route).toEqual([]);
     }
+  });
+
+  it('shows the 400 the API really answers for the example mistakes', async () => {
+    let err: unknown;
+    try {
+      await invoke(table, 'POST /v1/forms', { params: {}, query: {}, body: API_EXAMPLE_ERROR_REQUEST });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).getResponse()).toEqual(API_EXAMPLE_ERROR);
   });
 
   it('skips only what it says it skips', () => {
