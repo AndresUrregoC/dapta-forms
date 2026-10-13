@@ -3,7 +3,7 @@ import Ajv from 'ajv';
 import { createEmptyStep, normalizeConfig, type FormConfig as EngineConfig } from '@quill/engine';
 import { formConfigSchema } from '@quill/types';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { EDITOR_DEFAULT_FIELDS, formConfigJsonSchema, UNSUPPORTED_CONFIG_FIELDS } from './config-schema';
+import { EDITOR_DEFAULT_FIELDS, formConfigJsonSchema, KEPT_AS_READ_FIELDS, UNSUPPORTED_CONFIG_FIELDS } from './config-schema';
 import { EXAMPLE_CONFIGS, QUIZ_CONFIG } from './examples';
 
 /** Does `path` (dot segments, `[]` for array items) resolve to a property anywhere in `schema`? */
@@ -40,7 +40,9 @@ describe('formConfigJsonSchema', () => {
     for (const path of UNSUPPORTED_CONFIG_FIELDS) {
       // Present in the source schema, so the test cannot pass by a typo.
       expect(hasField(raw, path), `${path} in formConfigSchema`).toBe(true);
-      expect(hasField(schema, path), `${path} in the published schema`).toBe(path in EDITOR_DEFAULT_FIELDS);
+      expect(hasField(schema, path), `${path} in the published schema`).toBe(
+        path in EDITOR_DEFAULT_FIELDS || path in KEPT_AS_READ_FIELDS,
+      );
     }
   });
 
@@ -60,6 +62,23 @@ describe('formConfigJsonSchema', () => {
     } as EngineConfig);
     const validate = ajv.compile(schema);
     expect(validate(read), ajv.errorsText(validate.errors)).toBe(true);
+  });
+
+  it('accepts a config read from a form born from a template or the brand kit', () => {
+    // The API sends back a slider's `sliderUnitLabel` and `branding.clientLogos`
+    // when they equal what the form stores, and the skill tells the agent to
+    // send them back as read, so the schema must not refuse them.
+    const read = {
+      ...QUIZ_CONFIG,
+      steps: [
+        ...QUIZ_CONFIG.steps,
+        { key: 'team_size', type: 'slider', question: 'How big is your team?', min: 1, max: 50, sliderUnitLabel: 'people' },
+      ],
+      branding: { clientLogos: [{ name: 'Example' }] },
+    };
+    const validate = ajv.compile(schema);
+    expect(validate(read), ajv.errorsText(validate.errors)).toBe(true);
+    expect(formConfigSchema.safeParse(read).success).toBe(true);
   });
 
   it('still rejects any other value for those defaults', () => {
