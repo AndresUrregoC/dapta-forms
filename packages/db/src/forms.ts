@@ -468,10 +468,24 @@ export async function getFormById(db: Db, accountId: string, id: string): Promis
   return r ? mapForm(r) : null;
 }
 
+/** How a form was born (`form.created_via`, 0024). NULL on forms from before the column. */
+export type FormCreatedVia = 'web' | 'api' | 'mcp';
+
 export async function createForm(
   db: Db,
   accountId: string,
-  input: { name: string; slug?: string; config?: unknown; folderId?: string | null },
+  input: {
+    name: string;
+    slug?: string;
+    config?: unknown;
+    folderId?: string | null;
+    /**
+     * How the form is born (0024): `web` from the dashboard and the onboarding,
+     * `api` with an API key. Like `createdBy`, it MUST come from the resolved
+     * principal, never from request input. Omitted (seeding) leaves it NULL.
+     */
+    createdVia?: FormCreatedVia | null;
+  },
   /**
    * `member.id` of the author, for per-user analytics (migration 0010).
    * MUST come from the resolved principal, never from request input — this is
@@ -497,9 +511,9 @@ export async function createForm(
     const now = Date.now();
     try {
       await db.run(
-        sql`INSERT INTO form (id, account_id, name, slug, config, created_by, folder_id, created_at, updated_at)
+        sql`INSERT INTO form (id, account_id, name, slug, config, created_by, created_via, folder_id, created_at, updated_at)
             VALUES (${id}, ${accountId}, ${input.name}, ${slug}, ${jsonParam(config)},
-                    ${createdBy ?? null}, ${folderId}, ${now}, ${now})`,
+                    ${createdBy ?? null}, ${input.createdVia ?? null}, ${folderId}, ${now}, ${now})`,
       );
     } catch (error) {
       if (attempt + 1 < FORM_SLUG_INSERT_ATTEMPTS && isFormAccountSlugConflict(error)) continue;
@@ -888,6 +902,8 @@ export async function duplicateForm(
   id: string,
   /** Author of the COPY — whoever duplicated it, not whoever wrote the original. */
   createdBy?: string | null,
+  /** How the COPY was born, from the duplicating principal (see `createForm`). */
+  createdVia?: FormCreatedVia | null,
 ): Promise<CrudResult<FormRow>> {
   const src = await getFormById(db, accountId, id);
   if (!src) return { ok: false, reason: 'NOT_FOUND' };
@@ -902,6 +918,7 @@ export async function duplicateForm(
       // NOT verbatim: the HubSpot mirror-form pointer is the original's, and a
       // copy that inherits it delivers its submissions AS the original.
       config: withoutOwnedMirrorState(src.config),
+      createdVia,
     },
     createdBy,
   );
