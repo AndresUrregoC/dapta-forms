@@ -21,6 +21,13 @@ export const openapiSpec = {
         name: 'authorization',
         description: 'Host session (AuthProvider).',
       },
+      apiKey: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'dforms_<43 base64url characters>',
+        description:
+          "An API key, created on the Developers page, sent as `Authorization: Bearer dforms_...`. It acts as the member who created it, in that member's workspace, with their current role. Works on the host routes that build and run forms: forms (create, read, edit, slug, duplicate, publish, revert, delete), folders, destinations, responses, CSV, analytics, brand kit, notifications, `GET /v1/me` and reading integrations. Any other host route (API keys, members, invitations, workspaces, onboarding, attribution, writing the profile or the public page, connecting or disconnecting integrations) answers 403 `KEY_NOT_ALLOWED`. An unknown or revoked key, or one whose member is no longer active in the workspace, answers 401 `INVALID_API_KEY`. The key fixes the workspace: an `x-quill-workspace` header naming another one answers 403 `WORKSPACE_FORBIDDEN`. Each key may make 120 calls a minute; past that, 429 `{ error: 'RATE_LIMITED', retryAfterSec }` with a `Retry-After` header.",
+      },
     },
   },
   webhooks: {
@@ -107,6 +114,40 @@ export const openapiSpec = {
       post: {
         summary: 'Record a scheduling callback (meeting booked)',
         responses: { '202': { description: 'Accepted' }, '400': { description: 'Invalid' } },
+      },
+    },
+    '/v1/api-keys': {
+      get: {
+        summary: 'List API keys (host session only)',
+        description:
+          'Body { keys: [{ id, name, last4, createdAt, lastUsedAt, createdBy: { memberId, name, email } }] }. A member sees their own keys; an owner or admin sees every active key of the workspace. Revoked keys are never listed, and the key itself never appears. 403 `KEY_NOT_ALLOWED` when called with an API key.',
+        security: [{ hostSession: [] }],
+        responses: { '200': { description: 'Keys' }, '403': { description: 'KEY_NOT_ALLOWED' } },
+      },
+      post: {
+        summary: 'Create an API key (host session only)',
+        description:
+          'Body { name } (1 to 60 characters). Answers 201 { id, name, last4, createdAt, key }: the only response that ever carries the full key, so store it then. A person may hold 10 active keys per workspace; the 11th answers 409 `KEY_LIMIT`.',
+        security: [{ hostSession: [] }],
+        responses: {
+          '201': { description: 'Created, with the key in clear' },
+          '400': { description: 'Invalid name' },
+          '403': { description: 'KEY_NOT_ALLOWED' },
+          '409': { description: 'KEY_LIMIT' },
+        },
+      },
+    },
+    '/v1/api-keys/{id}': {
+      delete: {
+        summary: 'Revoke an API key (host session only)',
+        description:
+          'The key stops working on the next call. A member may revoke their own keys; an owner or admin, any key of the workspace.',
+        security: [{ hostSession: [] }],
+        responses: {
+          '204': { description: 'Revoked' },
+          '403': { description: "Someone else's key without being owner or admin, or KEY_NOT_ALLOWED" },
+          '404': { description: 'Unknown, already revoked, or another workspace' },
+        },
       },
     },
     '/v1/me/locale': {
