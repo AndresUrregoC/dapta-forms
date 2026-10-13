@@ -194,6 +194,12 @@ export interface FormRow {
   draftConfig: unknown | null;
   /** Epoch-ms of the last publish; null = never published via the draft flow. */
   publishedAt: number | null;
+  /**
+   * Epoch-ms of when the version a revert would bring back went live; null =
+   * nothing to revert to. The version itself (`previous_config`) stays on the
+   * server: only `revertForm` reads it.
+   */
+  previousPublishedAt: number | null;
   /** Epoch-ms of the last brand-kit apply; null when never applied or reverted. */
   brandAppliedAt: number | null;
   /**
@@ -235,6 +241,10 @@ function mapForm(r: Record<string, unknown>): FormRow {
     config: parseJsonColumn(r.config, { version: 1, steps: [] }),
     draftConfig: r.draft_config == null ? null : parseJsonColumn(r.draft_config, null),
     publishedAt: r.published_at == null ? null : Number(r.published_at),
+    previousPublishedAt:
+      r.previous_config == null || r.previous_published_at_ms == null
+        ? null
+        : Number(r.previous_published_at_ms),
     brandAppliedAt: r.brand_applied_at == null ? null : Number(r.brand_applied_at),
     createdBy: r.created_by == null ? null : String(r.created_by),
     folderId: r.folder_id == null ? null : String(r.folder_id),
@@ -837,9 +847,17 @@ export async function publishForm(
   // a single publish gets counted twice. `published_at` cannot substitute for
   // this either — it is Date.now(), so two publishes in the same millisecond are
   // indistinguishable.
+  //
+  // The config this replaces is kept for a revert (see `revertForm`), copied
+  // column to column so it is exactly what was live at the instant of the
+  // write. Both dialects evaluate every SET against the row as it was. Its
+  // date is when it went live: the last publish, or the form's creation for a
+  // form that was live before it was ever published.
   const fired = await db.get<{ id: string }>(
     sql`UPDATE form
         SET config = ${jsonParam(next)}, draft_config = NULL,
+            previous_config = config,
+            previous_published_at_ms = COALESCE(published_at, created_at),
             published_at = ${now}, updated_at = ${now}
         WHERE account_id = ${accountId} AND id = ${id} AND draft_config IS NOT NULL
           ${staleGuard(expectedUpdatedAt)}
