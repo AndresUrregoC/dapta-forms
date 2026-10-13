@@ -93,6 +93,7 @@ import { AdminService } from './admin.service';
 import { SubmissionService } from './submission.service';
 import { AnalyticsService } from './analytics.service';
 import { AuthService, type ReqLike } from './auth.service';
+import { createdVia } from './api-keys';
 import { WorkspaceService } from './workspace.service';
 import { EmailEffects } from './email-effects';
 import { AnalyticsEffects } from './analytics-effects';
@@ -407,6 +408,7 @@ export class AdminCrudController {
           form_id: result.formId,
           from_onboarding: true,
           template: parsed.data.template,
+          via: createdVia(p),
         });
       }
     }
@@ -619,9 +621,12 @@ export class AdminCrudController {
     // colours still renders the dark, lime look it was designed on, so "absent"
     // keeps its old meaning and only forms born here get the new one.
     config = withNewFormBranding(config);
-    // `p.memberId` — from the resolved principal, never the body.
-    const created = unwrapCrud(await createForm(this.db, p.accountId, { ...input, config }, p.memberId));
-    await this.productAnalytics?.captureForMember('form_created', p, { form_id: created.id });
+    // `p.memberId` and `createdVia` come from the resolved principal, never the body.
+    const via = createdVia(p);
+    const created = unwrapCrud(
+      await createForm(this.db, p.accountId, { ...input, config, createdVia: via }, p.memberId),
+    );
+    await this.productAnalytics?.captureForMember('form_created', p, { form_id: created.id, via });
     return this.formView(p.accountId, created);
   }
 
@@ -720,10 +725,12 @@ export class AdminCrudController {
     const p = await this.auth.resolveHost(req);
     // Duplicating is the OTHER way a form is born in the builder. Without this
     // it would be the one creation path with no author and no funnel event.
-    const copy = unwrapCrud(await duplicateForm(this.db, p.accountId, id, p.memberId));
+    const via = createdVia(p);
+    const copy = unwrapCrud(await duplicateForm(this.db, p.accountId, id, p.memberId, via));
     await this.productAnalytics?.captureForMember('form_created', p, {
       form_id: copy.id,
       from_duplicate: true,
+      via,
     });
     return this.formView(p.accountId, copy);
   }
@@ -761,6 +768,7 @@ export class AdminCrudController {
         // The owner's switch as published, whether or not this deployment can
         // run it: adoption of the feature, not coverage.
         has_captcha: hasCaptchaSwitch(published.config),
+        via: createdVia(p),
       });
     }
     return this.formView(p.accountId, published);
