@@ -83,13 +83,6 @@ const parseTab = (value: string | null): Tab =>
   TAB_IDS.includes(value as Tab) ? (value as Tab) : 'build';
 
 /**
- * Re-anchor a 1-based flow marker position (`partialSubmitAfterStep`) after a
- * step is DELETED, keeping it attached to the step it
- * sits AFTER: a delete ABOVE the anchor shifts it up one; deleting the anchor
- * itself re-attaches to the previous step (clearing when it was the first);
- * deletes BELOW never move it. Absent/out-of-range positions pass through.
- */
-/**
  * A stored config as the builder edits it. The builder has ONE reveal model: a
  * `reveal` step in the list. A form authored under the old form-level reveal
  * (Design-tab copy + a draggable position marker) is folded into that shape the
@@ -106,6 +99,13 @@ function openConfig(stored: FormConfig): FormConfig {
   return withScreens(anchored === migrated.steps ? migrated : { ...migrated, steps: anchored });
 }
 
+/**
+ * Re-anchor a 1-based flow marker position (`partialSubmitAfterStep`) after a
+ * step is DELETED, keeping it attached to the step it
+ * sits AFTER: a delete ABOVE the anchor shifts it up one; deleting the anchor
+ * itself re-attaches to the previous step (clearing when it was the first);
+ * deletes BELOW never move it. Absent/out-of-range positions pass through.
+ */
 function reanchorAfterDelete(
   pos: number | undefined,
   deletedIndex: number,

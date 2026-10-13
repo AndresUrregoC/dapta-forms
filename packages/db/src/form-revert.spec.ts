@@ -96,6 +96,28 @@ async function previousConfig(): Promise<unknown> {
   return parseJsonColumn(row?.previous_config, null);
 }
 
+/**
+ * `db`, but the first `races` UPDATEs revertForm sends are each preceded by
+ * another write that moves the row's stamp. revertForm alternates a read and
+ * its guarded UPDATE, so every second `get` is the UPDATE.
+ */
+function racing(races: number): Db {
+  let gets = 0;
+  let raced = 0;
+  return Object.assign(Object.create(db) as Db, {
+    get: async (query: Parameters<Db["get"]>[0]) => {
+      gets += 1;
+      if (gets % 2 === 0 && raced < races) {
+        raced += 1;
+        await db.run(
+          sql`UPDATE form SET updated_at = updated_at + 1 WHERE id = ${formId}`,
+        );
+      }
+      return db.get(query);
+    },
+  });
+}
+
 describe("publishForm keeps the version it replaces", () => {
   it("a form never published has nothing to revert to", async () => {
     const form = (await getFormById(db, accountId, formId))!;
@@ -200,6 +222,23 @@ describe("revertForm", () => {
     const out = await revertForm(db, accountId, formId);
     expect(out).toMatchObject({ ok: false, reason: "NOTHING_TO_REVERT" });
     expect(await getFormById(db, accountId, formId)).toEqual(before);
+  });
+
+  it("retries when another write lands between its read and its write", async () => {
+    await publish("A");
+    // A write (a draft save in another tab) lands right after the first read.
+    const out = await revertForm(racing(1), accountId, formId);
+    if (!out.ok) throw new Error(out.reason);
+    expect(out.value.config).toEqual(cfg("born"));
+    expect(await previousConfig()).toEqual(cfg("A"));
+  });
+
+  it("answers STALE and writes nothing when every attempt is raced", async () => {
+    await publish("A");
+    const out = await revertForm(racing(Infinity), accountId, formId);
+    expect(out).toMatchObject({ ok: false, reason: "STALE" });
+    expect((await getFormById(db, accountId, formId))!.config).toEqual(cfg("A"));
+    expect(await previousConfig()).toEqual(cfg("born"));
   });
 
   it("answers NOT_FOUND for another account's form", async () => {
