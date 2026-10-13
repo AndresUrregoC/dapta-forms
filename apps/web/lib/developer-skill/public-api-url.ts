@@ -12,10 +12,11 @@
  *    deployment sets.
  * 2. `API_URL`, when it does not look cluster-internal. A fork that runs the
  *    API on a public host usually points the web at that same host.
- * 3. `NEXT_PUBLIC_API_URL`, only when `API_URL` is unset: that is the fork or
- *    `pnpm dev` that configures nothing else. When `API_URL` IS set, the public
- *    variable was frozen into the image at build time and may name another
- *    environment's host, so it is not trusted for this.
+ * 3. `NEXT_PUBLIC_API_URL`, read from the RUNTIME environment. It is read off
+ *    the `env` object passed in, never as a literal `process.env.NEXT_PUBLIC_*`
+ *    expression, so Next does not inline the build-time value here. A
+ *    deployment that already sets it per environment (alongside a
+ *    cluster-internal `API_URL`) therefore needs no new variable.
  * 4. `http://localhost:4000` when none of the three is set, the same default
  *    `serverApiUrl` uses for a bare clone.
  *
@@ -27,17 +28,14 @@ export function publicApiUrl(env: Record<string, string | undefined> = process.e
   const explicit = clean(env.PUBLIC_API_URL);
   if (explicit) return explicit;
 
-  const server = env.API_URL?.trim();
-  if (server) {
-    const url = clean(server);
-    return url && !looksInternal(url) ? url : null;
-  }
+  const server = clean(env.API_URL);
+  if (server && !looksInternal(server)) return server;
 
-  const baked = env.NEXT_PUBLIC_API_URL?.trim();
-  if (baked) {
-    const url = clean(baked);
-    return url && !looksInternal(url) ? url : null;
-  }
+  const runtimePublic = clean(env.NEXT_PUBLIC_API_URL);
+  if (runtimePublic && !looksInternal(runtimePublic)) return runtimePublic;
+
+  // Something is configured but none of it is reachable from outside.
+  if (env.API_URL?.trim() || env.NEXT_PUBLIC_API_URL?.trim()) return null;
 
   return 'http://localhost:4000';
 }

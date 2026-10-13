@@ -37,14 +37,20 @@ describe('publicApiUrl', () => {
     expect(publicApiUrl({ API_URL: 'http://172.32.0.1:4000' })).toBe('http://172.32.0.1:4000');
   });
 
-  it('does not fall back to the build-time variable when API_URL is set', () => {
-    // The image was built once with some host baked in; with API_URL set, that
-    // host may belong to a different environment.
+  it('falls back to the runtime NEXT_PUBLIC_API_URL when API_URL is cluster-internal', () => {
+    // The usual deployment: the web calls the API inside the cluster and the
+    // per-environment config also carries the public address.
     expect(
       publicApiUrl({
         API_URL: 'http://forms-api.lab.svc.cluster.local',
-        NEXT_PUBLIC_API_URL: 'https://baked.example.com',
+        NEXT_PUBLIC_API_URL: 'https://api.example.com/',
       }),
+    ).toBe('https://api.example.com');
+  });
+
+  it('is null when every configured address is internal', () => {
+    expect(
+      publicApiUrl({ API_URL: 'http://api:4000', NEXT_PUBLIC_API_URL: 'http://10.0.0.5:4000' }),
     ).toBeNull();
   });
 
