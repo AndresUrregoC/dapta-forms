@@ -10,7 +10,10 @@ import {
   type WorkspaceRow,
 } from '@quill/db';
 import { AnalyticsEffects } from './analytics-effects';
-import { AUTH_PROVIDER, DB } from './tokens';
+import { apiKeyFromRequest } from './api-keys';
+import { ApiKeyAuthenticator, createApiKeyRateLimiter } from './api-key-auth';
+import type { RateLimiter } from './rate-limit';
+import { API_KEY_RATE_LIMITER, AUTH_PROVIDER, DB } from './tokens';
 import { header, type AuthProvider, type HostPrincipal, type ReqLike } from './auth.provider';
 
 export type { HostPrincipal, PrincipalVia, ReqLike } from './auth.provider';
@@ -32,7 +35,14 @@ export class AuthService {
     // Optional so existing direct constructions (tests) keep working. Only its
     // `enabled` flag is read here — auth never emits an event itself.
     @Optional() @Inject(AnalyticsEffects) private readonly productAnalytics?: AnalyticsEffects,
-  ) {}
+    // The per-key limiter (120 a minute). Optional for the same reason; absent,
+    // each AuthService gets its own in-memory one.
+    @Optional() @Inject(API_KEY_RATE_LIMITER) keyLimiter?: RateLimiter,
+  ) {
+    this.apiKeys = new ApiKeyAuthenticator(db, keyLimiter ?? createApiKeyRateLimiter());
+  }
+
+  private readonly apiKeys: ApiKeyAuthenticator;
 
   /**
    * Resolve the authenticated host, and then the account they are acting in.
@@ -52,12 +62,19 @@ export class AuthService {
    * because a quiet fallback means writes land in a tenant the person did not
    * believe they were in.
    *
-   * Every principal resolved here came in through the provider's session, so it
-   * carries `via: 'session'` and no `apiKeyId`.
+   * A request with `Authorization: Bearer dforms_...` is an API key and never
+   * reaches the provider: `ApiKeyAuthenticator` resolves it to the key's member
+   * and workspace, with `via: 'api_key'` and `apiKeyId` (401 for a dead key,
+   * 403 for another workspace, 429 past the per-key limit). Every other
+   * principal came in through the provider's session, so it carries
+   * `via: 'session'` and no `apiKeyId`.
    *
    * Throws 401 if the provider cannot resolve the host.
    */
   async resolveHost(req: ReqLike): Promise<HostPrincipal> {
+    const key = apiKeyFromRequest(req);
+    if (key !== null) return this.apiKeys.resolve(req, key);
+
     const home = await this.provider.resolveHost(req);
     // An invited member who actually shows up is no longer invited. Nothing
     // flipped this before, so someone who accepted stayed "invited" in the
