@@ -195,7 +195,7 @@ export async function changeMemberRole(
 
 /**
  * Enable/disable a member (soft access revocation). Disabling an owner is guarded
- * the same as demotion — the account must retain an active owner. Any status
+ * the same as demotion: the account must retain an active owner. Any status
  * but `active` revokes the member's API keys in the same transaction, so
  * enabling them again later does not bring those keys back.
  */
@@ -222,7 +222,7 @@ export async function setMemberStatus(
 /**
  * Remove a member from the workspace. Guards the last owner. Forms are
  * account-owned (not member-owned), so removing a member leaves the account's
- * forms and their submissions intact — only the roster row is deleted, and
+ * forms and their submissions intact: only the roster row is deleted, and
  * the member's API keys are revoked with it.
  */
 export async function removeMember(
