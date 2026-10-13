@@ -11,14 +11,14 @@ import type { FormConfig } from '@quill/types';
  * editor.
  */
 
-/** A scored quiz: three questions, points per answer, three result ranges. */
+/** A scored quiz: two scored questions, then name and email, and three result ranges. */
 export const QUIZ_CONFIG: FormConfig = {
   version: 1,
   title: 'Which plan fits your team?',
   cover: {
     enabled: true,
     headline: 'Find the right plan in one minute',
-    subheadline: 'Three quick questions and you get a recommendation.',
+    subheadline: 'Four quick questions and you get a recommendation.',
     ctaText: 'Start',
   },
   steps: [
@@ -46,6 +46,12 @@ export const QUIZ_CONFIG: FormConfig = {
         { min: 200, max: 599, points: 5 },
         { min: 600, max: 1000, points: 10 },
       ],
+    },
+    {
+      key: 'name',
+      type: 'name',
+      question: 'What is your name?',
+      required: true,
     },
     {
       key: 'email',
