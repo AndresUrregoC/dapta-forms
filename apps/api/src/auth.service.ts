@@ -13,7 +13,8 @@ import { AnalyticsEffects } from './analytics-effects';
 import { AUTH_PROVIDER, DB } from './tokens';
 import { header, type AuthProvider, type HostPrincipal, type ReqLike } from './auth.provider';
 
-export type { HostPrincipal, ReqLike } from './auth.provider';
+export type { HostPrincipal, PrincipalVia, ReqLike } from './auth.provider';
+export { isApiKeyPrincipal } from './auth.provider';
 
 /** The header the web app uses to ask for a workspace other than the home one. */
 export const WORKSPACE_HEADER = 'x-quill-workspace';
@@ -51,6 +52,9 @@ export class AuthService {
    * because a quiet fallback means writes land in a tenant the person did not
    * believe they were in.
    *
+   * Every principal resolved here came in through the provider's session, so it
+   * carries `via: 'session'` and no `apiKeyId`.
+   *
    * Throws 401 if the provider cannot resolve the host.
    */
   async resolveHost(req: ReqLike): Promise<HostPrincipal> {
@@ -79,7 +83,7 @@ export class AuthService {
     const requested = header(req, WORKSPACE_HEADER)?.trim();
     if (!requested || requested === home.accountId) {
       const role = (await getMemberRole(this.db, home.accountId, home.memberId)) ?? 'member';
-      return { ...home, role };
+      return { ...home, role, via: 'session' };
     }
 
     const identity = await getMemberIdentity(this.db, home.accountId, home.memberId);
@@ -98,6 +102,7 @@ export class AuthService {
       accountId: membership.accountId,
       memberId: membership.memberId,
       role: membership.role,
+      via: 'session',
     };
   }
 

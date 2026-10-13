@@ -20,3 +20,27 @@ describe('admin.chrome docs link', () => {
     expect(getMessages('es').admin.chrome.nav.docs).toBe('Documentación');
   });
 });
+
+describe('admin.chrome developers item', () => {
+  it('labels the nav item in both languages', () => {
+    expect(getMessages('en').admin.chrome.nav.developers).toBe('Developers');
+    expect(getMessages('es').admin.chrome.nav.developers).toBe('Developers');
+  });
+});
+
+describe('admin.developers keys copy', () => {
+  it('keeps the masked key and the revoke prompt templated in both languages', () => {
+    for (const locale of ['en', 'es'] as const) {
+      const m = getMessages(locale).admin.developers.keys;
+      expect(m.masked).toContain('{last4}');
+      expect(m.maskedLabel).toContain('{last4}');
+      expect(m.revokeLabel).toContain('{name}');
+      expect(m.revokeConfirm).toContain('{name}');
+    }
+  });
+
+  it('names the ten-key limit in the limit error', () => {
+    expect(getMessages('en').admin.developers.keys.errorLimit).toContain('10');
+    expect(getMessages('es').admin.developers.keys.errorLimit).toContain('10');
+  });
+});

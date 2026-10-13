@@ -125,7 +125,7 @@ export const openapiSpec = {
       get: {
         summary: 'List forms (host)',
         description:
-          'Each item is { id, name, slug, brandAppliedAt, folderId, hasDraft, createdAt, updatedAt }. `hasDraft` is true while the form holds edits that have not been published; the public form keeps serving the last published config until then.',
+          'Each item is { id, name, slug, brandAppliedAt, folderId, hasDraft, createdAt, updatedAt, publicUrl, editorUrl }. `hasDraft` is true while the form holds edits that have not been published; the public form keeps serving the last published config until then. `publicUrl` is the form\u2019s public link (the same one the dashboard copies, with the workspace\u2019s current code and the form\u2019s current slug) and `editorUrl` opens it in the builder; both are absolute URLs on PUBLIC_APP_URL, and null when the deployment does not set it. Every route that returns a form (create, get, update, slug, duplicate, publish) carries the same two fields.',
         security: [{ hostSession: [] }],
         responses: { '200': { description: 'Forms' } },
       },
@@ -134,7 +134,13 @@ export const openapiSpec = {
           'Body { name, slug?, config?, folderId? }. `folderId` files the new form in one of the workspace folders (404 for a folder outside it); absent = unfiled.',
     },
     '/v1/forms/{id}': {
-      get: { summary: 'Get a form (host)', security: [{ hostSession: [] }], responses: { '200': { description: 'Form' } } },
+      get: {
+        summary: 'Get a form (host)',
+        description:
+          'The form, with `publicUrl` (its public link) and `editorUrl` (its builder). Both are absolute URLs on PUBLIC_APP_URL and follow a slug rename; both are null when the deployment does not set PUBLIC_APP_URL.',
+        security: [{ hostSession: [] }],
+        responses: { '200': { description: 'Form' } },
+      },
       put: {
         summary: 'Update a form (host)',
         description:
