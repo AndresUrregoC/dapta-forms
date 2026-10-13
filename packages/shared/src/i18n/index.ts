@@ -2008,8 +2008,6 @@ export interface FormsMessages {
         placeholder: string;
         /** No endpoint matches. // {query} */
         empty: string;
-        /** How many endpoints match. // {count} */
-        results: string;
         clear: string;
       };
       errors: {
@@ -2047,11 +2045,8 @@ export interface FormsMessages {
         destructiveHint: string;
         params: string;
         colName: string;
-        colIn: string;
-        colType: string;
         colDescription: string;
         required: string;
-        optional: string;
         in: Record<ApiParamIn, string>;
         request: string;
         /** Over the example answer. // {status} */
@@ -4028,7 +4023,6 @@ export const en: FormsMessages = {
         label: 'Search endpoints',
         placeholder: 'Search by path or description',
         empty: 'No endpoint matches “{query}”.',
-        results: '{count} endpoints',
         clear: 'Clear search',
       },
       errors: {
@@ -4086,11 +4080,8 @@ export const en: FormsMessages = {
         destructiveHint: 'Cannot be undone. An agent should ask the person before calling it.',
         params: 'Parameters',
         colName: 'Name',
-        colIn: 'In',
-        colType: 'Type',
         colDescription: 'Description',
         required: 'Required',
-        optional: 'Optional',
         in: { path: 'Path', query: 'Query', body: 'Body' },
         request: 'Request',
         response: 'Response {status}',
@@ -6210,7 +6201,6 @@ export const es: FormsMessages = {
         label: 'Buscar endpoints',
         placeholder: 'Busca por ruta o descripción',
         empty: 'Ningún endpoint coincide con “{query}”.',
-        results: '{count} endpoints',
         clear: 'Borrar la búsqueda',
       },
       errors: {
@@ -6268,11 +6258,8 @@ export const es: FormsMessages = {
         destructiveHint: 'No se puede deshacer. Un agente debería preguntarle a la persona antes de llamarla.',
         params: 'Parámetros',
         colName: 'Nombre',
-        colIn: 'Va en',
-        colType: 'Tipo',
         colDescription: 'Descripción',
         required: 'Obligatorio',
-        optional: 'Opcional',
         in: { path: 'Ruta', query: 'Query', body: 'Body' },
         request: 'Request',
         response: 'Respuesta {status}',
