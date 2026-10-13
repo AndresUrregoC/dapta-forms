@@ -6,9 +6,9 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";
-import { createDb, sql, type Db } from "./client";
+import { createDb, runAtomically, sql, type Db } from "./client";
 import { migrate } from "./migrate";
-import { insertApiKey, listApiKeys } from "./api-keys";
+import { insertApiKey, listApiKeys, revokeKeysOfInactiveMembersSql } from "./api-keys";
 import { removeMember, setMemberStatus } from "./members";
 import { projectMemberships, projectRoster } from "./workspaces";
 
@@ -105,6 +105,22 @@ describe("setMemberStatus", () => {
     const owners = await key(accountId, owner);
     expect((await setMemberStatus(db, accountId, owner, "disabled")).ok).toBe(false);
     expect(await revoked([owners])).toEqual({ [owners]: false });
+  });
+});
+
+describe("runAtomically", () => {
+  it("lands every statement or none: a failing one rolls the member change back with the revoke", async () => {
+    const bobs = await key(accountId, bob);
+    await expect(
+      runAtomically(db, [
+        sql`UPDATE member SET status = 'disabled' WHERE id = ${bob}`,
+        revokeKeysOfInactiveMembersSql(accountId),
+        sql`INSERT INTO member (id) VALUES (${bob})`,
+      ]),
+    ).rejects.toThrow();
+    const row = await db.get<{ status: string }>(sql`SELECT status FROM member WHERE id = ${bob}`);
+    expect(row?.status).toBe("active");
+    expect(await revoked([bobs])).toEqual({ [bobs]: false });
   });
 });
 

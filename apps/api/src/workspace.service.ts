@@ -39,6 +39,7 @@ import {
   projectRoster,
   removeMember,
   renameAccount,
+  setMemberStatus,
   sql,
   wouldOrphanWorkspace,
   type AccessGrant,
@@ -700,6 +701,11 @@ export class WorkspaceService {
         throw new BadRequestException({ error: 'BAD_REQUEST', message: 'Cannot set a member back to invited.' });
       }
       await this.projection.iam.setWorkspaceUserActive(up.bearer, ref.workspaceUserId, input.status === 'active');
+      // A key follows its member: once the identity service has taken the
+      // disable, apply it here too, which revokes their API keys in the same
+      // transaction. Waiting for the roster re-read below would leave the keys
+      // working whenever that read fails or still lags behind the write.
+      if (input.status !== 'active') await setMemberStatus(this.db, p.accountId, memberId, input.status);
     }
     if (ref.externalId) this.projection.invalidate(ref.externalId);
     await this.roster(req);
