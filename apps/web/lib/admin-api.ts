@@ -318,6 +318,8 @@ export interface FormDetail {
   draftConfig?: FormConfig | null;
   /** Epoch-ms of the last publish; null = never published via the draft flow. */
   publishedAt?: number | null;
+  /** Epoch-ms of when the version a revert would bring back went live; null = nothing to revert to. */
+  previousPublishedAt?: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -710,6 +712,8 @@ export const adminApi = {
   /** Publish the pending draft config (no-op when no draft is pending). */
   publishForm: (id: string, b?: { expectedUpdatedAt?: number }) =>
     req<FormDetail>('POST', `/v1/forms/${id}/publish`, b?.expectedUpdatedAt === undefined ? undefined : b),
+  /** Put the previously published version back live; 409 NOTHING_TO_REVERT when there is none. */
+  revertForm: (id: string) => req<FormDetail>('POST', `/v1/forms/${id}/revert`),
   deleteForm: (id: string) => req<void>('DELETE', `/v1/forms/${id}`),
 
   // Form folders
