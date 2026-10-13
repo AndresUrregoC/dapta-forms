@@ -88,7 +88,6 @@ import {
   workspaceTimezoneSchema,
   type FormConfig,
 } from '@quill/types';
-import { ZodError } from 'zod';
 import { AdminService } from './admin.service';
 import { SubmissionService } from './submission.service';
 import { AnalyticsService } from './analytics.service';
@@ -98,22 +97,13 @@ import { EmailEffects } from './email-effects';
 import { AnalyticsEffects } from './analytics-effects';
 import { UploadService } from './upload.service';
 import { unwrap } from './http';
+import { parse } from './validation';
 import type { ServerEnv } from '@quill/config/env';
 import { assertAdmin, assertCanManageTarget, assertNotSelf, assertOwner } from './permissions';
 import { parseIntParam, parseKinds, parseOutboxStatuses } from './query-params';
 import { parseSort, parseSubmissionFilter, workspaceZone, type FilterQuery } from './submission-filter';
 import type { CaptchaVerifier } from './captcha';
 import { CAPTCHA, DB, ENV } from './tokens';
-
-function parse<T>(schema: { parse: (v: unknown) => T }, body: unknown): T {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException({ error: 'BAD_REQUEST', message: err.issues[0]?.message });
-    throw err;
-  }
-}
 
 function unwrapCrud<T>(r: CrudResult<T>): T {
   if (r.ok) return r.value;
