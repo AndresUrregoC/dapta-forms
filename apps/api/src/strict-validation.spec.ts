@@ -193,13 +193,6 @@ describe('strict rules with an API key', () => {
             branding: { clientLogos: [{ name: 'Example' }] },
             reveal: { enabled: true, headline: 'Wait' },
             revealAfterStep: 1,
-            destinations: [
-              {
-                type: 'webhook',
-                enabled: true,
-                settings: { url: 'https://example.com/hook', signatureHeader: 'X-Sig', timeoutMs: 5000 },
-              },
-            ],
           },
         ),
       }),
@@ -218,10 +211,32 @@ describe('strict rules with an API key', () => {
         'config.branding.clientLogos',
         'config.reveal',
         'config.revealAfterStep',
-        'config.destinations.0.settings.signatureHeader',
-        'config.destinations.0.settings.timeoutMs',
       ].sort(),
     );
+  });
+
+  const hookWithExtras = {
+    type: 'webhook',
+    enabled: true,
+    settings: { url: 'https://example.com/hook', signatureHeader: 'X-Sig', timeoutMs: 5000 },
+  };
+
+  it('refuses webhook signatureHeader and timeoutMs in a created config', async () => {
+    const r = await refusal(
+      key.forms.createForm(req(), { name: 'Hooked', config: config([step()], { destinations: [hookWithExtras] }) }),
+    );
+    expect(paths(r)).toEqual([
+      'config.destinations.0.settings.signatureHeader',
+      'config.destinations.0.settings.timeoutMs',
+    ]);
+  });
+
+  it('lets a PUT through when the live webhook already carries them (the draft drops destinations)', async () => {
+    await session.destinations.putDestinations(req(), formId, { destinations: [hookWithExtras] });
+    const live = (await getFormById(db, accountId, formId))!;
+    const sent = { ...cfg(live.config), steps: [step()] };
+    const updated = await key.forms.updateForm(req(), formId, { config: sent });
+    expect(cfg(updated.draftConfig).destinations).toBeUndefined();
   });
 
   it("accepts the values the editor itself writes, so a form round-trips", async () => {
@@ -270,6 +285,15 @@ describe('strict rules with an API key', () => {
     const created = await key.forms.createForm(req(), { name: 'Kit', config: config([step()]) });
     expect(cfg(created.config).branding?.clientLogos).toEqual(logos);
     await expect(key.forms.updateForm(req(), created.id, { config: created.config })).resolves.toBeTruthy();
+
+    // The same logos with their keys in another order are the same value.
+    const kitLogos = [{ name: 'Example', src: 'https://example.com/logo.png' }];
+    await session.branding.put(req(), { clientLogos: kitLogos });
+    const reordered = {
+      ...cfg(created.config),
+      branding: { ...cfg(created.config).branding, clientLogos: [{ src: 'https://example.com/logo.png', name: 'Example' }] },
+    };
+    await expect(key.forms.updateForm(req(), created.id, { config: reordered })).resolves.toBeTruthy();
 
     const other = { ...cfg(created.config), branding: { ...cfg(created.config).branding, clientLogos: [{ name: 'Other' }] } };
     const r = await refusal(key.forms.updateForm(req(), created.id, { config: other }));

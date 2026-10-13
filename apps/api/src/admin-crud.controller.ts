@@ -580,7 +580,7 @@ export class AdminCrudController {
     const input = parse(
       formCreateInputSchema,
       body,
-      await keyFormBodyIssues(this.db, p, body, { requireSteps: false }),
+      await keyFormBodyIssues(this.db, p, body, { requireSteps: false, storesDestinations: true }),
     );
     // The other path that AUTHORS a `destinations` array (PUT /forms/:id stages
     // a draft, and drafts strip the key; duplicate copies stored state and is
@@ -658,7 +658,7 @@ export class AdminCrudController {
     const { config: sent, slug, expectedUpdatedAt, ...meta } = parse(
       formInputSchema.partial(),
       body,
-      await keyFormBodyIssues(this.db, p, body, { requireSteps: true }),
+      await keyFormBodyIssues(this.db, p, body, { requireSteps: true, storesDestinations: false }),
     );
     const config = keyNormalizedConfig(p, sent);
     if (slug !== undefined) {

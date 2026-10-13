@@ -15,6 +15,7 @@
  * The rules read the raw body (duck-typed), not the parsed one, so their
  * issues join the schema's in a single 400 even when the schema refuses too.
  */
+import { isDeepStrictEqual } from 'node:util';
 import type { Db } from '@quill/db';
 import { getAccountBranding } from '@quill/db';
 import {
@@ -41,7 +42,6 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v);
 /** `null` stores nothing a person would need a control for, so it reads as absent. */
 const isSet = (v: unknown): boolean => v !== undefined && v !== null;
-const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 /**
  * A step field with no control in the editor, and the one value the editor
@@ -119,6 +119,13 @@ interface StrictConfigOptions {
    * server's own and passes; any other is refused like the rest.
    */
   kitClientLogos?: unknown;
+  /**
+   * Whether the route stores `config.destinations`. `POST /v1/forms` does;
+   * `PUT /v1/forms/:id` drops them from the draft (the integrations screen owns
+   * them live), so a webhook field there is never saved and refusing it would
+   * refuse every edit of a form whose live webhook already carries one.
+   */
+  destinations: boolean;
 }
 
 /** Every strict-rule issue of one config, steps in order. */
@@ -158,7 +165,8 @@ export function strictConfigIssues(config: unknown, opts: StrictConfigOptions): 
   }
 
   const logos = at(config, ['branding', 'clientLogos']);
-  if (isSet(logos) && !sameJson(logos, opts.kitClientLogos)) {
+  // Key order is not part of the value (Postgres jsonb reorders keys).
+  if (isSet(logos) && !isDeepStrictEqual(logos, opts.kitClientLogos)) {
     issues.push(unsupported([...prefix, 'branding', 'clientLogos']));
   }
 
@@ -166,7 +174,9 @@ export function strictConfigIssues(config: unknown, opts: StrictConfigOptions): 
     if (isSet(at(config, field))) issues.push(unsupported([...prefix, ...field]));
   }
 
-  issues.push(...strictDestinationIssues(config.destinations, [...prefix, 'destinations']));
+  if (opts.destinations) {
+    issues.push(...strictDestinationIssues(config.destinations, [...prefix, 'destinations']));
+  }
   return issues;
 }
 
@@ -174,12 +184,14 @@ export function strictConfigIssues(config: unknown, opts: StrictConfigOptions): 
  * The strict-rule issues of a form write's body (`POST /v1/forms`,
  * `PUT /v1/forms/:id`) for this principal: none for a session. `requireSteps`
  * is the PUT's: a `config` without `steps` there replaces every step with none.
+ * The PUT's draft also drops `destinations`, so their webhook fields are only
+ * checked on create (and on `PUT .../destinations`).
  */
 export async function keyFormBodyIssues(
   db: Db,
   p: HostPrincipal,
   body: unknown,
-  opts: { requireSteps: boolean },
+  opts: { requireSteps: boolean; storesDestinations: boolean },
 ): Promise<ValidationIssue[]> {
   if (!isApiKeyPrincipal(p) || !isObj(body) || !isObj(body.config)) return [];
   const config = body.config;
@@ -191,7 +203,9 @@ export async function keyFormBodyIssues(
   const kitClientLogos = isSet(at(config, ['branding', 'clientLogos']))
     ? (await getAccountBranding(db, p.accountId))?.config.clientLogos
     : undefined;
-  issues.push(...strictConfigIssues(config, { prefix: ['config'], kitClientLogos }));
+  issues.push(
+    ...strictConfigIssues(config, { prefix: ['config'], kitClientLogos, destinations: opts.storesDestinations }),
+  );
   return issues;
 }
 
