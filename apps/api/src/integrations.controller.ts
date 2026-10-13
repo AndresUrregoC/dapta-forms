@@ -47,6 +47,7 @@ import type { ServerEnv } from '@quill/config/env';
 import { AuthService, type ReqLike } from './auth.service';
 import { assertAdmin } from './permissions';
 import { parse } from './validation';
+import { keyDestinationsBodyIssues } from './strict-config';
 import { RateLimitGuard } from './rate-limit';
 import { captchaActive, type CaptchaVerifier } from './captcha';
 import { fileLinksFor } from './file-link';
@@ -753,7 +754,7 @@ export class FormDestinationsController {
   @Put('forms/:id/destinations')
   async putDestinations(@Req() req: ReqLike, @Param('id') id: string, @Body() body: unknown) {
     const p = await this.auth.resolveHost(req);
-    const { destinations } = parse(destinationsBodySchema, body);
+    const { destinations } = parse(destinationsBodySchema, body, keyDestinationsBodyIssues(p, body));
     // At most one HubSpot destination — see `hasExtraHubspotDestination`. Not in
     // the schema above, so a form that already stores two still READS fine.
     // Compared against what is STORED, not against 1: the builder's per-question

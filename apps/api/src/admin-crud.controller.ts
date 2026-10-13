@@ -99,6 +99,7 @@ import { AnalyticsEffects } from './analytics-effects';
 import { UploadService } from './upload.service';
 import { unwrap } from './http';
 import { parse } from './validation';
+import { keyFormBodyIssues, keyNormalizedConfig } from './strict-config';
 import type { ServerEnv } from '@quill/config/env';
 import { assertAdmin, assertCanManageTarget, assertNotSelf, assertOwner } from './permissions';
 import { parseIntParam, parseKinds, parseOutboxStatuses } from './query-params';
@@ -576,7 +577,11 @@ export class AdminCrudController {
     const p = await this.auth.resolveHost(req);
     // The create schema (not the shared input one): only creation may name a
     // folder; PUT /v1/forms/:id never moves a form, PATCH /forms/:id/folder does.
-    const input = parse(formCreateInputSchema, body);
+    const input = parse(
+      formCreateInputSchema,
+      body,
+      await keyFormBodyIssues(this.db, p, body, { requireSteps: false }),
+    );
     // The other path that AUTHORS a `destinations` array (PUT /forms/:id stages
     // a draft, and drafts strip the key; duplicate copies stored state and is
     // exempt — see `hasExtraHubspotDestination`). Same one-HubSpot rule as
@@ -595,7 +600,7 @@ export class AdminCrudController {
     const kit = await getAccountBranding(this.db, p.accountId);
     // The HubSpot mirror's `formGuid`/`formSignature` belong to the form that
     // made them (a copied config would aim this one at it), as on duplicate.
-    let config: unknown = withoutOwnedMirrorState(input.config);
+    let config: unknown = withoutOwnedMirrorState(keyNormalizedConfig(p, input.config));
     if (kit) {
       const base =
         config && typeof config === 'object' && !Array.isArray(config)
@@ -650,7 +655,12 @@ export class AdminCrudController {
   @Put('forms/:id')
   async updateForm(@Req() req: ReqLike, @Param('id') id: string, @Body() body: unknown) {
     const p = await this.auth.resolveHost(req);
-    const { config, slug, expectedUpdatedAt, ...meta } = parse(formInputSchema.partial(), body);
+    const { config: sent, slug, expectedUpdatedAt, ...meta } = parse(
+      formInputSchema.partial(),
+      body,
+      await keyFormBodyIssues(this.db, p, body, { requireSteps: true }),
+    );
+    const config = keyNormalizedConfig(p, sent);
     if (slug !== undefined) {
       unwrapCrud(await setFormSlug(this.db, p.accountId, id, slugify(slug)));
     }
