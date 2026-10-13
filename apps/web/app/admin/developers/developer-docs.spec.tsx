@@ -68,7 +68,7 @@ describe('DeveloperDocsView', () => {
 
   it('keeps both catalogs dash-free and Spanish in tuteo', () => {
     for (const s of [...strings(en), ...strings(es)]) {
-      expect(s).not.toMatch(/—|―|–/);
+      expect(s).not.toMatch(/\u2014|\u2015|\u2013/);
     }
     // Voseo forms that would slip into Rioplatense Spanish.
     for (const s of strings(es)) {

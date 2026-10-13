@@ -11,7 +11,7 @@ const files = new Map(buildSkillFiles(urls).map((f) => [f.path, f.content]));
 /** Every host-looking token of the vendor's own domains, built so this file does not contain one. */
 const VENDOR = new RegExp(['[a-z0-9-]+\\.', 'dap', 'ta\\.(ai|dev|com)'].join(''), 'i');
 const VENDOR_WORDS = new RegExp(['dap', 'tatech|amazon', 'aws|dap', 'ta_forms|forms', '_ms'].join(''), 'i');
-const DASHES = /—|―|–/;
+const DASHES = /\u2014|\u2015|\u2013/;
 
 describe('buildSkillFiles', () => {
   it('ships every file the ticket lists, inside one folder', () => {
