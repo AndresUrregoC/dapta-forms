@@ -159,3 +159,32 @@ describe('issues[] on validation errors (every caller)', () => {
     expect(paths(r)).toEqual(['destinations.0.settings.url']);
   });
 });
+
+describe('POST /v1/forms drops the HubSpot mirror state', () => {
+  const withMirror = config([step()], {
+    destinations: [
+      {
+        type: 'hubspot',
+        enabled: true,
+        settings: { formGuid: 'guid-of-another-form', formSignature: 'sig', formActivity: true },
+      },
+    ],
+  });
+
+  for (const [who, get] of [
+    ['a session', () => session],
+    ['an API key', () => key],
+  ] as const) {
+    it(`for ${who}`, async () => {
+      const created = await get().forms.createForm(req(), { name: 'Copied', config: withMirror });
+      const hubspot = (cfg(created.config).destinations ?? [])[0] as { settings: Record<string, unknown> };
+      expect(hubspot.settings).not.toHaveProperty('formGuid');
+      expect(hubspot.settings).not.toHaveProperty('formSignature');
+      expect(hubspot.settings.formActivity).toBe(true);
+      const stored = cfg((await getFormById(db, accountId, created.id))!.config);
+      expect((stored.destinations![0] as { settings: Record<string, unknown> }).settings).not.toHaveProperty(
+        'formGuid',
+      );
+    });
+  }
+});

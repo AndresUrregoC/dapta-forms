@@ -45,6 +45,7 @@ import {
   setMemberStatus,
   updateForm,
   upsertNotificationSetting,
+  withoutOwnedMirrorState,
   type CrudResult,
   getMemberProfileRaw,
   setMemberLocale,
@@ -592,7 +593,9 @@ export class AdminCrudController {
     // kit exactly like dashboard-created ones. Caller-supplied branding wins
     // over the kit (explicit input beats a default).
     const kit = await getAccountBranding(this.db, p.accountId);
-    let config: unknown = input.config;
+    // The HubSpot mirror's `formGuid`/`formSignature` belong to the form that
+    // made them (a copied config would aim this one at it), as on duplicate.
+    let config: unknown = withoutOwnedMirrorState(input.config);
     if (kit) {
       const base =
         config && typeof config === 'object' && !Array.isArray(config)
