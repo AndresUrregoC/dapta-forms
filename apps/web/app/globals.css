@@ -301,8 +301,9 @@ body {
 
 /* The rail's MCP icon (components/mcp-logos.tsx): three stacked logos that
    take turns. Each is a mask filled with currentColor, so it takes the row's
-   ink in both themes. The one leaving shrinks and turns away while the next
-   one fades in on the same spot. */
+   ink in both themes; Claude overrides it inline with its brand orange. The
+   one leaving shrinks and turns away while the next one fades in on the same
+   spot. */
 .mcp-logos {
   position: relative;
   display: inline-block;

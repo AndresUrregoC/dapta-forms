@@ -6,6 +6,14 @@ import { useEffect, useState } from 'react';
 export const MCP_LOGOS = ['claude', 'openai', 'cursor'] as const;
 export type McpLogo = (typeof MCP_LOGOS)[number];
 
+/**
+ * Logos drawn in their own brand color instead of the row's ink. Claude's
+ * mark is orange in the original, and the same hex Dapta's admin panel uses
+ * for it. ChatGPT and Cursor are monochrome marks, so they take
+ * `currentColor` (dark on light, light on dark) like the rest of the rail.
+ */
+export const MCP_BRAND_COLORS: Partial<Record<McpLogo, string>> = { claude: '#d97757' };
+
 /** How long each logo stays before the next one fades in. */
 export const MCP_ROTATE_MS = 2600;
 
@@ -22,9 +30,11 @@ function prefersReducedMotion(): boolean {
 /**
  * The icon of the rail's MCP item: the Claude, ChatGPT and Cursor logos taking
  * turns with a crossfade, the same mark Dapta's admin panel uses for its MCP
- * entry. Each logo is a CSS mask filled with `currentColor` (the files live in
- * `public/mcp/logos/`), so it takes the rail row's ink: muted when idle, full
- * when hovered or current, in light and in dark, with nothing per theme.
+ * entry. Each logo is a CSS mask (the files live in `public/mcp/logos/`).
+ * Claude keeps its brand orange in every state and theme (`MCP_BRAND_COLORS`);
+ * the monochrome ChatGPT and Cursor marks are filled with `currentColor`, so
+ * they take the rail row's ink: muted when idle, full when hovered or
+ * current, in light and in dark.
  *
  * Decoration only. The row's label ("MCP") is its accessible name, so the
  * stack is `aria-hidden` and a screen reader hears one stable name instead of
@@ -77,6 +87,7 @@ export function McpLogos({ size = 20, paused = false }: { size?: number; paused?
           style={{
             WebkitMaskImage: `url(/mcp/logos/${logo}.svg)`,
             maskImage: `url(/mcp/logos/${logo}.svg)`,
+            ...(MCP_BRAND_COLORS[logo] ? { backgroundColor: MCP_BRAND_COLORS[logo] } : {}),
           }}
         />
       ))}

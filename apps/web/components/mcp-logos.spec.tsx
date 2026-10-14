@@ -56,6 +56,16 @@ describe('McpLogos', () => {
     expect(host.querySelectorAll('.is-active')).toHaveLength(1);
   });
 
+  it('paints Claude in its brand orange and leaves ChatGPT and Cursor on the text color', async () => {
+    await mount();
+    const color = (logo: string) =>
+      host.querySelector<HTMLElement>(`[data-logo="${logo}"]`)!.style.backgroundColor.toLowerCase();
+    expect(['#d97757', 'rgb(217, 119, 87)']).toContain(color('claude'));
+    // No inline color: the stylesheet's currentColor applies, so they follow the theme and the row state.
+    expect(color('openai')).toBe('');
+    expect(color('cursor')).toBe('');
+  });
+
   it('takes turns every 2.6s, Claude, ChatGPT, Cursor, and round again', async () => {
     await mount();
     expect(active()).toBe('claude');
