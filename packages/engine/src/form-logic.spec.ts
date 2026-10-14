@@ -1110,19 +1110,15 @@ describe('resolveOptionIcon — one answer for every surface', () => {
     }
   });
 
-  it('falls back to the label initials when there is no icon', () => {
-    expect(resolveOptionIcon({ label: 'Team lead' }, 'cards')).toEqual({
-      kind: 'glyph',
-      text: 'TL',
-    });
-    expect(resolveOptionIcon({ icon: null, label: 'Founder' }, 'list')).toEqual({
-      kind: 'glyph',
-      text: 'F',
-    });
-    expect(resolveOptionIcon({ icon: '   ', label: 'Founder' }, 'cards')).toEqual({
-      kind: 'glyph',
-      text: 'F',
-    });
+  it('draws no icon, and no initials, when the option has none', () => {
+    for (const layout of ['cards', 'list'] as const) {
+      expect(resolveOptionIcon({ label: 'Team lead' }, layout)).toEqual({ kind: 'none' });
+      expect(resolveOptionIcon({ icon: null, label: 'Founder' }, layout)).toEqual({ kind: 'none' });
+      expect(resolveOptionIcon({ icon: '', label: 'Founder' }, layout)).toEqual({ kind: 'none' });
+      // Whitespace is not an icon either: an editor that saved a stray space
+      // must not bring the initials back.
+      expect(resolveOptionIcon({ icon: '   ', label: 'Founder' }, layout)).toEqual({ kind: 'none' });
+    }
   });
 });
 
