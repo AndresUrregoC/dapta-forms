@@ -18,6 +18,8 @@
  * the API hands the same link to agents and must not keep a second copy.
  */
 
+import { trimTrailing } from './trim';
+
 /**
  * The fixed middle segment. It can never collide with a member's public page
  * at `/{accountCode}/{handle}`: a handle is at least three characters, both by
@@ -64,7 +66,7 @@ export function formLinks(
   accountCode: string | null | undefined,
   form: { id: string; slug: string },
 ): FormLinks {
-  const base = (appUrl ?? '').trim().replace(/\/+$/, '');
+  const base = trimTrailing((appUrl ?? '').trim(), '/');
   if (!base) return { publicUrl: null, editorUrl: null };
   return {
     publicUrl: accountCode ? `${base}${publicFormPath(accountCode, form.slug)}` : null,
