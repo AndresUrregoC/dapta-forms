@@ -47,6 +47,8 @@ import {
   resolveEnding,
   fullNameToken,
   interpolateUrl,
+  stripUrlTokens,
+  redirectUrlFor,
   resolveFormLayout,
   FORM_LAYOUTS,
   type FormConfig,
@@ -1657,6 +1659,49 @@ describe('interpolateUrl (redirect URL tokens)', () => {
   });
 });
 
+describe('stripUrlTokens (embedded redirects carry no answers)', () => {
+  it('drops every query parameter with a token and keeps the rest as written', () => {
+    expect(stripUrlTokens('https://example.com/w?src=form&who=[name]&role=[role]#top')).toBe(
+      'https://example.com/w?src=form#top',
+    );
+    expect(stripUrlTokens('https://example.com/w?who=[name]&src=form')).toBe('https://example.com/w?src=form');
+    expect(stripUrlTokens('https://example.com/w?who=Mr%20[name]')).toBe('https://example.com/w');
+  });
+
+  it('leaves no empty `?` behind when every parameter carried a token', () => {
+    expect(stripUrlTokens('https://example.com/w?who=[name]&mail=[email]')).toBe('https://example.com/w');
+    expect(stripUrlTokens('https://example.com/w?who=[name]#done')).toBe('https://example.com/w#done');
+  });
+
+  it('removes a token elsewhere instead of filling it', () => {
+    expect(stripUrlTokens('https://example.com/u/[name]/x?a=1#[email]')).toBe('https://example.com/u//x?a=1#');
+    expect(stripUrlTokens('https://example.com/?[name]')).toBe('https://example.com/');
+  });
+
+  it('a URL without tokens comes back byte for byte', () => {
+    for (const url of ['https://example.com', 'https://example.com/a?b=1&c=&d#e', 'https://example.com/?']) {
+      expect(stripUrlTokens(url)).toBe(url);
+    }
+  });
+});
+
+describe('redirectUrlFor', () => {
+  const answers = { firstname: 'Ana', lastname: 'Ruiz', email: 'ana@example.com' };
+  const url = 'https://example.com/w?src=form&who=[name]&mail=[email]';
+
+  it('fills the tokens on a standalone form', () => {
+    expect(redirectUrlFor(url, answers, false)).toBe(
+      'https://example.com/w?src=form&who=Ana%20Ruiz&mail=ana%40example.com',
+    );
+  });
+
+  it('never puts an answer in the URL of an embedded form', () => {
+    const out = redirectUrlFor(url, answers, true);
+    expect(out).toBe('https://example.com/w?src=form');
+    for (const value of ['Ana', 'Ruiz', 'ana%40example.com', 'ana@example.com']) expect(out).not.toContain(value);
+  });
+});
+
 describe('resolveEnding (V5-B1 — outcome → form → built-in)', () => {
   const outcome = (over: Partial<FormOutcome> = {}): FormOutcome => ({ id: 'o', label: '', ...over });
 
@@ -1674,6 +1719,9 @@ describe('resolveEnding (V5-B1 — outcome → form → built-in)', () => {
       resolveEnding(cfg, outcome({ redirectUrl: 'https://example.com/o/[name]' }), answers)
         .redirectUrl,
     ).toBe('https://example.com/o/Ana%20Ruiz');
+    // Embedded, the token-bearing parameter goes, with or without answers.
+    expect(resolveEnding(cfg, null, answers, { embedded: true }).redirectUrl).toBe('https://example.com/hi');
+    expect(resolveEnding(cfg, null, undefined, { embedded: true }).redirectUrl).toBe('https://example.com/hi');
     // Without answers the URL comes back exactly as configured.
     expect(resolveEnding(cfg, null).redirectUrl).toBe('https://example.com/hi?n=[name]');
     // The copy stays a template: the done screen interpolates it.

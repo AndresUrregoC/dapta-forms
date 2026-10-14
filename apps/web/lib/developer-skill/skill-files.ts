@@ -99,6 +99,7 @@ Pick the \`type\` that matches what the step asks. \`name\`, \`email\` and \`pho
   - \`eq\`, \`gt\` or \`lt\` with \`value\`, or \`between\` with \`min\` and \`max\` (inclusive): a number, from a slider or from \`@score\`.
 - **\`@score\`** is the running score: the points of the steps shown before this one, without counting the step itself. Only \`gt\`, \`lt\`, \`eq\` and \`between\` apply to it. Put a step gated by score after the last scored question, or the questions after it never count toward the gate. See \`recipes/gate-a-step-by-score.md\`.
 - **Placeholders:** \`[step_key]\` inserts an answer into a step's \`question\` and \`helper\`, an outcome's \`label\` and \`message\`, the \`ending\` texts, a reveal step's texts and a \`redirectUrl\` (percent-encoded there). A question can only use answers from steps before it.
+  - When the form runs embedded (in an iframe or with \`?embed=1\`), a \`redirectUrl\` never carries answers: every query parameter with a placeholder is dropped and the rest of the URL is kept. Placeholders reach the redirect only on the form's own page.
   - A \`name\` step stores \`firstname\` and \`lastname\`, never \`name\`. It exposes \`[firstname]\`, \`[lastname]\` and \`[name]\`, the full name. If a step's own \`key\` is \`name\` and it is not a \`name\` step, \`[name]\` is that step's answer.
   - A placeholder with no answer disappears with the comma or space that joined it: \`"Thanks, [name]!"\` reads \`"Thanks!"\`.
 - **Notification emails** use \`{{token}}\` markers instead: \`{{formName}}\`, \`{{respondentName}}\` (the full name), \`{{respondentEmail}}\`, \`{{score}}\`, \`{{outcomeLabel}}\`, \`{{formLink}}\` and \`{{answers}}\`.
@@ -288,7 +289,7 @@ Each answer adds points; the total picks one of the \`outcomes\` by its \`minSco
 - \`slider\` steps score with \`sliderScoring\` ranges.
 - Ask for the person's name with a \`name\` step and their email with an \`email\` step, never with \`text\` (see Step types in \`SKILL.md\`).
 - \`scoring: { "enabled": false }\` turns scoring and outcomes off; leave it true.
-- An outcome's \`label\` and \`message\` are the result screen's heading and text; \`[step_key]\` inserts an answer, and \`[name]\` the full name from a \`name\` step. \`redirectUrl\` sends the person to a page instead, and takes placeholders too.
+- An outcome's \`label\` and \`message\` are the result screen's heading and text; \`[step_key]\` inserts an answer, and \`[name]\` the full name from a \`name\` step. \`redirectUrl\` sends the person to a page instead, and takes placeholders too, except when the form is embedded: then every query parameter with a placeholder is left out.
 
 ~~~bash
 curl -sS -X POST "${apiUrl}/v1/forms" \\

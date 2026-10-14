@@ -209,3 +209,98 @@ describe('one page: [name] is the full name', () => {
     );
   });
 });
+
+/**
+ * Embedded (`?embed=1` or in a frame), the redirect never carries an answer:
+ * every query parameter holding a token is dropped whole, the rest of the URL
+ * stays as written. Standalone, the same URL is filled in. Every redirect
+ * path, in both layouts. `navigateTop` is the one function that both posts the
+ * redirect to the host page and writes `top.location`, so the URL it receives
+ * is the URL that leaves the frame either way.
+ */
+describe('the redirect carries answers only on a standalone form', () => {
+  const TEMPLATE = 'https://example.com/welcome?src=form&who=[name]&role=[role]#top';
+  const FILLED = 'https://example.com/welcome?src=form&who=Ana%20Ruiz&role=CEO#top';
+  const STRIPPED = 'https://example.com/welcome?src=form#top';
+  const BOOKING = {
+    provider: 'hubspot_meetings',
+    url: 'https://meetings.hubspot.com/example/demo',
+  };
+
+  const configFor = (path: 'immediate' | 'delayed' | 'booking', layout: 'slides' | 'vertical') =>
+    ({
+      version: 1,
+      ...(layout === 'vertical' ? { layout: 'vertical' } : {}),
+      steps: [nameStep, roleStep],
+      ...(path === 'booking'
+        ? {
+            scoring: { enabled: true },
+            outcomes: [
+              { id: 'all', label: 'Book', minScore: 0, redirectUrl: TEMPLATE, booking: BOOKING },
+            ],
+          }
+        : {
+            ending: {
+              redirectUrl: TEMPLATE,
+              ...(path === 'delayed' ? { redirectDelayMs: 30 } : {}),
+            },
+          }),
+    }) as never;
+
+  async function run(
+    path: 'immediate' | 'delayed' | 'booking',
+    layout: 'slides' | 'vertical',
+    embedded: boolean,
+  ): Promise<string> {
+    window.history.replaceState(null, '', embedded ? '/acme/f/quote?embed=1' : '/acme/f/quote');
+    const Renderer = layout === 'vertical' ? VerticalFormRenderer : FormRenderer;
+    await mount(
+      <Renderer
+        accountCode="acme"
+        slug="f"
+        name="Quote"
+        config={configFor(path, layout)}
+        locale="en"
+      />,
+    );
+    await (layout === 'vertical' ? answerOnePage() : answerSlides());
+    if (path === 'delayed') {
+      // The thank-you shows first; the deferred redirect fires from it.
+      expect(el.querySelector('.pf-done__title')).not.toBeNull();
+      for (let i = 0; i < 40 && nav.navigateTop.mock.calls.length === 0; i++) {
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 50));
+        });
+      }
+    }
+    if (path === 'booking') {
+      expect(nav.navigateTop).not.toHaveBeenCalled(); // the booking screen shows first
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            origin: 'https://meetings.hubspot.com',
+            data: { meetingBookSucceeded: true },
+          }),
+        );
+      });
+      await settle();
+    }
+    expect(nav.navigateTop).toHaveBeenCalledTimes(1);
+    return nav.navigateTop.mock.calls[0]![0] as string;
+  }
+
+  for (const layout of ['slides', 'vertical'] as const) {
+    for (const path of ['immediate', 'delayed', 'booking'] as const) {
+      it(`${layout}, ${path}: standalone fills the tokens`, async () => {
+        expect(await run(path, layout, false)).toBe(FILLED);
+      });
+
+      it(`${layout}, ${path}: embedded drops every parameter with a token`, async () => {
+        const url = await run(path, layout, true);
+        expect(url).toBe(STRIPPED);
+        for (const answer of ['Ana', 'Ruiz', 'CEO', 'who=', 'role='])
+          expect(url).not.toContain(answer);
+      });
+    }
+  }
+});

@@ -1917,7 +1917,8 @@ export interface ResolvedEnding {
   /**
    * Where to send the respondent, or `null` to show the thank-you screen. Its
    * `[key]` tokens are filled (and percent-encoded) when `resolveEnding` is
-   * given the answers; without them it is the URL exactly as configured.
+   * given the answers, and dropped when it is told the form is embedded;
+   * otherwise it is the URL exactly as configured.
    */
   redirectUrl: string | null;
   /** How long to show the thank-you screen first. 0 = redirect immediately. */
@@ -1942,13 +1943,15 @@ export interface ResolvedEnding {
  * form headline only when the label is empty.
  *
  * Pass `answers` to get the redirect URL with its `[key]` tokens filled in
- * (`interpolateUrl`); the headline and body stay templates either way, because
- * the done screen interpolates them itself.
+ * (`interpolateUrl`), or `embedded: true` to get it with every token-bearing
+ * parameter dropped (`stripUrlTokens`); the headline and body stay templates
+ * either way, because the done screen interpolates them itself.
  */
 export function resolveEnding(
   config: FormConfig,
   outcome: FormOutcome | null,
   answers?: Answers,
+  opts: { embedded?: boolean } = {},
 ): ResolvedEnding {
   const e = config.ending ?? null;
   const pick = (a: string | null | undefined, b: string | null | undefined): string | null => {
@@ -1978,7 +1981,10 @@ export function resolveEnding(
   return {
     headline: pick(outcome?.label, e?.headline),
     body: pick(outcome?.message, e?.body),
-    redirectUrl: redirectUrl && answers ? interpolateUrl(redirectUrl, answers) : redirectUrl,
+    redirectUrl:
+      redirectUrl && (answers || opts.embedded)
+        ? redirectUrlFor(redirectUrl, answers ?? {}, opts.embedded === true)
+        : redirectUrl,
     redirectDelayMs: redirectUrl && Number.isFinite(delaySource) ? Math.max(0, delaySource) : 0,
   };
 }
@@ -2195,6 +2201,38 @@ export function interpolateUrl(template: string, answers: Answers): string {
   return template.replace(/\[([a-zA-Z0-9_]+)\]/g, (_m, field: string) =>
     encodeURIComponent(tokenText(field, answers)),
   );
+}
+
+/**
+ * A redirect URL with no answer in it, for a form running embedded: the owner
+ * decided an embedded form never hands answers to the destination, nor to the
+ * host page that relays the redirect. Every query parameter that carries a
+ * `[key]` token is dropped whole (no empty `?who=` is left behind, and the `?`
+ * goes when nothing else remains); the rest of the URL stays exactly as
+ * written. A token anywhere else (path, fragment) is removed, never filled.
+ */
+export function stripUrlTokens(template: string): string {
+  const token = /\[[a-zA-Z0-9_]+\]/;
+  const tokens = /\[[a-zA-Z0-9_]+\]/g;
+  const hashAt = template.indexOf('#');
+  const main = hashAt === -1 ? template : template.slice(0, hashAt);
+  const hash = hashAt === -1 ? '' : template.slice(hashAt).replace(tokens, '');
+  const queryAt = main.indexOf('?');
+  if (queryAt === -1) return main.replace(tokens, '') + hash;
+  const base = main.slice(0, queryAt).replace(tokens, '');
+  const query = main.slice(queryAt + 1);
+  if (!token.test(query)) return `${base}?${query}${hash}`;
+  const kept = query.split('&').filter((pair) => pair !== '' && !token.test(pair));
+  return `${base}${kept.length > 0 ? `?${kept.join('&')}` : ''}${hash}`;
+}
+
+/**
+ * The redirect URL to navigate to: `[key]` tokens filled from the answers on a
+ * standalone form (`interpolateUrl`), or stripped on an embedded one
+ * (`stripUrlTokens`), so an embedded form's redirect never carries an answer.
+ */
+export function redirectUrlFor(template: string, answers: Answers, embedded: boolean): string {
+  return embedded ? stripUrlTokens(template) : interpolateUrl(template, answers);
 }
 
 /**

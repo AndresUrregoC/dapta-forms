@@ -36,18 +36,17 @@ import { isSafeHttpUrl } from '@quill/engine';
  * NOT embedded — the ordinary case — is left exactly as it was: one
  * `window.location.href`, and nothing is posted to anyone.
  *
- * Security posture of route 1: `redirectUrl` comes from the PUBLISHED form
- * config. It carries answers only where the owner wrote a `[key]` token into
- * it (`interpolateUrl`, each value percent-encoded), and then it carries
- * exactly what the owner chose to send to that destination; a URL without
- * tokens is as public as the form document any visitor can already fetch. No
- * keys and no identifiers ride along, which is why `targetOrigin: '*'` is
- * acceptable here, the same reasoning the height reporter runs on: the
- * embedding site is by definition unknown to us, and `window.parent` delivers
- * to that host page and nowhere else. The protocol is re-checked below
- * because the value leaves our origin. The acknowledgement is accepted only
- * from `window.parent`, so a frame beside ours cannot forge one to suppress
- * route 2 and strand the visitor.
+ * Security posture of route 1: `redirectUrl` is a static string from the
+ * PUBLISHED form config (an embedded form never fills its `[key]` tokens with
+ * answers: `isEmbeddedRender` makes the renderers drop them), so the message is
+ * exactly as public as the form document any visitor can already fetch. It
+ * carries no answers, no keys and
+ * no identifiers, which is why `targetOrigin: '*'` is acceptable here, the same
+ * reasoning the height reporter runs on: the embedding site is by definition
+ * unknown to us, and `window.parent` delivers to that host page and nowhere
+ * else. The protocol is re-checked below because the value leaves our origin.
+ * The acknowledgement is accepted only from `window.parent`, so a frame beside
+ * ours cannot forge one to suppress route 2 and strand the visitor.
  */
 
 /** The message `public/embed.js` listens for to navigate the host page. */
@@ -73,6 +72,17 @@ export function isEmbedded(): boolean {
     // are not even allowed to look, we are certainly framed.
     return true;
   }
+}
+
+/**
+ * Whether answers must stay out of the redirect URL: the form runs in a frame,
+ * or was loaded with `?embed=1`. Either signal is enough, because the cost of
+ * a false positive is a redirect without answers, and of a false negative is
+ * answers handed to a page that embedded the form.
+ */
+export function isEmbeddedRender(): boolean {
+  if (typeof window === 'undefined') return false;
+  return isEmbedded() || new URLSearchParams(window.location.search).get('embed') === '1';
 }
 
 /**

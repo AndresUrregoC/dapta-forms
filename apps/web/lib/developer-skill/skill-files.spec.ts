@@ -186,6 +186,8 @@ describe('buildSkillFiles', () => {
       expect(skill, token).toContain(token);
     }
     expect(skill).toContain('`recipes/gate-a-step-by-score.md`');
+    // An embedded form's redirect never carries answers.
+    expect(skill).toMatch(/embedded .+ a `redirectUrl` never carries answers: every query parameter with a placeholder is dropped/);
   });
 
   it('describes @score on the condition field of the JSON Schema', () => {
