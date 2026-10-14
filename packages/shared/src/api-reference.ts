@@ -21,6 +21,8 @@
  * The page shows `:param` as `{param}`, like the skill does.
  */
 
+import { trimChar, trimTrailing } from './trim';
+
 export type ApiArea =
   | 'forms'
   | 'folders'
@@ -902,10 +904,7 @@ export function apiDisplayPath(path: string): string {
 
 /** The in-page anchor of an endpoint: `get-v1-forms-id`. */
 export function apiAnchor(route: string): string {
-  return route
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+  return trimChar(route.toLowerCase().replace(/[^a-z0-9]+/g, '-'), '-');
 }
 
 /** The example body as JSON text, the way the docs print it and curl sends it. */
@@ -921,7 +920,7 @@ export function apiExampleJson(value: unknown): string {
  * the quoting holds).
  */
 export function apiCurl(endpoint: Pick<ApiEndpoint, 'method' | 'path' | 'params' | 'body' | 'responseType'>, apiUrl: string): string {
-  const base = apiUrl.replace(/\/+$/, '');
+  const base = trimTrailing(apiUrl, '/');
   const params = endpoint.params ?? [];
   let path = endpoint.path;
   for (const p of params) {
