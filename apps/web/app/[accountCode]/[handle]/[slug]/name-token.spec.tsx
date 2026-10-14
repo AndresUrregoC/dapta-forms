@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /**
  * `[name]` as the respondent's full name (#65), through both real renderers
- * with the server actions mocked: a `name` step stores `firstname` and
+ * with the transport mocked: a `name` step stores `firstname` and
  * `lastname`, and the thank-you copy, the next question and the redirect URL
  * all read `[name]` as the two joined. The token rules themselves (a step
  * keyed `name` wins, no stray space, the URL encoding) are pinned in the
@@ -29,13 +29,13 @@ vi.mock('next/font/google', () => {
 });
 
 const actions = vi.hoisted(() => ({
-  submitFormAction: vi.fn(),
-  recordEventAction: vi.fn(async () => undefined),
-  recordEventsAction: vi.fn(async () => undefined),
-  recordBookingAction: vi.fn(async () => undefined),
-  presignUploadAction: vi.fn(async () => ({ ok: false })),
+  submitForm: vi.fn(),
+  recordEvent: vi.fn(async () => undefined),
+  recordEvents: vi.fn(async () => undefined),
+  recordBooking: vi.fn(async () => undefined),
+  presignUpload: vi.fn(async () => ({ ok: false })),
 }));
-vi.mock('./actions', () => actions);
+vi.mock('./transport', () => actions);
 
 const nav = vi.hoisted(() => ({ navigateTop: vi.fn() }));
 vi.mock('@/lib/top-navigate', async (importOriginal) => ({
@@ -82,8 +82,8 @@ beforeEach(() => {
   window.sessionStorage.clear();
   window.history.replaceState(null, '', '/acme/f/quote');
   nav.navigateTop.mockReset();
-  actions.submitFormAction.mockReset();
-  actions.submitFormAction.mockImplementation(async () => ({ ok: true, score: 0, outcome: 'all' }));
+  actions.submitForm.mockReset();
+  actions.submitForm.mockImplementation(async () => ({ ok: true, score: 0, outcome: 'all' }));
 });
 
 afterEach(async () => {
@@ -157,7 +157,7 @@ describe('slides: [name] is the full name', () => {
       'Thanks Ana Ruiz, we will be in touch.',
     );
     // The answers sent are still the two fields: nothing is stored under `name`.
-    const sent = actions.submitFormAction.mock.calls.at(-1)![2] as {
+    const sent = actions.submitForm.mock.calls.at(-1)![2] as {
       data: Record<string, unknown>;
     };
     expect(sent.data).toMatchObject({ firstname: 'Ana', lastname: 'Ruiz' });

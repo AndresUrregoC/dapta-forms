@@ -1123,6 +1123,19 @@ export async function upsertSubmission(
       if (completed) return { ...mapSubmission(completed), wasCompletedBefore: false };
       return { ...(await getSubmissionById(db, existing.id))!, wasCompletedBefore: true };
     }
+    if (input.partial) {
+      // Same race from the other side: the SELECT read an open row, and a
+      // complete may commit before this write. Requests from one tab run in
+      // parallel (nothing serializes them), so the guard lives in the WHERE:
+      // a partial never touches a row that is completed by the time it writes.
+      await db.run(
+        sql`UPDATE submission
+            SET data = ${jsonParam(input.data)}, score = ${input.score}, partial_at = ${partialAt},
+                visit = COALESCE(${visit}, visit)
+            WHERE id = ${existing.id} AND completed_at IS NULL`,
+      );
+      return { ...(await getSubmissionById(db, existing.id))!, wasCompletedBefore };
+    }
     await db.run(
       sql`UPDATE submission
           SET data = ${jsonParam(input.data)}, score = ${input.score},
