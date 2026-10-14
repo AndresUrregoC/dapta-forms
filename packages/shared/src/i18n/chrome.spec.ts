@@ -21,10 +21,29 @@ describe('admin.chrome docs link', () => {
   });
 });
 
-describe('admin.chrome developers item', () => {
-  it('labels the nav item in both languages', () => {
-    expect(getMessages('en').admin.chrome.nav.developers).toBe('Developers');
-    expect(getMessages('es').admin.chrome.nav.developers).toBe('Developers');
+describe('admin.chrome MCP item', () => {
+  it('labels the nav item MCP in both languages, keyed as before', () => {
+    expect(getMessages('en').admin.chrome.nav.developers).toBe('MCP');
+    expect(getMessages('es').admin.chrome.nav.developers).toBe('MCP');
+  });
+
+  it('keeps the pages under it named after what they hold', () => {
+    expect(getMessages('en').admin.chrome.developersMenu).toEqual({ keys: 'API keys', docs: 'API docs' });
+    expect(getMessages('es').admin.chrome.developersMenu).toEqual({ keys: 'Llaves de API', docs: 'Docs de la API' });
+  });
+
+  it('titles the API keys page after the section', () => {
+    expect(getMessages('en').admin.developers.title).toBe('MCP');
+    expect(getMessages('es').admin.developers.title).toBe('MCP');
+  });
+
+  it('leaves no "Developers" anywhere a person reads, in either language', () => {
+    const strings = (v: unknown): string[] =>
+      typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : [];
+    for (const locale of ['en', 'es'] as const) {
+      const hits = strings(getMessages(locale)).filter((s) => /developers|desarrolladores/i.test(s));
+      expect(hits, locale).toEqual([]);
+    }
   });
 });
 

@@ -20,6 +20,7 @@ import { ProfileMenu } from '@/components/profile-menu';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { WorkspaceSwitcher } from '@/components/workspace-switcher';
 import { AnchoredMenu } from '@/components/ui/anchored-menu';
+import { McpLogos } from '@/components/mcp-logos';
 import type { Workspace } from '@/lib/admin-api';
 import { PLATFORM_URL, suiteHref } from '@/lib/suite';
 import type { ThemePref } from '@/lib/theme';
@@ -38,7 +39,7 @@ type IconName =
   | 'submissions'
   | 'analytics'
   | 'integrations'
-  | 'developers'
+  | 'mcp'
   | 'docs'
   | 'agents';
 
@@ -70,9 +71,10 @@ interface SubNavItem {
   icon: string;
 }
 
-// Developers holds two pages: the keys, and the docs for what a key can call.
-// `/admin/developers` itself only redirects to the keys (old skill zips link
-// there), so the group never links to it.
+// MCP (shown as "MCP", keyed `developers`) holds two pages: the keys, and the
+// docs for what a key can call. The addresses keep their `/admin/developers`
+// prefix because skill zips already handed out link there. `/admin/developers`
+// itself only redirects to the keys, so the group never links to it.
 const DEVELOPERS_PAGES: readonly SubNavItem[] = [
   { key: 'keys', href: '/admin/developers/keys', icon: 'pi-key' },
   { key: 'docs', href: '/admin/developers/docs', icon: 'pi-file-code' },
@@ -85,11 +87,12 @@ const DEVELOPERS_PAGES: readonly SubNavItem[] = [
 // profile button at the bottom of the rail, under /admin/account, the same
 // place Dapta's admin panel keeps it, so no rail item is active on those pages.
 //
-// "Developers" follows Integrations: the workspace's API keys, for connecting
-// an AI agent or a script, and the docs for every route a key can call. Its
-// own item rather than a corner of Account settings, so the API is found
-// without being looked for. It is the one item with pages under it (see
-// `NavGroup`).
+// "MCP" follows Integrations: the workspace's API keys, for connecting an AI
+// agent or a script, and the docs for every route a key can call. Its own item
+// rather than a corner of Account settings, so the API is found without being
+// looked for. It is the one item with pages under it (see `NavGroup`), and its
+// icon is the rotating Claude, ChatGPT and Cursor logos (`McpLogos`). There is
+// no dForms MCP server yet: until there is, the item leads to the API keys.
 //
 // Then "Docs": the product documentation, always present, in the reader's
 // language (the URL lives in the message catalog, see `docsHref`). External
@@ -108,7 +111,7 @@ const NAV: NavItem[] = [
   { key: 'submissions', href: '/admin/submissions', icon: 'submissions' },
   { key: 'analytics', href: '/admin/analytics', icon: 'analytics' },
   { key: 'integrations', href: '/admin/integrations', icon: 'integrations' },
-  { key: 'developers', href: '/admin/developers', icon: 'developers', children: DEVELOPERS_PAGES },
+  { key: 'developers', href: '/admin/developers', icon: 'mcp', children: DEVELOPERS_PAGES },
   { key: 'docs', href: '', icon: 'docs', external: true, localizedHref: 'docsHref' },
   ...(PLATFORM_URL
     ? [{ key: 'agents', href: suiteHref(PLATFORM_URL, 'sidebar'), icon: 'agents', external: true } as const]
@@ -126,18 +129,19 @@ const PEEK_CLOSE_MS = 160;
 
 // Dapta's icon system is PrimeIcons (pi pi-*) — the same set Calendars + the
 // production admin panel use. Sized at the design-system's 20px sidebar icon.
-const PI_BY_NAME: Record<IconName, string> = {
+// MCP is the one exception: its icon is the rotating AI app logos, same 20px.
+const PI_BY_NAME: Record<Exclude<IconName, 'mcp'>, string> = {
   home: 'pi-home',
   forms: 'pi-file-edit',
   submissions: 'pi-inbox',
   analytics: 'pi-chart-bar',
   integrations: 'pi-link',
-  developers: 'pi-code',
   docs: 'pi-book',
   agents: 'pi-microchip-ai',
 };
 
-function Icon({ name, className }: { name: IconName; className?: string }) {
+function Icon({ name, className, paused }: { name: IconName; className?: string; paused?: boolean }) {
+  if (name === 'mcp') return <McpLogos size={20} paused={paused} />;
   return (
     <i
       aria-hidden
@@ -175,7 +179,7 @@ function navRowClass(collapsed: boolean, state: 'active' | 'parent' | 'idle') {
 }
 
 /**
- * A rail item with pages under it (Developers). One `<button>` in both rail
+ * A rail item with pages under it (MCP). One `<button>` in both rail
  * widths, so focus survives the editor's peek widening the rail under it:
  *
  *  - Wide rail and drawer: a disclosure. The pages show indented below it,
@@ -203,6 +207,8 @@ function NavGroup({
   const inside = isNavItemActive(pathname, item.href);
   const [open, setOpen] = useState(inside);
   const [flyout, setFlyout] = useState(false);
+  // The rotating logos hold still under the pointer (see McpLogos).
+  const [hovered, setHovered] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listId = useId();
   const closeFlyout = useCallback(() => setFlyout(false), []);
@@ -244,13 +250,15 @@ function NavGroup({
         type="button"
         data-testid={`nav-${item.key}`}
         onClick={() => (collapsed ? setFlyout((v) => !v) : setOpen((v) => !v))}
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
         aria-haspopup={collapsed ? 'menu' : undefined}
         aria-expanded={collapsed ? flyout : open}
         aria-controls={!collapsed && open ? listId : undefined}
         title={collapsed ? label : undefined}
         className={navRowClass(collapsed, state)}
       >
-        <Icon name={item.icon} />
+        <Icon name={item.icon} paused={hovered} />
         <span className={collapsed ? 'sr-only' : 'min-w-0 flex-1 truncate'}>{label}</span>
         {!collapsed ? (
           <i
@@ -274,7 +282,7 @@ function NavGroup({
                   data-testid={`nav-${item.key}-${page.key}`}
                   // pl-11 sets the label on the parent label's column (12px
                   // padding + 20px icon + 12px gap), which is what reads as
-                  // "under Developers" without a second icon per row.
+                  // "under MCP" without a second icon per row.
                   className={[
                     'relative flex min-h-[40px] items-center rounded-md py-2 pl-11 pr-3 text-sm transition-colors active:scale-[0.99]',
                     active
@@ -344,7 +352,7 @@ function NavLinks({
 }: {
   collapsed: boolean;
   nav: ChromeMessages['nav'];
-  /** Labels of the pages under Developers. */
+  /** Labels of the pages under MCP. */
   pages: ChromeMessages['developersMenu'];
   /** The localized documentation URL, already UTM-tagged by the caller. */
   docsHref: string;

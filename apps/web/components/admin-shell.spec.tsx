@@ -1,9 +1,10 @@
 /**
- * The rail's "Developers" item: in the list right after Integrations and before
+ * The rail's "MCP" item (keyed `developers`, formerly labelled "Developers"): in
+ * the list right after Integrations and before
  * Docs, in both rails (the desktop one, open or collapsed, and the mobile
  * drawer). It is a group with two pages under it, API keys and API docs: an
  * accordion in the wide rail and the drawer, a flyout menu on the collapsed
- * rail. The group opens on its own on a Developers route, and the parent and
+ * rail. The group opens on its own on one of its routes, and the parent and
  * the page you are on are both marked.
  *
  * Both rails are in the server markup at once (the drawer is translated off
@@ -49,19 +50,46 @@ const rails = (html: string) => {
   const drawer = html.indexOf('role="dialog"');
   return { desktop: html.slice(0, drawer), drawer: html.slice(drawer) };
 };
-/** Every Developers trigger (a button now, not a link), as written in the markup. */
+/** Every MCP trigger (a button, not a link), as written in the markup. */
 const triggers = (html: string) => html.match(/<button [^>]*data-testid="nav-developers"[^>]*>/g) ?? [];
-/** Every `<a>` pointing at one of the Developers pages. */
+/** The first trigger's whole markup, icon and label included. */
+const triggerBody = (html: string) => html.match(/<button [^>]*data-testid="nav-developers".*?<\/button>/)?.[0] ?? '';
+/** Every `<a>` pointing at one of the pages under the group. */
 const pageLinks = (html: string, page: 'keys' | 'docs') =>
   html.match(new RegExp(`<a [^>]*href="/admin/developers/${page}"[^>]*>`, 'g')) ?? [];
 
-describe('AdminShell: Developers group', () => {
-  it('appears in the desktop rail and in the mobile drawer, with the code icon', () => {
+describe('AdminShell: MCP group', () => {
+  it('appears in the desktop rail and in the mobile drawer, with the rotating AI logos as its icon', () => {
     const html = render({ pathname: '/admin' });
     const { desktop, drawer } = rails(html);
     expect(triggers(desktop)).toHaveLength(1);
     expect(triggers(drawer)).toHaveLength(1);
-    expect(html).toContain('pi-code');
+    expect(html).not.toContain('pi-code');
+    for (const rail of [desktop, drawer]) {
+      const icon = triggerBody(rail);
+      // Claude, ChatGPT and Cursor, stacked; the first one shows on first paint.
+      expect(icon.match(/data-logo="(\w+)"/g)).toEqual(['data-logo="claude"', 'data-logo="openai"', 'data-logo="cursor"']);
+      expect(icon.match(/is-active/g)).toHaveLength(1);
+      expect(icon).toMatch(/data-logo="claude" data-active="true"/);
+      // Claude in its own orange, in every rail; the others take the row's ink.
+      expect(icon).toMatch(/data-logo="claude"[^>]*background-color:#d97757/);
+      expect(icon).not.toMatch(/data-logo="(openai|cursor)"[^>]*background-color/);
+      // Same 20px box as every other rail icon.
+      expect(icon).toContain('width:20px;height:20px');
+    }
+  });
+
+  it('is named MCP in both languages, and the logos are hidden from screen readers', () => {
+    for (const locale of ['en', 'es'] as const) {
+      const html = render({ pathname: '/admin', locale });
+      expect(html).toContain('>MCP</span>');
+      expect(html).not.toContain('Developers');
+      const stacks = html.match(/<span[^>]*data-testid="mcp-logos"[^>]*>/g) ?? [];
+      expect(stacks).toHaveLength(2); // the desktop rail and the drawer
+      for (const logos of stacks) {
+        expect(logos).toContain('aria-hidden="true"');
+      }
+    }
   });
 
   it('sits after Integrations and before Docs', () => {
@@ -88,7 +116,7 @@ describe('AdminShell: Developers group', () => {
     expect(pageLinks(html, 'docs')).toHaveLength(0);
   });
 
-  it('opens on its own on a Developers route, in the rail and in the drawer', () => {
+  it('opens on its own on one of its routes, in the rail and in the drawer', () => {
     for (const pathname of ['/admin/developers/keys', '/admin/developers/docs']) {
       const html = render({ pathname });
       for (const rail of Object.values(rails(html))) {
@@ -138,11 +166,13 @@ describe('AdminShell: Developers group', () => {
       const [b] = triggers(desktop);
       expect(b).toContain('aria-haspopup="menu"');
       expect(b).toContain('aria-expanded="false"');
-      expect(b).toContain('title="Developers"');
+      expect(b).toContain('title="MCP"');
+      // The icon is the logos here too, inside the 44px tile.
+      expect(triggerBody(desktop)).toContain('data-testid="mcp-logos"');
       // Only the icon shows, so the icon carries the whole "you are here".
       expect(b).toContain('bg-muted font-medium text-foreground');
       expect(b).toContain('before:bg-primary-edge');
-      expect(desktop).toContain('<span class="sr-only">Developers</span>');
+      expect(desktop).toContain('<span class="sr-only">MCP</span>');
     });
 
     it('does not lay the accordion into the 64px rail; the drawer still has it', () => {

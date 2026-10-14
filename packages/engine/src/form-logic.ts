@@ -2696,8 +2696,11 @@ export function isImageIcon(icon: string | null | undefined): boolean {
 export const OPTION_ICON_GLYPH_MAX = 2;
 
 /**
- * The initials a label falls back to when it has no icon: up to two letters,
- * taken from the first two words ("HubSpot Sales" → "HS", "Hubspot" → "H").
+ * A label's initials: up to two letters, taken from the first two words
+ * ("HubSpot Sales" → "HS", "Hubspot" → "H"). What an image icon degrades to
+ * where it cannot be drawn (a list row, a logo that fails to load), and the
+ * suggestion the editor's Letters tab offers. An option with NO icon does not
+ * get them: it draws no icon at all (see `resolveOptionIcon`).
  */
 export function optionInitials(label: string): string {
   const words = label.trim().split(/\s+/).filter(Boolean);
@@ -2712,7 +2715,9 @@ export function optionInitials(label: string): string {
 /** What an option's icon resolves to on a given layout. */
 export type ResolvedOptionIcon =
   | { kind: 'image'; src: string }
-  | { kind: 'glyph'; text: string };
+  | { kind: 'glyph'; text: string }
+  /** The option has no icon: draw its text alone, no circle, no initials. */
+  | { kind: 'none' };
 
 /**
  * The single answer to "what do I draw for this option?", shared by the public
@@ -2723,6 +2728,11 @@ export type ResolvedOptionIcon =
  * sliver — so under `list` an image URL degrades to the label's initials rather
  * than drawing badly. That also means an OLD config pairing a URL with a list
  * can't produce the broken combination.
+ *
+ * An option without an icon resolves to `none` on both layouts. It used to
+ * draw the label's initials in the icon's place ("FR", "NR"), which read as a
+ * broken logo rather than as a choice; a card without an icon now shows its
+ * text alone, and a list row keeps its radio.
  */
 export function resolveOptionIcon(
   option: Pick<FormOption, 'icon' | 'label'>,
@@ -2734,7 +2744,7 @@ export function resolveOptionIcon(
     return { kind: 'glyph', text: optionInitials(option.label) };
   }
   if (icon) return { kind: 'glyph', text: icon };
-  return { kind: 'glyph', text: optionInitials(option.label) };
+  return { kind: 'none' };
 }
 
 // ---------------------------------------------------------------------------

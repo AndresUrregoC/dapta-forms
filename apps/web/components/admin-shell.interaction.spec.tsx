@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * The Developers group, driven like a person would: the accordion in the wide
+ * The MCP group (keyed `developers`), driven like a person would: the accordion in the wide
  * rail and in the mobile drawer, and the flyout on the collapsed rail (a menu
  * portalled to <body>, walked with the arrow keys and closed with Escape).
  */
@@ -81,7 +81,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe('Developers on the wide rail', () => {
+describe('MCP on the wide rail', () => {
   it('opens and closes the accordion, off its routes', async () => {
     await mount('/admin/forms');
     const b = trigger(rail());
@@ -102,7 +102,7 @@ describe('Developers on the wide rail', () => {
     expect(pages(rail())).toBeNull();
   });
 
-  it('opens on its own when the route moves into Developers', async () => {
+  it('opens on its own when the route moves into the group', async () => {
     await mount('/admin/forms');
     expect(pages(rail())).toBeNull();
     nav.pathname = '/admin/developers/docs';
@@ -128,7 +128,7 @@ describe('Developers on the wide rail', () => {
   });
 });
 
-describe('Developers on the collapsed rail', () => {
+describe('MCP on the collapsed rail', () => {
   it('opens a flyout outside the rail, beside the icon, with both pages', async () => {
     await mount('/admin/developers/keys', true);
     const b = trigger(rail());
@@ -195,7 +195,7 @@ describe('Developers on the collapsed rail', () => {
   });
 });
 
-describe('Developers in the mobile drawer', () => {
+describe('MCP in the mobile drawer', () => {
   it('is the same accordion, and choosing a page closes the drawer', async () => {
     await mount('/admin', true);
     const open = host.querySelector<HTMLButtonElement>(`button[aria-label="${m.chrome.openNav}"]`)!;
@@ -211,5 +211,37 @@ describe('Developers in the mobile drawer', () => {
 
     await act(async () => pages(drawer())!.querySelector<HTMLAnchorElement>('a[href="/admin/developers/docs"]')!.click());
     expect(drawer().className).toContain('-translate-x-full');
+  });
+});
+
+describe('MCP icon under the pointer', () => {
+  const activeLogo = (scope: Element) =>
+    trigger(scope).querySelector('[data-active="true"]')?.getAttribute('data-logo');
+
+  it('holds the logo still while the pointer is on the row, in both rail widths', async () => {
+    vi.useFakeTimers();
+    try {
+      for (const collapsed of [false, true]) {
+        await mount('/admin', collapsed);
+        const b = trigger(rail());
+        expect(activeLogo(rail())).toBe('claude');
+        await act(async () => void vi.advanceTimersByTime(2600));
+        expect(activeLogo(rail())).toBe('openai');
+
+        await act(async () => void b.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
+        await act(async () => void vi.advanceTimersByTime(2600 * 3));
+        expect(activeLogo(rail())).toBe('openai');
+
+        await act(async () => void b.dispatchEvent(new PointerEvent('pointerout', { bubbles: true })));
+        await act(async () => void vi.advanceTimersByTime(2600));
+        expect(activeLogo(rail())).toBe('cursor');
+        await act(async () => root.unmount());
+        host.remove();
+      }
+      // afterEach unmounts once more.
+      await mount('/admin');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

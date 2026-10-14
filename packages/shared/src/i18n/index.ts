@@ -226,7 +226,11 @@ export interface FormsMessages {
         submissions: string;
         analytics: string;
         integrations: string;
-        /** Developers (/admin/developers/*), between Integrations and Docs. Opens `developersMenu`. */
+        /**
+         * MCP (/admin/developers/*), between Integrations and Docs. Opens
+         * `developersMenu`. The key keeps its old name; the addresses do too,
+         * because skill zips already handed out link there.
+         */
         developers: string;
         /** The product documentation, an EXTERNAL link (see `docsHref`). */
         docs: string;
@@ -238,7 +242,7 @@ export interface FormsMessages {
         agents: string;
       };
       /**
-       * The two pages under the rail's Developers item: an accordion in the
+       * The two pages under the rail's MCP item: an accordion in the
        * wide rail and the drawer, a flyout on the collapsed rail. `docs` also
        * names the docs page itself and the link to it from the keys page.
        */
@@ -1871,12 +1875,23 @@ export interface FormsMessages {
       };
     };
     /**
-     * The Developers page (/admin/developers): the workspace's API keys. A key
-     * lets an agent or a script call the same `/v1` routes the dashboard uses.
+     * The API keys page under MCP (/admin/developers/keys): the workspace's API
+     * keys. A key lets an agent or a script call the same `/v1` routes the
+     * dashboard uses.
      */
     developers: {
+      /** The page heading: the rail section's name, "MCP". */
       title: string;
       subtitle: string;
+      /**
+       * The skill download beside the keys: one line on what it is for. The
+       * button and the unavailable note reuse `developerDocs.skillButton` and
+       * `developerDocs.skillUnavailable`, the same download on the API docs page.
+       */
+      skill: {
+        title: string;
+        body: string;
+      };
       keys: {
         title: string;
         /** Under the title. Members see their own keys only. */
@@ -2485,7 +2500,7 @@ export const en: FormsMessages = {
         submissions: 'Submissions',
         analytics: 'Analytics',
         integrations: 'Integrations',
-        developers: 'Developers',
+        developers: 'MCP',
         docs: 'Docs',
         agents: 'Dapta Agents',
       },
@@ -3038,7 +3053,7 @@ export const en: FormsMessages = {
         iconTabImage: 'Image',
         iconClear: 'Clear',
         iconEmpty: 'Pick an icon',
-        iconLettersHint: 'Up to two letters, e.g. HS for HubSpot. Empty falls back to the label’s initials.',
+        iconLettersHint: 'Up to two letters, e.g. HS for HubSpot. Leave it empty and the option shows no icon.',
         iconImageHint: 'An https:// image URL. Logos keep their shape. They are fit inside a box, not cropped to a circle.',
         iconUrlInvalid: 'This URL protocol is not allowed for images.',
         emojiGroups: {
@@ -3909,8 +3924,12 @@ export const en: FormsMessages = {
       },
     },
     developers: {
-      title: 'Developers',
+      title: 'MCP',
       subtitle: 'Connect an AI agent or your own code to dForms with an API key.',
+      skill: {
+        title: 'Skill for your agent',
+        body: 'Create a key, then give your agent (Claude Code, Codex, Cursor) this skill: it teaches it to use the dForms API with that key, with no explaining on your part.',
+      },
       keys: {
         title: 'API keys',
         subtitle: 'Your keys for this workspace. Each one acts as you, with your role.',
@@ -4654,7 +4673,7 @@ export const es: FormsMessages = {
         submissions: 'Respuestas',
         analytics: 'Analíticas',
         integrations: 'Integraciones',
-        developers: 'Developers',
+        developers: 'MCP',
         docs: 'Documentación',
         agents: 'Dapta Agents',
       },
@@ -5242,7 +5261,7 @@ export const es: FormsMessages = {
         iconTabImage: 'Imagen',
         iconClear: 'Quitar',
         iconEmpty: 'Elige un ícono',
-        iconLettersHint: 'Hasta dos letras, por ejemplo HS para HubSpot. Si lo dejas vacío se usan las iniciales de la etiqueta.',
+        iconLettersHint: 'Hasta dos letras, por ejemplo HS para HubSpot. Si lo dejas vacío, la opción no muestra ícono.',
         iconImageHint: 'Una URL de imagen https://. Los logos conservan su forma: entran completos en una caja, no se recortan en un círculo.',
         iconUrlInvalid: 'Este protocolo de URL no está permitido para imágenes.',
         emojiGroups: {
@@ -6089,8 +6108,12 @@ export const es: FormsMessages = {
       },
     },
     developers: {
-      title: 'Developers',
+      title: 'MCP',
       subtitle: 'Conecta un agente de IA o tu propio código a dForms con una llave de API.',
+      skill: {
+        title: 'Skill para tu agente',
+        body: 'Crea una llave y dale a tu agente (Claude Code, Codex, Cursor) este skill: le enseña a usar la API de dForms con esa llave, sin que tengas que explicarle nada.',
+      },
       keys: {
         title: 'Llaves de API',
         subtitle: 'Tus llaves de este workspace. Cada una actúa como tú, con tu rol.',

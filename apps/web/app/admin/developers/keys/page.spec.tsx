@@ -12,6 +12,7 @@ import { getMessages, type Locale } from '@quill/shared';
 const me = vi.fn();
 const listApiKeys = vi.fn();
 const locale = vi.hoisted(() => ({ value: 'en' as Locale }));
+const apiUrl = vi.hoisted(() => ({ value: 'https://api.forms.example.com' as string | null }));
 
 vi.mock('@/lib/admin-api', () => ({
   adminApi: {
@@ -21,6 +22,7 @@ vi.mock('@/lib/admin-api', () => ({
   isAdminRole: (role: string) => role === 'owner' || role === 'admin',
 }));
 vi.mock('@/lib/locale', () => ({ getLocale: async () => locale.value }));
+vi.mock('@/lib/developer-skill/public-api-url', () => ({ publicApiUrl: () => apiUrl.value }));
 vi.mock('next/navigation', () => ({
   // Like the real one for what matters here: a redirect is rethrown, anything else is not.
   unstable_rethrow: (e: unknown) => {
@@ -59,6 +61,15 @@ describe('DevelopersPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     locale.value = 'en';
+    apiUrl.value = 'https://api.forms.example.com';
+  });
+
+  it('is titled after the rail section, MCP', async () => {
+    me.mockResolvedValue(caller('member'));
+    listApiKeys.mockResolvedValue({ keys });
+    const html = await render();
+    expect(html).toMatch(/<h1[^>]*>MCP<\/h1>/);
+    expect(html).not.toContain('Developers');
   });
 
   it('lists the keys the API returned, without the Created by column for a member', async () => {
@@ -105,5 +116,54 @@ describe('DevelopersPage', () => {
     expect(link).toContain(es.chrome.developersMenu.docs);
     expect(html).toContain(es.developers.keys.emptyTitle);
     expect(html).not.toContain(es.developerDocs.title);
+  });
+
+  describe('skill download', () => {
+    const download = (html: string) =>
+      html.match(/<a [^>]*data-testid="api-keys-skill-download"[^>]*>.*?<\/a>/)?.[0];
+
+    it('offers the skill zip beside the keys, with the line that says what it is for', async () => {
+      me.mockResolvedValue(caller('member'));
+      listApiKeys.mockResolvedValue({ keys });
+      const html = await render();
+      const m = getMessages('en').admin;
+      const link = download(html)!;
+      expect(link).toContain('href="/api/developers/skill"');
+      expect(link).toMatch(/\sdownload=""/);
+      expect(link).toContain(m.developerDocs.skillButton);
+      expect(html).toContain(m.developers.skill.title);
+      expect(html).toContain(m.developers.skill.body);
+      // After the keys, so the order on the page is the order of the steps.
+      expect(html.indexOf('data-testid="api-keys-skill"')).toBeGreaterThan(
+        html.indexOf('data-testid="api-keys"'),
+      );
+    });
+
+    it('is there with no keys yet and when the list failed: it does not depend on them', async () => {
+      me.mockResolvedValue(caller('member'));
+      listApiKeys.mockResolvedValue({ keys: [] });
+      expect(download(await render())).toBeDefined();
+      listApiKeys.mockRejectedValue(new Error('API down'));
+      expect(download(await render())).toBeDefined();
+    });
+
+    it('says it is unavailable instead of a button that would fail, without a public API address', async () => {
+      apiUrl.value = null;
+      me.mockResolvedValue(caller('member'));
+      listApiKeys.mockResolvedValue({ keys });
+      const html = await render();
+      expect(download(html)).toBeUndefined();
+      expect(html).toContain(getMessages('en').admin.developerDocs.skillUnavailable);
+    });
+
+    it('speaks Spanish to a Spanish reader', async () => {
+      locale.value = 'es';
+      me.mockResolvedValue(caller('member'));
+      listApiKeys.mockResolvedValue({ keys });
+      const html = await render();
+      const es = getMessages('es').admin;
+      expect(html).toContain(es.developers.skill.title);
+      expect(download(html)).toContain(es.developerDocs.skillButton);
+    });
   });
 });
