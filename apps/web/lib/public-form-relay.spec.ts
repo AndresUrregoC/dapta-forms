@@ -74,6 +74,16 @@ describe('submissions', () => {
       relayPublicFormCall('submissions', 'acme', 'f', { sessionId: 's', data: {} }),
     ).rejects.toThrow();
   });
+
+  it.each([500, 502, 503, 504])(
+    'throws on an API %i (a proxy mid-rollout is not a refusal), so the browser retries',
+    async (status) => {
+      api.postSubmission.mockResolvedValueOnce({ ok: false, status, message: 'Could not submit.' });
+      await expect(
+        relayPublicFormCall('submissions', 'acme', 'f', { sessionId: 's', data: {} }),
+      ).rejects.toThrow();
+    },
+  );
 });
 
 describe('events', () => {

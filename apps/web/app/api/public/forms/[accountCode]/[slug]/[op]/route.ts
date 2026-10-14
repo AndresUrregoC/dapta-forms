@@ -29,8 +29,10 @@ export async function POST(
   }
   const declared = Number(req.headers.get('content-length') ?? 0);
   if (declared > MAX_PUBLIC_FORM_BODY_BYTES) return tooLarge();
-  const text = await req.text();
-  if (Buffer.byteLength(text) > MAX_PUBLIC_FORM_BODY_BYTES) return tooLarge();
+  // Counted while it streams in, so a body that understates (or omits) its
+  // length is cut off at the ceiling instead of being buffered whole.
+  const text = await readCapped(req, MAX_PUBLIC_FORM_BODY_BYTES);
+  if (text === null) return tooLarge();
 
   let body: unknown;
   try {
@@ -62,4 +64,23 @@ export async function POST(
 
 function tooLarge(): Response {
   return Response.json({ ok: false, error: 'PAYLOAD_TOO_LARGE' }, { status: 413 });
+}
+
+/** The body as text, or null as soon as it passes `limit` bytes. */
+async function readCapped(req: Request, limit: number): Promise<string | null> {
+  if (!req.body) return '';
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }

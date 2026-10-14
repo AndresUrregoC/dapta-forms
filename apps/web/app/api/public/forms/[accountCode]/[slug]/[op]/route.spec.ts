@@ -72,6 +72,34 @@ describe('POST /api/public/forms/:accountCode/:slug/:op', () => {
     expect(relay.relayPublicFormCall).not.toHaveBeenCalled();
   });
 
+  it('stops reading a streamed body with no length once it passes the ceiling', async () => {
+    let pulled = 0;
+    const chunk = new TextEncoder().encode('x'.repeat(64 * 1024));
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(chunk);
+      },
+    });
+    const req = new Request('http://localhost/api/public/forms/acme/f/submissions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: endless,
+      duplex: 'half',
+    } as RequestInit);
+    expect((await POST(req, params('submissions'))).status).toBe(413);
+    expect(pulled).toBeLessThan(40);
+    expect(relay.relayPublicFormCall).not.toHaveBeenCalled();
+  });
+
+  it('refuses a declared length over the ceiling without reading the body', async () => {
+    const res = await POST(
+      request('{}', { 'content-type': 'application/json', 'content-length': '2000000' }),
+      params('submissions'),
+    );
+    expect(res.status).toBe(413);
+  });
+
   it('answers 502 when the API cannot be reached: no verdict, so the browser may retry', async () => {
     relay.relayPublicFormCall.mockRejectedValueOnce(new TypeError('fetch failed'));
     const res = await POST(

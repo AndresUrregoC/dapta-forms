@@ -80,6 +80,8 @@ export interface AnswerDraft {
   index?: number;
   /** One page: keys whose answer was seeded, not typed (see `seededKeys`). */
   seeded?: string[];
+  /** The person had started answering: `start` went out, the human check was warmed. */
+  started?: boolean;
 }
 
 export const answerDraftKey = (sessionKey: string) => `${sessionKey}#answers`;
@@ -99,6 +101,7 @@ export function readAnswerDraft(sessionKey: string, sessionId: string): AnswerDr
       answers,
       ...(Number.isInteger(draft.index) && (draft.index as number) >= 0 ? { index: draft.index } : {}),
       ...(Array.isArray(draft.seeded) ? { seeded: draft.seeded.filter((k) => typeof k === 'string') } : {}),
+      ...(draft.started === true ? { started: true } : {}),
     };
   } catch {
     return null;

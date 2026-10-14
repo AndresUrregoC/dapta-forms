@@ -407,10 +407,21 @@ export function VerticalFormRenderer({
     // that was only seeded before the reload stays seeded (no progress tick,
     // no terminal cut), exactly as it was.
     const draft = resume ? readAnswerDraft(sessionKey, sessionId) : null;
-    for (const key of draft?.seeded ?? []) seededKeys.current.add(key);
-    const restored = { ...seed, ...(draft?.answers ?? {}) };
-    if (Object.keys(restored).length > 0) setAnswers((a) => ({ ...restored, ...a }));
-    if (draft && Object.keys(draft.answers).some((key) => !seededKeys.current.has(key))) {
+    const restored = draft?.answers ?? {};
+    // The draft last: a question's own mount-time default (a slider's) has
+    // already landed in `a` and in `seededKeys` by now, and must not replace
+    // what was answered, nor leave a moved slider counted as untouched.
+    if (draft) {
+      const seeded = new Set(draft.seeded ?? []);
+      for (const key of Object.keys(restored)) {
+        if (seeded.has(key)) seededKeys.current.add(key);
+        else seededKeys.current.delete(key);
+      }
+    }
+    if (Object.keys(seed).length > 0 || Object.keys(restored).length > 0) {
+      setAnswers((a) => ({ ...seed, ...a, ...restored }));
+    }
+    if (draft?.started) {
       // The `start` of this session already went out before the reload, and
       // the check above Submit was armed by that first answer.
       startTracked.current = true;
@@ -424,7 +435,12 @@ export function VerticalFormRenderer({
   // with the session id and must not come back.
   useEffect(() => {
     if (!resume || !draftReady || !sessionId || phase !== 'form') return;
-    saveAnswerDraft(sessionKey, { sessionId, answers, seeded: [...seededKeys.current] });
+    saveAnswerDraft(sessionKey, {
+      sessionId,
+      answers,
+      seeded: [...seededKeys.current],
+      ...(startTracked.current ? { started: true } : {}),
+    });
   }, [resume, draftReady, sessionKey, sessionId, answers, phase]);
   useEffect(() => {
     if (!sessionId || viewTracked.current) return;

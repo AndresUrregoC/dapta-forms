@@ -56,7 +56,12 @@ const server = {
   dyingPodTimeouts: 0,
   rows: new Map<string, Row>(),
   bookings: 0,
-  requests: [] as { path: string; status: number; headers: Record<string, string> }[],
+  requests: [] as {
+    path: string;
+    status: number;
+    headers: Record<string, string>;
+    body?: { type?: string };
+  }[],
 };
 
 function reply(status: number, body: unknown) {
@@ -75,7 +80,12 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     ]),
   );
   const done = (res: Response) => {
-    server.requests.push({ path, status: res.status, headers });
+    server.requests.push({
+      path,
+      status: res.status,
+      headers,
+      body: init?.body ? (JSON.parse(String(init.body)) as { type?: string }) : undefined,
+    });
     return res;
   };
   // A Server Action call carries its compiled id. Build B never compiled
@@ -354,4 +364,111 @@ describe('one page: a reload mid-form', () => {
     });
     expect(window.sessionStorage.getItem(answerDraftKey(KEY))).toBeNull();
   });
+});
+
+describe('a reload with a slider', () => {
+  const sliderSteps = [
+    { key: 'budget', type: 'slider' as const, question: 'Budget?', min: 0, max: 10, default: 2 },
+    { key: 'name', type: 'text' as const, question: 'Name?', required: true },
+  ];
+  const range = () => el!.querySelector<HTMLInputElement>('input[type="range"]')!;
+  function slideTo(value: string) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    setter.call(range(), value);
+    range().dispatchEvent(new Event('input', { bubbles: true }));
+    range().dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  it('one page: the moved slider comes back where it was, not at its default', async () => {
+    const config = { version: 1, layout: 'vertical', steps: sliderSteps } as never;
+    const render = () => (
+      <VerticalFormRenderer
+        accountCode="acme"
+        slug="f"
+        name="Quote"
+        config={config}
+        locale="en"
+        resume
+      />
+    );
+    await mount(render());
+    const session = sessionId();
+    await act(async () => slideTo('7'));
+    await settle();
+    expect(range().value).toBe('7');
+
+    await unmount();
+    await mount(render());
+    expect(range().value).toBe('7');
+    await act(async () =>
+      typeInto(
+        el!.querySelector<HTMLInputElement>(
+          '.pf-v__question input[type="text"], .pf-v__question input:not([type])',
+        )!,
+        'Ada',
+      ),
+    );
+    await act(async () => button().click());
+    await settle();
+    expect(server.rows.get(session!)).toEqual({
+      data: { budget: 7, name: 'Ada' },
+      completed: true,
+    });
+  });
+
+  it('slides: the moved slider comes back where it was, not at its default', async () => {
+    const config = { version: 1, steps: sliderSteps } as never;
+    const render = () => (
+      <FormRenderer accountCode="acme" slug="f" name="Quote" config={config} locale="en" resume />
+    );
+    await mount(render());
+    await act(async () => slideTo('7'));
+    await settle();
+
+    await unmount();
+    await mount(render());
+    expect(range().value).toBe('7');
+  });
+});
+
+describe('a reload before answering anything', () => {
+  it.each([
+    [
+      'slides',
+      () => (
+        <FormRenderer accountCode="acme" slug="f" name="Quote" config={slides} locale="en" resume />
+      ),
+      async () => answerSlide('Ada'),
+    ],
+    [
+      'one page',
+      () => (
+        <VerticalFormRenderer
+          accountCode="acme"
+          slug="f"
+          name="Quote"
+          config={onePage}
+          locale="en"
+          resume
+        />
+      ),
+      async () => {
+        await act(async () => typeInto(onePageInputs()[0]!, 'Ada'));
+        await settle();
+      },
+    ],
+  ])(
+    '%s: does not count as started, so `start` still goes out with the first answer',
+    async (_, render, answerFirst) => {
+      await mount(render());
+      await unmount();
+      server.requests = [];
+      await mount(render());
+      await answerFirst();
+      const types = server.requests
+        .filter((r) => r.path.endsWith('/events'))
+        .map((r) => r.body?.type);
+      expect(types).toContain('start');
+    },
+  );
 });

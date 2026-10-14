@@ -463,12 +463,18 @@ export function FormRenderer({
     // they land back on the screen they were on (the clamp below corrects an
     // index the restored answers no longer reach).
     const draft = resume ? readAnswerDraft(sessionKey, sessionId) : null;
-    const restored = { ...seed, ...(draft?.answers ?? {}) };
-    if (Object.keys(restored).length > 0) setAnswers((a) => ({ ...restored, ...a }));
-    if (draft?.index !== undefined) {
+    const restored = draft?.answers ?? {};
+    // The draft last: a question's own mount-time default (a slider's) has
+    // already landed in `a` by now, and must not replace what was answered.
+    if (Object.keys(seed).length > 0 || Object.keys(restored).length > 0) {
+      setAnswers((a) => ({ ...seed, ...a, ...restored }));
+    }
+    if (draft?.started) {
       // The `start` of this session already went out before the reload.
       startSent.current = true;
       gateRef.current.prewarm();
+    }
+    if (draft?.index !== undefined) {
       setPhase('steps');
       setIndex(draft.index);
     }
@@ -481,7 +487,12 @@ export function FormRenderer({
   useEffect(() => {
     if (!resume || !draftReady || !sessionId) return;
     if (phase !== 'cover' && phase !== 'steps') return;
-    saveAnswerDraft(sessionKey, { sessionId, answers, ...(phase === 'steps' ? { index } : {}) });
+    saveAnswerDraft(sessionKey, {
+      sessionId,
+      answers,
+      ...(phase === 'steps' ? { index } : {}),
+      ...(startSent.current ? { started: true } : {}),
+    });
   }, [resume, draftReady, sessionKey, sessionId, answers, phase, index]);
   useEffect(() => {
     if (!sessionId || viewTracked.current) return;

@@ -84,6 +84,11 @@ export async function relayPublicFormCall(
         slug,
         body as Parameters<typeof postSubmission>[2],
       );
+      // A 5xx is the API (or a proxy in front of it, mid-rollout) failing to
+      // answer, not refusing: throwing makes the route answer 502, which the
+      // browser retries. A 4xx (rate limit, human check, bad input) is a real
+      // refusal and goes back as the verdict.
+      if (!res.ok && res.status >= 500) throw new Error(`submissions: API answered ${res.status}`);
       return verdict({
         ok: res.ok,
         score: res.score,
