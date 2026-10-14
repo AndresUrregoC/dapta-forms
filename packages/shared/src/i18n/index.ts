@@ -5,6 +5,16 @@
  * before: typed catalog, `getMessages(locale)`, `{var}` interpolation via `t()`.
  */
 
+import type {
+  ApiArea,
+  ApiErrorCode,
+  ApiIssueCode,
+  ApiNotAllowed,
+  ApiParamDoc,
+  ApiParamIn,
+  ApiRoute,
+} from '../api-reference';
+
 export type Locale = 'en' | 'es';
 
 export interface FormsMessages {
@@ -216,7 +226,7 @@ export interface FormsMessages {
         submissions: string;
         analytics: string;
         integrations: string;
-        /** The API keys page (/admin/developers), between Integrations and Docs. */
+        /** Developers (/admin/developers/*), between Integrations and Docs. Opens `developersMenu`. */
         developers: string;
         /** The product documentation, an EXTERNAL link (see `docsHref`). */
         docs: string;
@@ -226,6 +236,17 @@ export interface FormsMessages {
          * never carries a dead item.
          */
         agents: string;
+      };
+      /**
+       * The two pages under the rail's Developers item: an accordion in the
+       * wide rail and the drawer, a flyout on the collapsed rail. `docs` also
+       * names the docs page itself and the link to it from the keys page.
+       */
+      developersMenu: {
+        /** /admin/developers/keys */
+        keys: string;
+        /** /admin/developers/docs */
+        docs: string;
       };
       /** The bottom-left profile button (avatar + name) and its menu. */
       profileMenu: {
@@ -1958,6 +1979,137 @@ export interface FormsMessages {
       skillButton: string;
       skillUnavailable: string;
     };
+    /**
+     * The API docs page (/admin/developers/docs): the full reference of what an
+     * API key can call. The routes, parameters and examples come from
+     * `API_REFERENCE` (api-reference.ts); this is only the prose, keyed by the
+     * same route strings and parameter docs, so the compiler refuses a route
+     * or a parameter without its text in either language. Text between
+     * backticks renders as inline code, as in `developerDocs`.
+     */
+    apiDocs: {
+      title: string;
+      subtitle: string;
+      /** The index on the left (a selector at the top on a phone). */
+      toc: {
+        /** Accessible name of the index. */
+        label: string;
+        /** Label of the phone selector. */
+        jumpLabel: string;
+        gettingStarted: string;
+        errors: string;
+        limits: string;
+        reference: string;
+        notAllowed: string;
+      };
+      search: {
+        /** Accessible name of the search box. */
+        label: string;
+        placeholder: string;
+        /** No endpoint matches. // {query} */
+        empty: string;
+        clear: string;
+      };
+      errors: {
+        title: string;
+        intro: string;
+        /** Over the example 400. */
+        exampleTitle: string;
+        /** What `issues[]` and its `path` are. */
+        issuesBody: string;
+        codesTitle: string;
+        colStatus: string;
+        colCode: string;
+        colMeaning: string;
+        codes: Record<ApiErrorCode, string>;
+        issueCodesTitle: string;
+        issueCodes: Record<ApiIssueCode, string>;
+      };
+      limits: {
+        title: string;
+        /** // {count} */
+        rate: string;
+        rateBody: string;
+        /** // {count} */
+        keys: string;
+        keysBody: string;
+      };
+      reference: {
+        title: string;
+        intro: string;
+        /** Badge: needs an owner or admin key. */
+        adminOnly: string;
+        adminOnlyHint: string;
+        /** Badge: deletes something. */
+        destructive: string;
+        destructiveHint: string;
+        params: string;
+        colName: string;
+        colDescription: string;
+        required: string;
+        in: Record<ApiParamIn, string>;
+        request: string;
+        /** Over the example answer. // {status} */
+        response: string;
+        /** A 204 answers nothing. */
+        noContent: string;
+        copy: string;
+        copied: string;
+        copyFailed: string;
+        /** Accessible name of an endpoint's own link. // {route} */
+        anchorLabel: string;
+      };
+      /** One heading and one line per area of the reference. */
+      areas: Record<ApiArea, { title: string; intro: string }>;
+      /** What each endpoint is for, one or two sentences. */
+      endpoints: Record<ApiRoute, string>;
+      /** What each parameter means. */
+      params: Record<ApiParamDoc, string>;
+      notAllowed: {
+        title: string;
+        intro: string;
+        items: Record<ApiNotAllowed, string>;
+      };
+    };
+    // ── API docs page: keys the page needs beyond `apiDocs` (feat/api-docs-ui) ──
+    /**
+     * The API docs page's own extras: the Authentication section, the parts of
+     * Getting started that `developerDocs` does not word for this page, and a
+     * few labels of the endpoint cards. Backticks render as inline code.
+     */
+    apiDocsPage: {
+      /** The header link to the keys page. */
+      keysLink: string;
+      start: {
+        intro: string;
+        /** Under each step of the flow: the link down to its endpoint. */
+        flowLink: string;
+      };
+      auth: {
+        /** Section title and its entry in the index. */
+        title: string;
+        actsAs: string;
+        workspace: string;
+        invalid: string;
+      };
+      /** Under the empty search: what to try. */
+      searchHint: string;
+      /** Beside each area's title. // {count} */
+      endpointCount: { one: string; other: string };
+      endpoint: {
+        noParameters: string;
+        /** Beside "Response" when the answer is a CSV file. */
+        csv: string;
+        /** Unfolds a long example answer. // {lines} */
+        showMore: string;
+        showLess: string;
+        /** Accessible names of the copy buttons. */
+        copyCurl: string;
+        copyResponse: string;
+        copyUrl: string;
+      };
+    };
+    // ── end API docs page extras ─────────────────────────────────────────────
     /** Draft → publish controls in the form editor (publish button + badge). */
     publish: {
       publish: string;
@@ -2335,6 +2487,10 @@ export const en: FormsMessages = {
         developers: 'Developers',
         docs: 'Docs',
         agents: 'Dapta Agents',
+      },
+      developersMenu: {
+        keys: 'API keys',
+        docs: 'API docs',
       },
       profileMenu: {
         label: 'Account menu',
@@ -3851,6 +4007,288 @@ export const en: FormsMessages = {
       skillButton: 'Download the skill',
       skillUnavailable: 'The download is available once the API address is configured.',
     },
+    apiDocs: {
+      title: 'API docs',
+      subtitle: 'Every call an API key can make, with its parameters, a curl example and the answer it gets.',
+      toc: {
+        label: 'On this page',
+        jumpLabel: 'Go to',
+        gettingStarted: 'Getting started',
+        errors: 'Errors',
+        limits: 'Limits',
+        reference: 'Reference',
+        notAllowed: 'What a key cannot do',
+      },
+      search: {
+        label: 'Search endpoints',
+        placeholder: 'Search by path or description',
+        empty: 'No endpoint matches “{query}”.',
+        clear: 'Clear search',
+      },
+      errors: {
+        title: 'Errors',
+        intro:
+          'Every error is JSON with a stable `error` code and an English `message`. Read the code, not the message: the code never changes.',
+        exampleTitle: 'A validation error',
+        issuesBody:
+          'A `400` lists every problem in `issues[]`, not only the first, so you can fix them all in one go. Each `path` is the field’s dot path inside the body you sent, with array positions as numbers: `config.steps.1.question` is the question of the second step. `message` repeats the first issue.',
+        codesTitle: 'Error codes',
+        colStatus: 'Status',
+        colCode: 'Code',
+        colMeaning: 'What to do',
+        codes: {
+          BAD_REQUEST: 'Read `issues[]`, fix every entry and send the request again.',
+          STEPS_REQUIRED: 'A `PUT /v1/forms/{id}` config without `steps`. Send the full `steps` array.',
+          INVALID_API_KEY:
+            'The key is unknown or revoked, or the person who created it is no longer in the workspace. Create a new key.',
+          KEY_NOT_ALLOWED: 'This route works only in the dashboard. Do it in dForms.',
+          WORKSPACE_FORBIDDEN: 'You sent a workspace header for another workspace. Drop the header: the key already picks the workspace.',
+          FORBIDDEN:
+            'The person who owns the key lacks the role. Brand kit writes, notifications and the webhook test need an owner or admin.',
+          NOT_FOUND: 'The id is wrong or belongs to another workspace. List again.',
+          STALE:
+            'The form changed since you read it. The body carries `current`, the form as it is now: apply your change on top of it and retry with its `updatedAt`.',
+          NOTHING_TO_REVERT: 'The form has no earlier published version to go back to.',
+          SLUG_TAKEN: 'Another form already uses that slug. Pick another one.',
+          SLUG_INVALID: 'Use lowercase letters, numbers and hyphens only.',
+          NAME_TAKEN: 'A folder with that name already exists.',
+          RATE_LIMITED: 'Too many requests. Wait the seconds in the `Retry-After` header (also `retryAfterSec` in the body), then continue.',
+        },
+        issueCodesTitle: 'Codes inside issues[]',
+        issueCodes: {
+          UNSUPPORTED_FIELD:
+            'A field the editor cannot show, or a value other than the one the editor writes itself. Remove it, or send back the value you read.',
+          EMPTY_QUESTION: 'A step without `question` text. Only `reveal`, `message` and `scheduler` steps may go without one.',
+          STEPS_REQUIRED: 'A config without `steps` on an edit. Send every step, not only the ones you changed.',
+        },
+      },
+      limits: {
+        title: 'Limits',
+        rate: '{count} requests per minute, per key',
+        rateBody:
+          'Past that, the API answers `429` with a `Retry-After` header. Wait that many seconds and continue; nothing you sent before is lost.',
+        keys: '{count} active keys per person, per workspace',
+        keysBody: 'Revoke a key you no longer use to make room for a new one. Revoked keys stop working at once.',
+      },
+      reference: {
+        title: 'Reference',
+        intro:
+          'Paths are relative to the API URL above. Every request carries `Authorization: Bearer $DFORMS_API_KEY`, bodies are JSON and times are epoch milliseconds.',
+        adminOnly: 'Owner or admin',
+        adminOnlyHint: 'Needs a key created by an owner or admin of the workspace. Anyone else gets `403 FORBIDDEN`.',
+        destructive: 'Deletes data',
+        destructiveHint: 'Cannot be undone. An agent should ask the person before calling it.',
+        params: 'Parameters',
+        colName: 'Name',
+        colDescription: 'Description',
+        required: 'Required',
+        in: { path: 'Path', query: 'Query', body: 'Body' },
+        request: 'Request',
+        response: 'Response {status}',
+        noContent: 'No content.',
+        copy: 'Copy',
+        copied: 'Copied',
+        copyFailed: 'Could not copy',
+        anchorLabel: 'Link to {route}',
+      },
+      areas: {
+        forms: {
+          title: 'Forms',
+          intro: 'Create, read, edit, publish, revert, rename, copy, file and delete forms.',
+        },
+        folders: { title: 'Folders', intro: 'Group forms in folders. Deleting a folder keeps its forms.' },
+        destinations: {
+          title: 'Destinations',
+          intro: 'Where each response goes besides dForms: webhooks and HubSpot. They take effect at once, without publishing.',
+        },
+        responses: {
+          title: 'Responses',
+          intro: 'Read, filter, export and delete a form’s responses, and see the deliveries that failed.',
+        },
+        analytics: {
+          title: 'Analytics',
+          intro: 'The funnel of a form, and a breakdown of the answers to each question.',
+        },
+        branding: {
+          title: 'Brand kit',
+          intro: 'The workspace’s logo, colours and type, and applying them to forms.',
+        },
+        notifications: {
+          title: 'Notifications',
+          intro: 'The emails dForms sends on each response, for the whole workspace or for one form.',
+        },
+        integrations: {
+          title: 'Integrations (read only)',
+          intro: 'What is connected and what a destination or a scheduler step can point at. Connecting stays in the dashboard.',
+        },
+        identity: {
+          title: 'Identity',
+          intro: 'Who the key acts as. Call `GET /v1/me` first to check a key.',
+        },
+      },
+      endpoints: {
+        'GET /v1/forms':
+          'Lists the workspace’s forms, most recently updated first, with their `publicUrl` and `editorUrl`.',
+        'POST /v1/forms':
+          'Creates a form. The config is live at once. It is not idempotent: if a call fails or times out, list the forms before you try again.',
+        'GET /v1/forms/:id':
+          'One form: the live `config`, the pending `draftConfig` (or `null`), when it was published and the stamp to send back as `expectedUpdatedAt`.',
+        'PUT /v1/forms/:id':
+          'Saves a new config as a draft; the public form does not change until you publish. The config replaces the whole draft, so send every step.',
+        'POST /v1/forms/:id/publish': 'Makes the draft live. With no draft pending, it answers the form unchanged.',
+        'POST /v1/forms/:id/revert':
+          'Puts the previously published version back live. Calling it again undoes the revert. The pending draft and the destinations stay as they are.',
+        'PUT /v1/forms/:id/slug':
+          'Changes the last part of the public URL. The old slug keeps redirecting to the form.',
+        'POST /v1/forms/:id/duplicate': 'Copies a form, with its config, into a new form.',
+        'PATCH /v1/forms/:id/folder': 'Files a form in a folder, or takes it out with `null`.',
+        'DELETE /v1/forms/:id': 'Deletes a form and its responses.',
+        'GET /v1/folders': 'Lists the folders, in alphabetical order.',
+        'POST /v1/folders': 'Creates a folder.',
+        'PATCH /v1/folders/:id': 'Renames a folder.',
+        'DELETE /v1/folders/:id': 'Deletes a folder. Its forms are kept, outside any folder.',
+        'PUT /v1/forms/:id/destinations':
+          'Replaces the form’s destinations (webhooks and HubSpot). Takes effect at once, without publishing.',
+        'POST /v1/forms/:id/destinations/webhook/ping':
+          'Sends a test event to the form’s webhook and tells you how the endpoint answered.',
+        'GET /v1/forms/:id/submissions':
+          'A page of responses under the filters you pass, with the `total` to page through them.',
+        'GET /v1/forms/:id/submissions/:submissionId': 'One response with all its answers.',
+        'GET /v1/forms/:id/submissions/:submissionId/files/:stepKey':
+          'Short-lived links to download an uploaded file, and to show it in place when its type allows it.',
+        'GET /v1/forms/:id/submissions.csv':
+          'Every response under the filters as a CSV for a spreadsheet: one column per question, option labels instead of values. Not paginated.',
+        'POST /v1/forms/:id/submissions/bulk-delete': 'Deletes several responses of a form at once.',
+        'DELETE /v1/submissions/:id': 'Deletes one response.',
+        'GET /v1/forms/:id/deliveries':
+          'The deliveries to the form’s destinations. Only the failed ones unless you ask for other statuses.',
+        'GET /v1/forms/:id/analytics':
+          'The funnel: views, starts, completions, completion rate, time to complete, drop-off per step and a point per day.',
+        'GET /v1/forms/:id/summary':
+          'One card per question: how many picked each option, and the latest written answers. Takes the response filters.',
+        'GET /v1/forms/:id/submissions-facets':
+          'How many responses there are, completed and partial, and how many picked each option, before any filter.',
+        'GET /v1/forms/:id/summary/:stepKey/answers': 'Searches the answers to one written question, newest first.',
+        'GET /v1/branding': 'The workspace brand kit.',
+        'PUT /v1/branding':
+          'Replaces the brand kit. New forms take it at once; existing forms only when you apply it.',
+        'POST /v1/branding/apply': 'Applies the brand kit to the forms you name.',
+        'POST /v1/branding/revert': 'Puts back the look the forms had before the brand kit was applied.',
+        'GET /v1/notifications':
+          'The two emails dForms sends on each response: the notice to your team and the receipt to the person who answered.',
+        'PUT /v1/notifications/:emailKey': 'Turns an email on or off, changes its text or who gets the notice.',
+        'POST /v1/notifications/:emailKey/reset': 'Puts an email’s subject and body back to the default text.',
+        'GET /v1/forms/:id/notifications': 'The same two emails for one form: the workspace setting and the form’s own, if any.',
+        'PUT /v1/forms/:id/notifications/:emailKey': 'Gives one form its own version of an email.',
+        'POST /v1/forms/:id/notifications/:emailKey/reset':
+          'Removes the form’s own version, so it follows the workspace setting again.',
+        'GET /v1/integrations': 'Which integrations the workspace has connected. Never returns a token.',
+        'GET /v1/integrations/webhooks': 'Every webhook the workspace’s forms send to, with its recent failures.',
+        'GET /v1/integrations/hubspot/properties': 'The HubSpot contact properties a destination can map answers to.',
+        'GET /v1/integrations/calendly/event-types': 'The Calendly event types a scheduler step can book.',
+        'GET /v1/me': 'The person and the workspace the key acts as, with the person’s role.',
+        'GET /v1/me/profile': 'The person’s public page, if they set one up.',
+        'GET /v1/vanity': 'The workspace’s public code and its custom one, if it claimed one.',
+      },
+      params: {
+        formId: 'The form’s `id`, from `GET /v1/forms` or the answer that created it.',
+        folderPathId: 'The folder’s `id`, from `GET /v1/folders`.',
+        submissionPathId: 'The response’s `id`, from the response list.',
+        submissionDeleteId: 'The response’s `id`, from the response list.',
+        fileStepKey: 'The `key` of the file upload question.',
+        textStepKey: 'The `key` of a written question (short or long text, name, email, phone or URL).',
+        emailKey: '`submission_received` is the notice to your team; `submission_confirmed`, the receipt to the person who answered.',
+        formName: 'The form’s name in the dashboard, 1 to 200 characters.',
+        formSlug: 'The last part of the public URL. Made from the name when you leave it out.',
+        formConfig:
+          'The form itself: `version: 1`, the `steps`, and optionally the cover, scoring, outcomes and branding. Only fields the editor can show are accepted.',
+        formFolderId: 'The folder to file the new form in.',
+        formConfigEdit: 'The whole config, with every step. It replaces the draft; the steps you leave out are deleted.',
+        formNameEdit: 'A new name. Applies at once, without publishing.',
+        expectedUpdatedAt:
+          'The form’s `updatedAt` as you read it. If someone saved the form since, you get `409 STALE` instead of overwriting their work.',
+        newSlug: 'The new slug: lowercase letters, numbers and hyphens, up to 80 characters.',
+        fileFolderId: 'The folder’s `id`, or `null` to take the form out of its folder.',
+        folderName: 'The folder’s name, 1 to 80 characters, unique in the workspace.',
+        destinations:
+          'Every destination of the form, each a `webhook` or a `hubspot` one. The list replaces the current one; at most one HubSpot destination per form.',
+        status: '`all` (the default), `completed` or `partial`.',
+        from: 'Responses started from this day on: `YYYY-MM-DD` in the workspace’s time zone, or epoch ms.',
+        to: 'Responses started up to this day: `YYYY-MM-DD` (the whole day) or epoch ms.',
+        scoreMin: 'Lowest score, inclusive. Ignored when the form does not score.',
+        scoreMax: 'Highest score, inclusive. Ignored when the form does not score.',
+        answers: 'Choice answers to filter by, as JSON: `{"step_key": ["value"]}`. URL-encode it.',
+        search: 'Free text, searched in the written answers.',
+        sort: '`newest` (the default), `oldest`, `score_desc` or `score_asc`.',
+        limit: 'Responses per page, up to 200.',
+        offset: 'How many responses to skip, for the next page.',
+        csvIds: 'Only these responses, by `id`, separated by commas.',
+        submissionIds: 'The `id`s of the responses to delete.',
+        deliveryStatus: 'Statuses to include, separated by commas: `failed` (the default), `done`, `pending` or `skipped`.',
+        deliveryKind: 'Kinds to include, separated by commas, such as `webhook`, `hubspot` or `email`.',
+        deliveryLimit: 'How many deliveries to return. 50 by default.',
+        tz: 'An IANA time zone (`America/Bogota`) to count days in. The workspace’s by default.',
+        q: 'Text to look for anywhere in the answer. Leave it out to list them all.',
+        answersLimit: 'Answers per page, up to 50.',
+        brandLogo: 'The logo, as an https URL. `null` removes it.',
+        brandPrimaryColor: 'The colour of buttons and highlights.',
+        brandBackground: 'The page background. Setting it fixes the form to a light or dark look.',
+        brandForeground: 'The text colour.',
+        brandFontFamily: 'The typeface: `figtree`, `poppins`, `inter`, `dm-sans`, `space-grotesk`, `manrope`, `work-sans`, `fraunces` or `playfair`.',
+        brandRadius: 'How rounded the corners are.',
+        brandButtonStyle: 'How buttons are drawn.',
+        brandClientLogos: 'Logos of your clients to show on the cover, up to 24.',
+        formIds: 'The `id`s of the forms, 1 to 500.',
+        notificationEnabled: 'Whether the email is sent.',
+        notificationSubject: 'The subject, with `{{token}}` markers such as `{{formName}}`. `null` puts the default back.',
+        notificationBody: 'The body as plain text, with `{{token}}` markers. `null` puts the default back.',
+        notificationRecipients:
+          'Who gets the notice to your team. Not accepted on `submission_confirmed`, which goes to the person who answered.',
+      },
+      notAllowed: {
+        title: 'What a key cannot do',
+        intro:
+          'These stay in the dashboard, for a person signed in. With a key they answer `403 KEY_NOT_ALLOWED`.',
+        items: {
+          keys: 'Create, list or revoke API keys.',
+          members: 'Invite, change or remove members, or resend invitations.',
+          workspaces: 'Create, rename or switch workspaces, or change their time zone.',
+          onboarding: 'Answer the onboarding questions.',
+          profile: 'Change your public page, your language or the workspace’s custom public code.',
+          integrations: 'Connect or disconnect HubSpot or Calendly.',
+        },
+      },
+    },
+    // ── API docs page: keys the page needs beyond `apiDocs` (feat/api-docs-ui) ──
+    apiDocsPage: {
+      keysLink: 'API keys',
+      start: {
+        intro:
+          'Connect an AI agent (Claude Code, Codex, Cursor) or your own code to this workspace with an API key. The API is the same one the dashboard uses, so every form it creates shows up here.',
+        flowLink: 'See the endpoint',
+      },
+      auth: {
+        title: 'Authentication',
+        actsAs:
+          'A key acts as the person who created it, with that person’s current role. Routes marked `Owner or admin` answer `403 FORBIDDEN` to anyone else’s key.',
+        workspace:
+          'The key already belongs to one workspace. A workspace header naming another one answers `403 WORKSPACE_FORBIDDEN`.',
+        invalid:
+          'An unknown or revoked key, or one whose creator left the workspace, answers `401 INVALID_API_KEY`.',
+      },
+      searchHint: 'Try part of a path, like `/v1/forms`, or a word like `publish`.',
+      endpointCount: { one: '1 endpoint', other: '{count} endpoints' },
+      endpoint: {
+        noParameters: 'No parameters.',
+        csv: 'CSV file',
+        showMore: 'Show the full response ({lines} lines)',
+        showLess: 'Show less',
+        copyCurl: 'Copy the curl command',
+        copyResponse: 'Copy the example',
+        copyUrl: 'Copy the API URL',
+      },
+    },
+    // ── end API docs page extras ─────────────────────────────────────────────
     publish: {
       publish: 'Publish',
       publishing: 'Publishing…',
@@ -4216,6 +4654,10 @@ export const es: FormsMessages = {
         developers: 'Developers',
         docs: 'Documentación',
         agents: 'Dapta Agents',
+      },
+      developersMenu: {
+        keys: 'Llaves de API',
+        docs: 'Docs de la API',
       },
       profileMenu: {
         label: 'Menú de cuenta',
@@ -5743,6 +6185,288 @@ export const es: FormsMessages = {
       skillButton: 'Descargar el skill',
       skillUnavailable: 'La descarga estará disponible cuando se configure la dirección de la API.',
     },
+    apiDocs: {
+      title: 'Docs de la API',
+      subtitle: 'Todas las llamadas que puede hacer una llave de API, con sus parámetros, un ejemplo con curl y la respuesta que recibe.',
+      toc: {
+        label: 'En esta página',
+        jumpLabel: 'Ir a',
+        gettingStarted: 'Primeros pasos',
+        errors: 'Errores',
+        limits: 'Límites',
+        reference: 'Referencia',
+        notAllowed: 'Lo que una llave no puede hacer',
+      },
+      search: {
+        label: 'Buscar endpoints',
+        placeholder: 'Busca por ruta o descripción',
+        empty: 'Ningún endpoint coincide con “{query}”.',
+        clear: 'Borrar la búsqueda',
+      },
+      errors: {
+        title: 'Errores',
+        intro:
+          'Todo error es un JSON con un código `error` estable y un `message` en inglés. Lee el código, no el mensaje: el código nunca cambia.',
+        exampleTitle: 'Un error de validación',
+        issuesBody:
+          'Un `400` trae todos los problemas en `issues[]`, no solo el primero, para que los corrijas todos de una vez. Cada `path` es la ruta con puntos del campo dentro del body que mandaste, con las posiciones de los arrays como números: `config.steps.1.question` es la pregunta del segundo paso. `message` repite el primer problema.',
+        codesTitle: 'Códigos de error',
+        colStatus: 'Estado',
+        colCode: 'Código',
+        colMeaning: 'Qué hacer',
+        codes: {
+          BAD_REQUEST: 'Lee `issues[]`, corrige cada entrada y vuelve a mandar el request.',
+          STEPS_REQUIRED: 'Una config de `PUT /v1/forms/{id}` sin `steps`. Manda el array `steps` completo.',
+          INVALID_API_KEY:
+            'La llave no existe o fue revocada, o quien la creó ya no está en el workspace. Crea una llave nueva.',
+          KEY_NOT_ALLOWED: 'Esta ruta solo funciona en el dashboard. Hazlo en dForms.',
+          WORKSPACE_FORBIDDEN: 'Mandaste un header de workspace de otro workspace. Quita el header: la llave ya elige el workspace.',
+          FORBIDDEN:
+            'La persona dueña de la llave no tiene el rol. Escribir el brand kit, las notificaciones y la prueba del webhook necesitan owner o admin.',
+          NOT_FOUND: 'El id está mal o es de otro workspace. Vuelve a listar.',
+          STALE:
+            'El form cambió desde que lo leíste. El body trae `current`, el form como está ahora: aplica tu cambio sobre él y reintenta con su `updatedAt`.',
+          NOTHING_TO_REVERT: 'El form no tiene una versión publicada anterior a la cual volver.',
+          SLUG_TAKEN: 'Otro form ya usa ese slug. Elige otro.',
+          SLUG_INVALID: 'Usa solo minúsculas, números y guiones.',
+          NAME_TAKEN: 'Ya hay una carpeta con ese nombre.',
+          RATE_LIMITED: 'Demasiados requests. Espera los segundos del header `Retry-After` (también `retryAfterSec` en el body) y sigue.',
+        },
+        issueCodesTitle: 'Códigos dentro de issues[]',
+        issueCodes: {
+          UNSUPPORTED_FIELD:
+            'Un campo que el editor no puede mostrar, o un valor distinto del que el editor escribe solo. Quítalo, o manda de vuelta el valor que leíste.',
+          EMPTY_QUESTION: 'Un paso sin texto en `question`. Solo los pasos `reveal`, `message` y `scheduler` pueden ir sin pregunta.',
+          STEPS_REQUIRED: 'Una config sin `steps` al editar. Manda todos los pasos, no solo los que cambiaste.',
+        },
+      },
+      limits: {
+        title: 'Límites',
+        rate: '{count} requests por minuto, por llave',
+        rateBody:
+          'Si te pasas, la API responde `429` con el header `Retry-After`. Espera esos segundos y sigue; no se pierde nada de lo que ya mandaste.',
+        keys: '{count} llaves activas por persona, por workspace',
+        keysBody: 'Revoca una llave que ya no uses para hacerle espacio a una nueva. Una llave revocada deja de funcionar de inmediato.',
+      },
+      reference: {
+        title: 'Referencia',
+        intro:
+          'Las rutas son relativas a la URL de la API de arriba. Cada request lleva `Authorization: Bearer $DFORMS_API_KEY`, los bodies son JSON y las fechas van en epoch milisegundos.',
+        adminOnly: 'Owner o admin',
+        adminOnlyHint: 'Necesita una llave creada por un owner o admin del workspace. Cualquier otra recibe `403 FORBIDDEN`.',
+        destructive: 'Borra datos',
+        destructiveHint: 'No se puede deshacer. Un agente debería preguntarle a la persona antes de llamarla.',
+        params: 'Parámetros',
+        colName: 'Nombre',
+        colDescription: 'Descripción',
+        required: 'Obligatorio',
+        in: { path: 'Ruta', query: 'Query', body: 'Body' },
+        request: 'Request',
+        response: 'Respuesta {status}',
+        noContent: 'Sin contenido.',
+        copy: 'Copiar',
+        copied: 'Copiado',
+        copyFailed: 'No se pudo copiar',
+        anchorLabel: 'Link a {route}',
+      },
+      areas: {
+        forms: {
+          title: 'Forms',
+          intro: 'Crea, lee, edita, publica, revierte, renombra, copia, mueve a carpetas y borra forms.',
+        },
+        folders: { title: 'Carpetas', intro: 'Agrupa forms en carpetas. Al borrar una carpeta, sus forms se quedan.' },
+        destinations: {
+          title: 'Destinos',
+          intro: 'A dónde va cada respuesta además de dForms: webhooks y HubSpot. Aplican de inmediato, sin publicar.',
+        },
+        responses: {
+          title: 'Respuestas',
+          intro: 'Lee, filtra, exporta y borra las respuestas de un form, y mira los envíos que fallaron.',
+        },
+        analytics: {
+          title: 'Analítica',
+          intro: 'El embudo de un form y el desglose de las respuestas a cada pregunta.',
+        },
+        branding: {
+          title: 'Brand kit',
+          intro: 'El logo, los colores y la tipografía del workspace, y cómo aplicarlos a los forms.',
+        },
+        notifications: {
+          title: 'Notificaciones',
+          intro: 'Los correos que dForms manda con cada respuesta, para todo el workspace o para un form.',
+        },
+        integrations: {
+          title: 'Integraciones (solo lectura)',
+          intro: 'Qué está conectado y a qué puede apuntar un destino o un paso de agenda. Conectar se hace en el dashboard.',
+        },
+        identity: {
+          title: 'Identidad',
+          intro: 'Como quién actúa la llave. Llama primero a `GET /v1/me` para probar una llave.',
+        },
+      },
+      endpoints: {
+        'GET /v1/forms':
+          'Lista los forms del workspace, el último editado primero, con su `publicUrl` y su `editorUrl`.',
+        'POST /v1/forms':
+          'Crea un form. La config queda publicada de inmediato. No es idempotente: si una llamada falla o se demora demasiado, lista los forms antes de volver a intentar.',
+        'GET /v1/forms/:id':
+          'Un form: la `config` publicada, el borrador pendiente en `draftConfig` (o `null`), cuándo se publicó y el sello que debes mandar como `expectedUpdatedAt`.',
+        'PUT /v1/forms/:id':
+          'Guarda una config nueva como borrador; el form público no cambia hasta que publiques. La config reemplaza el borrador entero, así que manda todos los pasos.',
+        'POST /v1/forms/:id/publish': 'Publica el borrador. Si no hay borrador pendiente, responde el form sin cambios.',
+        'POST /v1/forms/:id/revert':
+          'Vuelve a publicar la versión anterior. Si la llamas otra vez, deshaces el cambio. El borrador pendiente y los destinos se quedan como están.',
+        'PUT /v1/forms/:id/slug':
+          'Cambia la última parte de la URL pública. El slug anterior sigue redirigiendo al form.',
+        'POST /v1/forms/:id/duplicate': 'Copia un form, con su config, en un form nuevo.',
+        'PATCH /v1/forms/:id/folder': 'Mueve un form a una carpeta, o lo saca con `null`.',
+        'DELETE /v1/forms/:id': 'Borra un form y sus respuestas.',
+        'GET /v1/folders': 'Lista las carpetas en orden alfabético.',
+        'POST /v1/folders': 'Crea una carpeta.',
+        'PATCH /v1/folders/:id': 'Renombra una carpeta.',
+        'DELETE /v1/folders/:id': 'Borra una carpeta. Sus forms se quedan, fuera de cualquier carpeta.',
+        'PUT /v1/forms/:id/destinations':
+          'Reemplaza los destinos del form (webhooks y HubSpot). Aplica de inmediato, sin publicar.',
+        'POST /v1/forms/:id/destinations/webhook/ping':
+          'Manda un evento de prueba al webhook del form y te dice cómo respondió el endpoint.',
+        'GET /v1/forms/:id/submissions':
+          'Una página de respuestas con los filtros que pases, y el `total` para recorrerlas.',
+        'GET /v1/forms/:id/submissions/:submissionId': 'Una respuesta con todas sus respuestas a cada pregunta.',
+        'GET /v1/forms/:id/submissions/:submissionId/files/:stepKey':
+          'Links de corta duración para descargar un archivo subido, y para verlo en línea cuando su tipo lo permite.',
+        'GET /v1/forms/:id/submissions.csv':
+          'Todas las respuestas que cumplen los filtros, en un CSV para hoja de cálculo: una columna por pregunta y los textos de las opciones en vez de sus valores. Sin paginar.',
+        'POST /v1/forms/:id/submissions/bulk-delete': 'Borra varias respuestas de un form de una vez.',
+        'DELETE /v1/submissions/:id': 'Borra una respuesta.',
+        'GET /v1/forms/:id/deliveries':
+          'Los envíos a los destinos del form. Solo los que fallaron, salvo que pidas otros estados.',
+        'GET /v1/forms/:id/analytics':
+          'El embudo: vistas, inicios, respuestas completas, tasa de completado, tiempo para completar, abandono por paso y un punto por día.',
+        'GET /v1/forms/:id/summary':
+          'Una tarjeta por pregunta: cuántos eligieron cada opción y las últimas respuestas escritas. Acepta los filtros de respuestas.',
+        'GET /v1/forms/:id/submissions-facets':
+          'Cuántas respuestas hay, completas y parciales, y cuántos eligieron cada opción, antes de cualquier filtro.',
+        'GET /v1/forms/:id/summary/:stepKey/answers': 'Busca en las respuestas a una pregunta escrita, la más reciente primero.',
+        'GET /v1/branding': 'El brand kit del workspace.',
+        'PUT /v1/branding':
+          'Reemplaza el brand kit. Los forms nuevos lo toman de inmediato; los que ya existen, solo cuando lo aplicas.',
+        'POST /v1/branding/apply': 'Aplica el brand kit a los forms que indiques.',
+        'POST /v1/branding/revert': 'Devuelve a los forms el estilo que tenían antes de aplicar el brand kit.',
+        'GET /v1/notifications':
+          'Los dos correos que dForms manda con cada respuesta: el aviso para tu equipo y el comprobante para quien respondió.',
+        'PUT /v1/notifications/:emailKey': 'Activa o desactiva un correo, cambia su texto o quién recibe el aviso.',
+        'POST /v1/notifications/:emailKey/reset': 'Devuelve el asunto y el cuerpo de un correo al texto por defecto.',
+        'GET /v1/forms/:id/notifications': 'Los mismos dos correos para un form: lo que define el workspace y la versión propia del form, si la tiene.',
+        'PUT /v1/forms/:id/notifications/:emailKey': 'Le da a un form su propia versión de un correo.',
+        'POST /v1/forms/:id/notifications/:emailKey/reset':
+          'Quita la versión propia del form, que vuelve a seguir lo que define el workspace.',
+        'GET /v1/integrations': 'Qué integraciones conectó el workspace. Nunca devuelve un token.',
+        'GET /v1/integrations/webhooks': 'Todos los webhooks a los que mandan los forms del workspace, con sus fallas recientes.',
+        'GET /v1/integrations/hubspot/properties': 'Las propiedades de contacto de HubSpot a las que un destino puede mapear respuestas.',
+        'GET /v1/integrations/calendly/event-types': 'Los tipos de evento de Calendly que puede agendar un paso de agenda.',
+        'GET /v1/me': 'La persona y el workspace por los que actúa la llave, con el rol de la persona.',
+        'GET /v1/me/profile': 'La página pública de la persona, si la configuró.',
+        'GET /v1/vanity': 'El código público del workspace y el personalizado, si reclamó uno.',
+      },
+      params: {
+        formId: 'El `id` del form, de `GET /v1/forms` o de la respuesta que lo creó.',
+        folderPathId: 'El `id` de la carpeta, de `GET /v1/folders`.',
+        submissionPathId: 'El `id` de la respuesta, de la lista de respuestas.',
+        submissionDeleteId: 'El `id` de la respuesta, de la lista de respuestas.',
+        fileStepKey: 'La `key` de la pregunta de subir archivo.',
+        textStepKey: 'La `key` de una pregunta escrita (texto corto o largo, nombre, email, teléfono o URL).',
+        emailKey: '`submission_received` es el aviso para tu equipo; `submission_confirmed`, el comprobante para quien respondió.',
+        formName: 'El nombre del form en el dashboard, de 1 a 200 caracteres.',
+        formSlug: 'La última parte de la URL pública. Si no lo mandas, sale del nombre.',
+        formConfig:
+          'El form en sí: `version: 1`, los `steps` y, si quieres, la portada, el puntaje, los resultados y el estilo. Solo se aceptan campos que el editor puede mostrar.',
+        formFolderId: 'La carpeta en la que queda el form nuevo.',
+        formConfigEdit: 'La config entera, con todos los pasos. Reemplaza el borrador; los pasos que no mandes se borran.',
+        formNameEdit: 'Un nombre nuevo. Aplica de inmediato, sin publicar.',
+        expectedUpdatedAt:
+          'El `updatedAt` del form tal como lo leíste. Si alguien guardó el form desde entonces, recibes `409 STALE` en vez de pisar su trabajo.',
+        newSlug: 'El slug nuevo: minúsculas, números y guiones, hasta 80 caracteres.',
+        fileFolderId: 'El `id` de la carpeta, o `null` para sacar el form de su carpeta.',
+        folderName: 'El nombre de la carpeta, de 1 a 80 caracteres, único en el workspace.',
+        destinations:
+          'Todos los destinos del form, cada uno `webhook` o `hubspot`. La lista reemplaza la actual; máximo un destino de HubSpot por form.',
+        status: '`all` (por defecto), `completed` o `partial`.',
+        from: 'Respuestas iniciadas desde este día: `YYYY-MM-DD` en la zona horaria del workspace, o epoch ms.',
+        to: 'Respuestas iniciadas hasta este día: `YYYY-MM-DD` (el día completo) o epoch ms.',
+        scoreMin: 'Puntaje mínimo, incluido. Se ignora si el form no tiene puntaje.',
+        scoreMax: 'Puntaje máximo, incluido. Se ignora si el form no tiene puntaje.',
+        answers: 'Respuestas de opción por las que filtrar, en JSON: `{"step_key": ["value"]}`. Codifícalo para URL.',
+        search: 'Texto libre, que se busca en las respuestas escritas.',
+        sort: '`newest` (por defecto), `oldest`, `score_desc` o `score_asc`.',
+        limit: 'Respuestas por página, hasta 200.',
+        offset: 'Cuántas respuestas saltar, para la página siguiente.',
+        csvIds: 'Solo estas respuestas, por `id`, separadas por comas.',
+        submissionIds: 'Los `id` de las respuestas que vas a borrar.',
+        deliveryStatus: 'Estados a incluir, separados por comas: `failed` (por defecto), `done`, `pending` o `skipped`.',
+        deliveryKind: 'Tipos a incluir, separados por comas, como `webhook`, `hubspot` o `email`.',
+        deliveryLimit: 'Cuántos envíos devolver. 50 por defecto.',
+        tz: 'Una zona horaria IANA (`America/Bogota`) para contar los días. Por defecto, la del workspace.',
+        q: 'Texto a buscar en cualquier parte de la respuesta. Si no lo mandas, lista todas.',
+        answersLimit: 'Respuestas por página, hasta 50.',
+        brandLogo: 'El logo, como URL https. `null` lo quita.',
+        brandPrimaryColor: 'El color de los botones y los resaltados.',
+        brandBackground: 'El fondo de la página. Al definirlo, el form queda fijo en claro u oscuro.',
+        brandForeground: 'El color del texto.',
+        brandFontFamily: 'La tipografía: `figtree`, `poppins`, `inter`, `dm-sans`, `space-grotesk`, `manrope`, `work-sans`, `fraunces` o `playfair`.',
+        brandRadius: 'Qué tan redondeadas son las esquinas.',
+        brandButtonStyle: 'Cómo se dibujan los botones.',
+        brandClientLogos: 'Logos de tus clientes para mostrar en la portada, hasta 24.',
+        formIds: 'Los `id` de los forms, de 1 a 500.',
+        notificationEnabled: 'Si el correo se manda.',
+        notificationSubject: 'El asunto, con marcadores `{{token}}` como `{{formName}}`. `null` vuelve al texto por defecto.',
+        notificationBody: 'El cuerpo en texto plano, con marcadores `{{token}}`. `null` vuelve al texto por defecto.',
+        notificationRecipients:
+          'Quién recibe el aviso para tu equipo. No se acepta en `submission_confirmed`, que va a quien respondió.',
+      },
+      notAllowed: {
+        title: 'Lo que una llave no puede hacer',
+        intro:
+          'Esto se queda en el dashboard, para una persona con sesión iniciada. Con una llave responde `403 KEY_NOT_ALLOWED`.',
+        items: {
+          keys: 'Crear, listar o revocar llaves de API.',
+          members: 'Invitar, cambiar o quitar miembros, o reenviar invitaciones.',
+          workspaces: 'Crear, renombrar o cambiar de workspace, o cambiar su zona horaria.',
+          onboarding: 'Responder las preguntas del onboarding.',
+          profile: 'Cambiar tu página pública, tu idioma o el código público personalizado del workspace.',
+          integrations: 'Conectar o desconectar HubSpot o Calendly.',
+        },
+      },
+    },
+    // ── API docs page: keys the page needs beyond `apiDocs` (feat/api-docs-ui) ──
+    apiDocsPage: {
+      keysLink: 'Llaves de API',
+      start: {
+        intro:
+          'Conecta un agente de IA (Claude Code, Codex, Cursor) o tu propio código a este workspace con una llave de API. La API es la misma que usa el dashboard, así que cada form que cree aparece aquí.',
+        flowLink: 'Ver el endpoint',
+      },
+      auth: {
+        title: 'Autenticación',
+        actsAs:
+          'Una llave actúa como la persona que la creó, con el rol que esa persona tenga hoy. Las rutas marcadas `Owner o admin` responden `403 FORBIDDEN` a la llave de cualquier otra persona.',
+        workspace:
+          'La llave ya pertenece a un workspace. Un header de workspace que nombre otro responde `403 WORKSPACE_FORBIDDEN`.',
+        invalid:
+          'Una llave desconocida o revocada, o una cuya persona ya no está en el workspace, responde `401 INVALID_API_KEY`.',
+      },
+      searchHint: 'Prueba con parte de una ruta, como `/v1/forms`, o con una palabra como `publica`.',
+      endpointCount: { one: '1 endpoint', other: '{count} endpoints' },
+      endpoint: {
+        noParameters: 'Sin parámetros.',
+        csv: 'Archivo CSV',
+        showMore: 'Ver la respuesta completa ({lines} líneas)',
+        showLess: 'Ver menos',
+        copyCurl: 'Copiar el comando curl',
+        copyResponse: 'Copiar el ejemplo',
+        copyUrl: 'Copiar la URL de la API',
+      },
+    },
+    // ── end API docs page extras ─────────────────────────────────────────────
     publish: {
       publish: 'Publicar',
       publishing: 'Publicando…',

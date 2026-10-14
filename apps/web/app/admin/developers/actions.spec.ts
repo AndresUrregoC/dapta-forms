@@ -49,7 +49,7 @@ describe('createApiKeyAction', () => {
     createApiKey.mockResolvedValue(created);
     await expect(createApiKeyAction('  Claude Code  ')).resolves.toEqual({ ok: true, key: created });
     expect(createApiKey).toHaveBeenCalledWith('Claude Code');
-    expect(revalidatePath).toHaveBeenCalledWith('/admin/developers');
+    expect(revalidatePath).toHaveBeenCalledWith('/admin/developers/keys');
   });
 
   it('refuses a blank name or one over 60 characters without calling the API', async () => {
@@ -92,7 +92,7 @@ describe('revokeApiKeyAction', () => {
     revokeApiKey.mockResolvedValue(undefined);
     await expect(revokeApiKeyAction('key-1')).resolves.toEqual({ ok: true });
     expect(revokeApiKey).toHaveBeenCalledWith('key-1');
-    expect(revalidatePath).toHaveBeenCalledWith('/admin/developers');
+    expect(revalidatePath).toHaveBeenCalledWith('/admin/developers/keys');
   });
 
   it('never reports a 404 as a revoke, and refreshes the list', async () => {
@@ -100,7 +100,7 @@ describe('revokeApiKeyAction', () => {
     // tab), where the key is still alive: saying "revoked" would be a lie.
     revokeApiKey.mockRejectedValue(new ApiError(404, 'gone', 'NOT_FOUND'));
     await expect(revokeApiKeyAction('key-1')).resolves.toEqual({ ok: false, code: 'GONE' });
-    expect(revalidatePath).toHaveBeenCalledWith('/admin/developers');
+    expect(revalidatePath).toHaveBeenCalledWith('/admin/developers/keys');
   });
 
   it('says FORBIDDEN when the key belongs to someone else', async () => {

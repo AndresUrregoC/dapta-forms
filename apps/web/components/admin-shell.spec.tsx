@@ -1,10 +1,15 @@
 /**
  * The rail's "Developers" item: in the list right after Integrations and before
  * Docs, in both rails (the desktop one, open or collapsed, and the mobile
- * drawer), and marked as the current page on its route.
+ * drawer). It is a group with two pages under it, API keys and API docs: an
+ * accordion in the wide rail and the drawer, a flyout menu on the collapsed
+ * rail. The group opens on its own on a Developers route, and the parent and
+ * the page you are on are both marked.
  *
  * Both rails are in the server markup at once (the drawer is translated off
  * screen, not unmounted), so one render covers the desktop rail and the drawer.
+ * The flyout is portalled and only exists once opened in a browser: see
+ * admin-shell.interaction.spec.tsx.
  */
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -16,8 +21,10 @@ vi.mock('next/navigation', () => ({
   usePathname: () => nav.pathname,
   useRouter: () => ({ refresh: () => {}, push: () => {} }),
 }));
+// Like the real one on the server: a portal has no DOM to go to, so nothing.
 vi.mock('@/components/ui/anchored-menu', () => ({
-  AnchoredMenu: ({ children }: { children: ReactNode }) => <div data-menu>{children}</div>,
+  AnchoredMenu: ({ open, children }: { open: boolean; children: ReactNode }) =>
+    open ? <div data-menu>{children}</div> : null,
 }));
 
 import { AdminShell } from './admin-shell';
@@ -37,50 +44,117 @@ function render(opts: { pathname: string; collapsed?: boolean; locale?: Locale }
   );
 }
 
-/** Every `<a>` that points at the Developers page, as written in the markup. */
-const developerLinks = (html: string) => html.match(/<a [^>]*href="\/admin\/developers"[^>]*>/g) ?? [];
+/** The two copies of the rail, in DOM order: desktop first, then the drawer. */
+const rails = (html: string) => {
+  const drawer = html.indexOf('role="dialog"');
+  return { desktop: html.slice(0, drawer), drawer: html.slice(drawer) };
+};
+/** Every Developers trigger (a button now, not a link), as written in the markup. */
+const triggers = (html: string) => html.match(/<button [^>]*data-testid="nav-developers"[^>]*>/g) ?? [];
+/** Every `<a>` pointing at one of the Developers pages. */
+const pageLinks = (html: string, page: 'keys' | 'docs') =>
+  html.match(new RegExp(`<a [^>]*href="/admin/developers/${page}"[^>]*>`, 'g')) ?? [];
 
-describe('AdminShell: Developers item', () => {
-  it('appears in the desktop rail and in the mobile drawer', () => {
+describe('AdminShell: Developers group', () => {
+  it('appears in the desktop rail and in the mobile drawer, with the code icon', () => {
     const html = render({ pathname: '/admin' });
-    expect(developerLinks(html)).toHaveLength(2);
+    const { desktop, drawer } = rails(html);
+    expect(triggers(desktop)).toHaveLength(1);
+    expect(triggers(drawer)).toHaveLength(1);
     expect(html).toContain('pi-code');
   });
 
   it('sits after Integrations and before Docs', () => {
     const html = render({ pathname: '/admin' });
     const integrations = html.indexOf('href="/admin/integrations"');
-    const developers = html.indexOf('href="/admin/developers"');
+    const developers = html.indexOf('data-testid="nav-developers"');
     const docs = html.indexOf('data-testid="nav-docs"');
     expect(integrations).toBeGreaterThan(-1);
     expect(developers).toBeGreaterThan(integrations);
     expect(docs).toBeGreaterThan(developers);
   });
 
-  it('is the current page on its route and below it, and only there', () => {
-    for (const pathname of ['/admin/developers', '/admin/developers/anything']) {
-      const links = developerLinks(render({ pathname }));
-      expect(links).toHaveLength(2);
-      for (const a of links) expect(a).toContain('aria-current="page"');
+  it('never links to /admin/developers itself, which only redirects', () => {
+    expect(render({ pathname: '/admin/developers/keys' })).not.toMatch(/href="\/admin\/developers"/);
+  });
+
+  it('is closed off its routes, and nothing in it is marked', () => {
+    const html = render({ pathname: '/admin/integrations' });
+    for (const b of triggers(html)) {
+      expect(b).toContain('aria-expanded="false"');
+      expect(b).not.toContain('bg-muted font-medium');
     }
-    for (const a of developerLinks(render({ pathname: '/admin/integrations' }))) {
-      expect(a).not.toContain('aria-current');
+    expect(pageLinks(html, 'keys')).toHaveLength(0);
+    expect(pageLinks(html, 'docs')).toHaveLength(0);
+  });
+
+  it('opens on its own on a Developers route, in the rail and in the drawer', () => {
+    for (const pathname of ['/admin/developers/keys', '/admin/developers/docs']) {
+      const html = render({ pathname });
+      for (const rail of Object.values(rails(html))) {
+        const [b] = triggers(rail);
+        expect(b).toContain('aria-expanded="true"');
+        expect(b).toMatch(/aria-controls="[^"]+"/);
+        expect(pageLinks(rail, 'keys')).toHaveLength(1);
+        expect(pageLinks(rail, 'docs')).toHaveLength(1);
+      }
     }
   });
 
-  it('keeps a name on the collapsed rail, where only the icon shows', () => {
-    const html = render({ pathname: '/admin/developers', collapsed: true });
-    const [rail] = developerLinks(html);
-    expect(rail).toContain('title="Developers"');
-    expect(rail).toContain('aria-current="page"');
-    expect(html).toContain('<span class="sr-only">Developers</span>');
+  it('marks the page you are on and only that one, and the parent as the open group', () => {
+    const cases = [
+      { pathname: '/admin/developers/keys', here: 'keys', other: 'docs' },
+      { pathname: '/admin/developers/docs', here: 'docs', other: 'keys' },
+      // A deeper address under a page still belongs to it.
+      { pathname: '/admin/developers/docs/forms', here: 'docs', other: 'keys' },
+    ] as const;
+    for (const { pathname, here, other } of cases) {
+      const html = render({ pathname });
+      for (const a of pageLinks(html, here)) expect(a).toContain('aria-current="page"');
+      for (const a of pageLinks(html, other)) expect(a).not.toContain('aria-current');
+      for (const b of triggers(html)) {
+        // The parent says "you are in here" (ink, medium weight) but leaves
+        // the wash and the accent bar to the page that IS the current one.
+        expect(b).toContain('font-medium text-foreground');
+        expect(b).not.toContain('before:bg-primary-edge');
+        expect(b).not.toContain('aria-current');
+      }
+    }
   });
 
-  it('takes its label from the catalog in both languages', () => {
+  it('shows the pages in the reader language, under the parent label', () => {
     for (const locale of ['en', 'es'] as const) {
-      const label = getMessages(locale).admin.chrome.nav.developers;
-      expect(label.length).toBeGreaterThan(0);
-      expect(render({ pathname: '/admin', locale })).toContain(`>${label}</span>`);
+      const chrome = getMessages(locale).admin.chrome;
+      const html = render({ pathname: '/admin/developers/keys', locale });
+      expect(html).toContain(`>${chrome.nav.developers}</span>`);
+      expect(html).toContain(`>${chrome.developersMenu.keys}</span>`);
+      expect(html).toContain(`>${chrome.developersMenu.docs}</span>`);
     }
+  });
+
+  describe('on the collapsed rail', () => {
+    it('is a menu button with a name, marked as the current group on its routes', () => {
+      const { desktop } = rails(render({ pathname: '/admin/developers/keys', collapsed: true }));
+      const [b] = triggers(desktop);
+      expect(b).toContain('aria-haspopup="menu"');
+      expect(b).toContain('aria-expanded="false"');
+      expect(b).toContain('title="Developers"');
+      // Only the icon shows, so the icon carries the whole "you are here".
+      expect(b).toContain('bg-muted font-medium text-foreground');
+      expect(b).toContain('before:bg-primary-edge');
+      expect(desktop).toContain('<span class="sr-only">Developers</span>');
+    });
+
+    it('does not lay the accordion into the 64px rail; the drawer still has it', () => {
+      const { desktop, drawer } = rails(render({ pathname: '/admin/developers/keys', collapsed: true }));
+      expect(pageLinks(desktop, 'keys')).toHaveLength(0);
+      expect(pageLinks(drawer, 'keys')).toHaveLength(1);
+      expect(triggers(drawer)[0]).not.toContain('aria-haspopup');
+    });
+
+    it('rests collapsed in the editor, like the rest of the rail', () => {
+      const { desktop } = rails(render({ pathname: '/admin/forms/f1/edit' }));
+      expect(triggers(desktop)[0]).toContain('aria-haspopup="menu"');
+    });
   });
 });
