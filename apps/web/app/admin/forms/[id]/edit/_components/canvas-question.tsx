@@ -21,7 +21,7 @@ import { galleryIdForStep, iconForStep, hasOptions } from './question-types';
 import { maxStepPoints } from './scoring-util';
 import type { BuilderMessages } from './builder-messages';
 import { tb } from './builder-messages';
-import { TokenTextarea, tokenOptionsBefore, allTokenKeys } from './token-textarea';
+import { TokenTextarea, recallTokenOptionsBefore, allTokenKeys } from './token-textarea';
 import { SchedulerEmbedPreview } from './scheduler-embed-preview';
 
 /** The reveal's play time when the card configures none (mirrors the renderer). */
@@ -489,7 +489,7 @@ function QuestionEditableBody({
         placeholder={m.canvas.titlePlaceholder}
         ariaLabel={m.canvas.titlePlaceholder}
         autoGrow
-        tokens={tokenOptionsBefore(config.steps, index)}
+        tokens={recallTokenOptionsBefore(config.steps, index)}
         allKeys={allTokenKeys(config.steps)}
         m={m.tokens}
         hint={m.tokens.hint}
@@ -510,7 +510,7 @@ function QuestionEditableBody({
           placeholder={m.canvas.descriptionPlaceholder}
           ariaLabel={m.canvas.descriptionPlaceholder}
           autoGrow
-          tokens={tokenOptionsBefore(config.steps, index)}
+          tokens={recallTokenOptionsBefore(config.steps, index)}
           allKeys={allTokenKeys(config.steps)}
           m={m.tokens}
           testId="canvas-description-input"

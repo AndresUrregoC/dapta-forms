@@ -74,6 +74,19 @@ export const KEPT_AS_READ_FIELDS: Partial<Record<(typeof UNSUPPORTED_CONFIG_FIEL
     'Only as read: the brand kit writes it. Send it back unchanged; never add or change it (UNSUPPORTED_FIELD).',
 };
 
+/**
+ * Descriptions the generated schema gets on top of the zod contract, for the
+ * fields an agent cannot guess from their shape. A condition's `field` takes a
+ * step key, or the reserved `@score`, which nothing in the shape would reveal.
+ */
+const CONDITION_FIELD_DESCRIPTION =
+  'The step key whose answer the condition reads, or "@score": the running score of the steps shown before this one, not counting this step (only the ops gt, lt, eq and between apply to it). A step gated by "@score" goes after the last scored question.';
+
+export const FIELD_DESCRIPTIONS: Record<string, string> = {
+  'steps.[].showWhen.field': CONDITION_FIELD_DESCRIPTION,
+  'steps.[].hideWhen.field': CONDITION_FIELD_DESCRIPTION,
+};
+
 /** The schema itself and every object variant of a nullable or union node. */
 function variants(node: unknown): JsonSchema[] {
   if (!node || typeof node !== 'object') return [];
@@ -135,6 +148,25 @@ function removeField(
   return removed;
 }
 
+/** Set `description` on the field at `path` everywhere it appears; returns how many. */
+function describeField(root: JsonSchema, path: string, description: string): number {
+  const segments = path.split('.');
+  const field = segments.pop()!;
+  let nodes: JsonSchema[] = [root];
+  for (const segment of segments) nodes = step(nodes, segment);
+  let described = 0;
+  for (const node of nodes) {
+    for (const v of variants(node)) {
+      const props = v.properties as Record<string, JsonSchema> | undefined;
+      if (props && props[field]) {
+        props[field] = { ...props[field], description };
+        described++;
+      }
+    }
+  }
+  return described;
+}
+
 /**
  * The form config as a JSON Schema (draft-07), generated from
  * `formConfigSchema` so it can never drift from what the API parses, minus the
@@ -159,6 +191,11 @@ export function formConfigJsonSchema(): JsonSchema {
   for (const path of UNSUPPORTED_CONFIG_FIELDS) {
     if (removeField(schema, path, EDITOR_DEFAULT_FIELDS[path], KEPT_AS_READ_FIELDS[path]) === 0) {
       throw new Error(`Unsupported config field ${path} is not in formConfigSchema any more.`);
+    }
+  }
+  for (const [path, description] of Object.entries(FIELD_DESCRIPTIONS)) {
+    if (describeField(schema, path, description) === 0) {
+      throw new Error(`Described config field ${path} is not in formConfigSchema any more.`);
     }
   }
   const required = new Set(Array.isArray(schema.required) ? (schema.required as string[]) : []);
