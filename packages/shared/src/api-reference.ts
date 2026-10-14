@@ -321,7 +321,15 @@ const NOTIFICATION_DEFAULTS = {
   en: { subject: 'New submission: {{formName}}', body: 'You have a new submission on "{{formName}}".' },
   es: { subject: 'Nueva respuesta: {{formName}}', body: 'Recibiste una nueva respuesta en "{{formName}}".' },
 };
-const NOTIFICATION_TOKEN_LIST = ['formName', 'respondentEmail', 'score', 'outcomeLabel', 'formLink', 'answers'];
+const NOTIFICATION_TOKEN_LIST = [
+  'formName',
+  'respondentName',
+  'respondentEmail',
+  'score',
+  'outcomeLabel',
+  'formLink',
+  'answers',
+];
 const NOTIFICATION_VIEW = {
   emailKey: 'submission_received',
   enabled: true,

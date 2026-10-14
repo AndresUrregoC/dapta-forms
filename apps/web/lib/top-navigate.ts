@@ -36,16 +36,18 @@ import { isSafeHttpUrl } from '@quill/engine';
  * NOT embedded — the ordinary case — is left exactly as it was: one
  * `window.location.href`, and nothing is posted to anyone.
  *
- * Security posture of route 1: `redirectUrl` is a static string from the
- * PUBLISHED form config (`resolveEnding` returns it verbatim — it is never
- * interpolated with answers), so the message is exactly as public as the form
- * document any visitor can already fetch. It carries no answers, no keys and
- * no identifiers, which is why `targetOrigin: '*'` is acceptable here, the same
- * reasoning the height reporter runs on: the embedding site is by definition
- * unknown to us, and `window.parent` delivers to that host page and nowhere
- * else. The protocol is re-checked below because the value leaves our origin.
- * The acknowledgement is accepted only from `window.parent`, so a frame beside
- * ours cannot forge one to suppress route 2 and strand the visitor.
+ * Security posture of route 1: `redirectUrl` comes from the PUBLISHED form
+ * config. It carries answers only where the owner wrote a `[key]` token into
+ * it (`interpolateUrl`, each value percent-encoded), and then it carries
+ * exactly what the owner chose to send to that destination; a URL without
+ * tokens is as public as the form document any visitor can already fetch. No
+ * keys and no identifiers ride along, which is why `targetOrigin: '*'` is
+ * acceptable here, the same reasoning the height reporter runs on: the
+ * embedding site is by definition unknown to us, and `window.parent` delivers
+ * to that host page and nowhere else. The protocol is re-checked below
+ * because the value leaves our origin. The acknowledgement is accepted only
+ * from `window.parent`, so a frame beside ours cannot forge one to suppress
+ * route 2 and strand the visitor.
  */
 
 /** The message `public/embed.js` listens for to navigate the host page. */

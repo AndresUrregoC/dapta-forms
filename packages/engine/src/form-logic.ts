@@ -1914,7 +1914,11 @@ export interface ResolvedEnding {
   headline: string | null;
   /** Body copy (still un-interpolated), or `null` for the built-in copy. */
   body: string | null;
-  /** Where to send the respondent, or `null` to show the thank-you screen. */
+  /**
+   * Where to send the respondent, or `null` to show the thank-you screen. Its
+   * `[key]` tokens are filled (and percent-encoded) when `resolveEnding` is
+   * given the answers; without them it is the URL exactly as configured.
+   */
   redirectUrl: string | null;
   /** How long to show the thank-you screen first. 0 = redirect immediately. */
   redirectDelayMs: number;
@@ -1934,10 +1938,18 @@ export interface ResolvedEnding {
  *
  * A field is "set" only when it is a non-empty string, so clearing an outcome's
  * box falls back to the form default rather than blanking the screen. The
- * outcome's `label` doubles as its heading (it always has) — inheriting the
+ * outcome's `label` doubles as its heading (it always has), inheriting the
  * form headline only when the label is empty.
+ *
+ * Pass `answers` to get the redirect URL with its `[key]` tokens filled in
+ * (`interpolateUrl`); the headline and body stay templates either way, because
+ * the done screen interpolates them itself.
  */
-export function resolveEnding(config: FormConfig, outcome: FormOutcome | null): ResolvedEnding {
+export function resolveEnding(
+  config: FormConfig,
+  outcome: FormOutcome | null,
+  answers?: Answers,
+): ResolvedEnding {
   const e = config.ending ?? null;
   const pick = (a: string | null | undefined, b: string | null | undefined): string | null => {
     const first = typeof a === 'string' ? a.trim() : '';
@@ -1966,7 +1978,7 @@ export function resolveEnding(config: FormConfig, outcome: FormOutcome | null): 
   return {
     headline: pick(outcome?.label, e?.headline),
     body: pick(outcome?.message, e?.body),
-    redirectUrl,
+    redirectUrl: redirectUrl && answers ? interpolateUrl(redirectUrl, answers) : redirectUrl,
     redirectDelayMs: redirectUrl && Number.isFinite(delaySource) ? Math.max(0, delaySource) : 0,
   };
 }
@@ -2132,6 +2144,60 @@ function resolveToken(value: AnswerValue): string {
 }
 
 /**
+ * The token that reads as the person's full name. A `name` step never stores
+ * an answer under `name` (it writes `firstname` and `lastname`), so `[name]`
+ * used to resolve to nothing on every form that asked for a name the right way.
+ */
+export const FULL_NAME_TOKEN = 'name';
+
+/**
+ * What `[name]` resolves to: an answer stored under `name` itself wins (a form
+ * whose own step is keyed `name` keeps showing that step's value, exactly as
+ * before), else `firstname` and `lastname` joined by one space, without a
+ * stray space when one of them is missing. Empty string when neither exists.
+ */
+export function fullNameToken(answers: Answers): string {
+  const own = resolveToken(answers[FULL_NAME_TOKEN]);
+  if (own.trim() !== '') return own;
+  return [answers.firstname, answers.lastname]
+    .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+    .map((v) => v.trim())
+    .join(' ');
+}
+
+/**
+ * The respondent's full name for a surface that knows the form, such as the
+ * notification emails: `fullNameToken` first, so it reads exactly like `[name]`
+ * on the form, else the first `name` step's own subfields, which also covers a
+ * step whose subfields were renamed away from `firstname` and `lastname`.
+ */
+export function respondentFullName(steps: readonly FormStep[], answers: Answers): string {
+  const token = fullNameToken(answers);
+  if (token !== '') return token;
+  const step = steps.find((s) => s.type === 'name');
+  return step ? nameAnswer(step, answers) : '';
+}
+
+/** The substitution text for one `[field]` token, `[name]` included. */
+export function tokenText(field: string, answers: Answers): string {
+  return field === FULL_NAME_TOKEN ? fullNameToken(answers) : resolveToken(answers[field]);
+}
+
+/**
+ * Replace `[key]` tokens in a redirect URL. Every value is percent-encoded, so
+ * an answer can only ever land as data inside the URL the owner wrote: it
+ * cannot add a parameter, a path segment or a fragment, and it cannot change
+ * the scheme or the host (the template starts with `http(s)://`, which the
+ * schema enforces). A token with no answer becomes an empty string; the prose
+ * sweep `interpolate` does around an empty token would corrupt a URL.
+ */
+export function interpolateUrl(template: string, answers: Answers): string {
+  return template.replace(/\[([a-zA-Z0-9_]+)\]/g, (_m, field: string) =>
+    encodeURIComponent(tokenText(field, answers)),
+  );
+}
+
+/**
  * Replace `[key]` tokens in copy with the corresponding answer. A token whose
  * answer is missing/empty resolves to nothing AND the connector that joined it to
  * the rest of the sentence is swept up with it, so no dangling *joining* punctuation
@@ -2148,6 +2214,8 @@ function resolveToken(value: AnswerValue): string {
  *    `"Hi [firstname], welcome"` → `"Hi, welcome"`;
  *  - duplicate spaces a removal creates are collapsed and the ends trimmed.
  *
+ * `[name]` reads as the full name (see {@link fullNameToken}).
+ *
  * Copy with **no empty tokens** is substituted verbatim — byte-for-byte identical
  * to a plain replace — so the all-resolved path (including a resolved token's own
  * spacing) is unchanged. Pure and deterministic; every regex is linear (no
@@ -2159,7 +2227,7 @@ export function interpolate(template: string, answers: Answers): string {
   const EMPTY = '\uE000';
   let hadEmpty = false;
   const substituted = template.replace(/\[([a-zA-Z0-9_]+)\]/g, (_m, field: string) => {
-    const resolved = resolveToken(answers[field]);
+    const resolved = tokenText(field, answers);
     if (resolved === '') {
       hadEmpty = true;
       return EMPTY;
@@ -2172,7 +2240,7 @@ export function interpolate(template: string, answers: Answers): string {
   // The copy opened with a token that resolved empty: its first surviving word was
   // mid-sentence a moment ago, so it should be re-capitalized after the cleanup.
   const lead = template.match(/^\s*\[([a-zA-Z0-9_]+)\]/);
-  const leadingEmpty = lead != null && resolveToken(answers[lead[1]]) === '';
+  const leadingEmpty = lead != null && tokenText(lead[1]!, answers) === '';
 
   let cleaned = substituted;
   if (leadingEmpty) {

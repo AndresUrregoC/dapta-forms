@@ -591,6 +591,7 @@ export interface FormsMessages {
       resetSuccess: string;
       /** Human labels for each {{token}}, shown in the variable chips. */
       tokenFormName: string;
+      tokenRespondentName: string;
       tokenRespondentEmail: string;
       tokenScore: string;
       tokenOutcomeLabel: string;
@@ -2786,6 +2787,7 @@ export const en: FormsMessages = {
       saveError: 'Could not save. Please try again.',
       resetSuccess: 'Reset to the default copy.',
       tokenFormName: 'Form name',
+      tokenRespondentName: 'Respondent name',
       tokenRespondentEmail: 'Respondent email',
       tokenScore: 'Score',
       tokenOutcomeLabel: 'Outcome',
@@ -2922,7 +2924,7 @@ export const en: FormsMessages = {
         overrideIsAnyOf: '{field} is any of {bound}',
         redirectLabel: 'Redirect URL (optional)',
         redirectHelp:
-          'Leave empty to show the thank-you screen. If set, respondents are sent here instead.',
+          'Leave empty to show the thank-you screen. If set, respondents are sent here instead. Use [field] to add an answer to the URL, such as ?name=[name].',
         messageLabel: 'Message shown for this outcome',
         messageHelp:
           'The thank-you body respondents see for this range. Use [field] to insert an answer. Leave empty to use the default message.',
@@ -2939,7 +2941,8 @@ export const en: FormsMessages = {
         bodyHint: 'Use [field] to insert an answer. Leave empty for the default text.',
         bodyPlaceholder: 'We’ll be in touch shortly.',
         redirect: 'Redirect URL (optional)',
-        redirectHint: 'Leave empty to show the thank-you screen. If set, everyone is sent here.',
+        redirectHint:
+          'Leave empty to show the thank-you screen. If set, everyone is sent here. Use [field] to add an answer to the URL, such as ?name=[name].',
         redirectPlaceholder: 'https://…',
         delay: 'Show the thank-you first for (ms)',
         delayHint: '0 redirects immediately.',
@@ -4954,6 +4957,7 @@ export const es: FormsMessages = {
       saveError: 'No se pudo guardar. Inténtalo de nuevo.',
       resetSuccess: 'Se restableció a la versión predeterminada.',
       tokenFormName: 'Nombre del formulario',
+      tokenRespondentName: 'Nombre del encuestado',
       tokenRespondentEmail: 'Correo del encuestado',
       tokenScore: 'Puntuación',
       tokenOutcomeLabel: 'Resultado',
@@ -5092,7 +5096,7 @@ export const es: FormsMessages = {
         overrideIsAnyOf: '{field} es alguno de {bound}',
         redirectLabel: 'URL de redirección (opcional)',
         redirectHelp:
-          'Déjalo vacío para mostrar la pantalla de agradecimiento. Si lo defines, se redirige ahí a los respondientes.',
+          'Déjalo vacío para mostrar la pantalla de agradecimiento. Si lo defines, se redirige ahí a los respondientes. Usa [campo] para agregar una respuesta a la URL, como ?nombre=[name].',
         messageLabel: 'Mensaje mostrado para este resultado',
         messageHelp:
           'El cuerpo de agradecimiento que ven los respondientes en este rango. Usa [campo] para insertar una respuesta. Déjalo vacío para usar el mensaje por defecto.',
@@ -5109,7 +5113,8 @@ export const es: FormsMessages = {
         bodyHint: 'Usa [campo] para insertar una respuesta. Déjalo vacío para el texto por defecto.',
         bodyPlaceholder: 'Te contactamos en breve.',
         redirect: 'URL de redirección (opcional)',
-        redirectHint: 'Déjalo vacío para mostrar la pantalla de agradecimiento. Si lo defines, se redirige a todos ahí.',
+        redirectHint:
+          'Déjalo vacío para mostrar la pantalla de agradecimiento. Si lo defines, se redirige a todos ahí. Usa [campo] para agregar una respuesta a la URL, como ?nombre=[name].',
         redirectPlaceholder: 'https://…',
         delay: 'Mostrar el agradecimiento antes durante (ms)',
         delayHint: '0 redirige de inmediato.',

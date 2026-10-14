@@ -32,6 +32,7 @@ import {
   canonicalizeAnswer,
   resolveOutcome,
   resolveEnding,
+  interpolateUrl,
   computeScore,
   partialSubmitKey,
   revealAfterKey,
@@ -499,7 +500,7 @@ export function VerticalFormRenderer({
         setPhase('booking');
         return;
       }
-      const ending = resolveEnding(engineConfig, outcome);
+      const ending = resolveEnding(engineConfig, outcome, finalAnswers);
       if (ending.redirectUrl) {
         if (isSafeHttpUrl(ending.redirectUrl)) {
           if (ending.redirectDelayMs > 0) {
@@ -524,7 +525,7 @@ export function VerticalFormRenderer({
   useEffect(() => {
     if (phase !== 'done' || !done || redirected.current) return;
     const outcome = resolveOutcome(engineConfig, done.score, answersRef.current);
-    const ending = resolveEnding(engineConfig, outcome);
+    const ending = resolveEnding(engineConfig, outcome, answersRef.current);
     if (!ending.redirectUrl || ending.redirectDelayMs <= 0) return;
     if (!isSafeHttpUrl(ending.redirectUrl)) return;
     const url = ending.redirectUrl;
@@ -685,8 +686,11 @@ export function VerticalFormRenderer({
         }),
       );
       if (isTransportError(rec)) console.warn('[forms] post-submit booking record failed');
-      if (outcome?.redirectUrl && isSafeHttpUrl(outcome.redirectUrl)) {
-        navigateTop(outcome.redirectUrl);
+      const redirectUrl = outcome?.redirectUrl
+        ? interpolateUrl(outcome.redirectUrl, answersRef.current)
+        : null;
+      if (redirectUrl && isSafeHttpUrl(redirectUrl)) {
+        navigateTop(redirectUrl);
         return;
       }
       setPhase('done'); // `done` state was set in finalize
