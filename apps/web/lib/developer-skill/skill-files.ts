@@ -56,7 +56,7 @@ Send the key on every request:
 Authorization: Bearer $DFORMS_API_KEY
 ~~~
 
-- Read the key from the \`DFORMS_API_KEY\` environment variable. If it is not set, ask the user to create a key on the Developers page and set it. Never print the key, never write it to a file, never commit it.
+- Read the key from the \`DFORMS_API_KEY\` environment variable. If it is not set, ask the user to create a key in dForms (MCP, then API keys) and set it. Never print the key, never write it to a file, never commit it.
 - The key belongs to one workspace and acts as the person who created it. Never send an \`x-quill-workspace\` header.
 - Check the key first with \`GET /v1/me\`. A 401 \`INVALID_API_KEY\` means the key is wrong, revoked, or its owner left the workspace: ask the user for a new one.
 
