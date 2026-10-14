@@ -2,8 +2,9 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { interpolate, resolveOutcome, computeScore, visibleSteps } from '@quill/engine';
 import { buildSkillFiles, SKILL_DIR } from './skill-files';
-import { EXAMPLE_CONFIGS } from './examples';
+import { EXAMPLE_CONFIGS, SCORE_GATE_CONFIG } from './examples';
 
 const urls = { apiUrl: 'https://api.forms.example.com', appUrl: 'https://forms.example.com' };
 const files = new Map(buildSkillFiles(urls).map((f) => [f.path, f.content]));
@@ -21,6 +22,7 @@ describe('buildSkillFiles', () => {
         'SKILL.md',
         'recipes/analytics-and-csv.md',
         'recipes/edit-a-step.md',
+        'recipes/gate-a-step-by-score.md',
         'recipes/publish-and-revert.md',
         'recipes/quiz-with-scoring.md',
         'recipes/responses-with-filters.md',
@@ -164,6 +166,70 @@ describe('buildSkillFiles', () => {
     const quiz = files.get(`${SKILL_DIR}/recipes/quiz-with-scoring.md`)!;
     const block = /~~~json\n([\s\S]+?)\n~~~/.exec(quiz)![1]!;
     expect(JSON.parse(block).config).toEqual(EXAMPLE_CONFIGS.quiz);
+  });
+
+  it('documents @score, the order of the screens and the placeholders in SKILL.md', () => {
+    const skill = files.get(`${SKILL_DIR}/SKILL.md`)!;
+    expect(skill).toContain('## Order, logic and placeholders');
+    expect(skill).toContain('`@score`');
+    expect(skill).toMatch(
+      /running score: the points of the steps shown before this one, without counting the step itself/,
+    );
+    expect(skill).toContain('after the last scored question');
+    expect(skill).toMatch(/steps show in the order of `steps`.+skipped.+outcome comes last/);
+    for (const token of [
+      '`[firstname]`',
+      '`[lastname]`',
+      '`[name]`, the full name',
+      '`{{respondentName}}`',
+    ]) {
+      expect(skill, token).toContain(token);
+    }
+    expect(skill).toContain('`recipes/gate-a-step-by-score.md`');
+    // An embedded form's redirect never carries answers.
+    expect(skill).toMatch(/embedded .+ a `redirectUrl` never carries answers: every query parameter with a placeholder is dropped/);
+  });
+
+  it('describes @score on the condition field of the JSON Schema', () => {
+    const schema = JSON.parse(files.get(`${SKILL_DIR}/reference/form-config.schema.json`)!);
+    const step = schema.properties.steps.items;
+    for (const cond of ['showWhen', 'hideWhen']) {
+      const variants = [step.properties[cond], ...(step.properties[cond].anyOf ?? [])];
+      const field = variants.find((v: { properties?: { field?: unknown } }) => v.properties?.field)
+        .properties.field;
+      expect(field.description, cond).toContain('@score');
+    }
+  });
+
+  it('prints the score gate verbatim, with the gate the ticket names', () => {
+    const recipe = files.get(`${SKILL_DIR}/recipes/gate-a-step-by-score.md`)!;
+    expect(recipe).toContain('{ "field": "@score", "op": "lt", "value": 14 }');
+    const blocks = [...recipe.matchAll(/~~~json\n([\s\S]+?)\n~~~/g)].map((m) => m[1]!);
+    expect(JSON.parse(blocks.at(-1)!).config).toEqual(SCORE_GATE_CONFIG);
+  });
+
+  it('the score gate behaves as the recipe says', () => {
+    const low = {
+      team_size: 'solo',
+      timeline: 'later',
+      firstname: 'Ana',
+      lastname: 'Ruiz',
+      email: 'ana@example.com',
+    };
+    const high = { ...low, team_size: 'large', timeline: 'now' };
+    const keys = (answers: Record<string, string>) =>
+      visibleSteps(SCORE_GATE_CONFIG, answers).map((s) => s.key);
+    expect(keys(low)).toEqual(['team_size', 'timeline', 'name', 'email']);
+    expect(keys(high)).toEqual(['team_size', 'timeline', 'name', 'email', 'demo']);
+    // 6 + 4 = 10 stays below the gate; 10 + 4 = 14 opens it.
+    expect(keys({ ...low, team_size: 'small', timeline: 'quarter' })).not.toContain('demo');
+    expect(keys({ ...low, team_size: 'large', timeline: 'quarter' })).toContain('demo');
+    expect(resolveOutcome(SCORE_GATE_CONFIG, computeScore(SCORE_GATE_CONFIG, low), low)?.id).toBe(
+      'p3',
+    );
+    const p1 = resolveOutcome(SCORE_GATE_CONFIG, computeScore(SCORE_GATE_CONFIG, high), high)!;
+    expect(p1.id).toBe('p1');
+    expect(interpolate(p1.label, high)).toBe('See you soon, Ana Ruiz');
   });
 
   it('explains how to install it in Claude Code, Codex and Cursor', () => {

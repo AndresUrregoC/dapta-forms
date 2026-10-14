@@ -20,6 +20,7 @@ import {
   canonicalizeAnswer,
   resolveOutcome,
   resolveEnding,
+  redirectUrlFor,
   computeScore,
   partialSubmitKey,
   revealAfterKey,
@@ -47,7 +48,7 @@ import { warmBookingEmbed, type BookingScheduledDetails } from '@/lib/booking-em
 import { useCalendlyPreload } from '@/lib/calendly-preload';
 import { resolveSchedulerPrefill } from '@/lib/booking-prefill';
 import { callAction, callActionWithRetry, isTransportError } from '@/lib/call-action';
-import { navigateTop } from '@/lib/top-navigate';
+import { isEmbeddedRender, navigateTop } from '@/lib/top-navigate';
 import { reportLeadConversion } from '@/lib/lead-conversion';
 import { useAnnounceScreenChange } from '@/lib/embed-screen';
 import type { ResolvedVisit } from '@/lib/host-visit';
@@ -319,7 +320,9 @@ export function FormRenderer({
   useEffect(() => {
     if (phase !== 'done' || !done || redirected.current) return;
     const outcome = resolveOutcome(engineConfig, done.score, answers);
-    const ending = resolveEnding(engineConfig, outcome);
+    const ending = resolveEnding(engineConfig, outcome, answers, {
+      embedded: isEmbeddedRender(),
+    });
     if (!ending.redirectUrl || ending.redirectDelayMs <= 0) return;
     if (!isSafeHttpUrl(ending.redirectUrl)) return;
     const url = ending.redirectUrl;
@@ -635,7 +638,9 @@ export function FormRenderer({
       // V5-B1: the destination is the outcome's, else the form-level ending's,
       // so a form can redirect everyone (or redirect with scoring off) without
       // repeating the URL on every range.
-      const ending = resolveEnding(engineConfig, outcome);
+      const ending = resolveEnding(engineConfig, outcome, finalAnswers, {
+        embedded: isEmbeddedRender(),
+      });
       if (ending.redirectUrl) {
         // Runtime XSS guard: only navigate to http(s). A non-http(s) protocol
         // (javascript:/data:) is ignored + logged, falling through to the
@@ -680,13 +685,16 @@ export function FormRenderer({
         }),
       );
       if (isTransportError(rec)) console.warn('[forms] post-submit booking record failed');
-      if (outcome?.redirectUrl && isSafeHttpUrl(outcome.redirectUrl)) {
-        navigateTop(outcome.redirectUrl);
+      const redirectUrl = outcome?.redirectUrl
+        ? redirectUrlFor(outcome.redirectUrl, answers, isEmbeddedRender())
+        : null;
+      if (redirectUrl && isSafeHttpUrl(redirectUrl)) {
+        navigateTop(redirectUrl);
         return;
       }
       setPhase('done'); // `done` state was set in finalize
     },
-    [accountCode, slug, sessionId, booking],
+    [accountCode, slug, sessionId, booking, answers],
   );
 
   // Completes the current screen and moves on. `members` are the questions

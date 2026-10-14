@@ -1,5 +1,5 @@
 import { formConfigJsonSchema } from './config-schema';
-import { LEAD_CONFIG, LEAD_CONFIG_EDITED, QUIZ_CONFIG } from './examples';
+import { LEAD_CONFIG, LEAD_CONFIG_EDITED, QUIZ_CONFIG, SCORE_GATE_CONFIG } from './examples';
 
 /**
  * The dForms API skill, as the files of the zip a member downloads from the
@@ -91,6 +91,19 @@ Pick the \`type\` that matches what the step asks. \`name\`, \`email\` and \`pho
 | \`url\`, \`file\` | A web address, an upload. |
 | \`message\`, \`reveal\`, \`scheduler\` | An info screen, a result screen, a booking page. They ask nothing. |
 
+## Order, logic and placeholders
+
+- **Order:** steps show in the order of \`steps\`, a step that \`hidden\`, \`showWhen\` or \`hideWhen\` hides is skipped, and the outcome comes last (its \`message\`, or its \`redirectUrl\`).
+- **Show or hide a step** with \`showWhen\` or \`hideWhen\`: \`{ "field", "op", ... }\`. \`field\` is an earlier step's \`key\`, or \`@score\`.
+  - \`op\` \`in\` (the default) with \`values\`: the answer is one of those option values.
+  - \`eq\`, \`gt\` or \`lt\` with \`value\`, or \`between\` with \`min\` and \`max\` (inclusive): a number, from a slider or from \`@score\`.
+- **\`@score\`** is the running score: the points of the steps shown before this one, without counting the step itself. Only \`gt\`, \`lt\`, \`eq\` and \`between\` apply to it. Put a step gated by score after the last scored question, or the questions after it never count toward the gate. See \`recipes/gate-a-step-by-score.md\`.
+- **Placeholders:** \`[step_key]\` inserts an answer into a step's \`question\` and \`helper\`, an outcome's \`label\` and \`message\`, the \`ending\` texts, a reveal step's texts and a \`redirectUrl\` (percent-encoded there). A question can only use answers from steps before it.
+  - When the form runs embedded (in an iframe or with \`?embed=1\`), a \`redirectUrl\` never carries answers: every query parameter with a placeholder is dropped and the rest of the URL is kept. Placeholders reach the redirect only on the form's own page.
+  - A \`name\` step stores \`firstname\` and \`lastname\`, never \`name\`. It exposes \`[firstname]\`, \`[lastname]\` and \`[name]\`, the full name. If a step's own \`key\` is \`name\` and it is not a \`name\` step, \`[name]\` is that step's answer.
+  - A placeholder with no answer disappears with the comma or space that joined it: \`"Thanks, [name]!"\` reads \`"Thanks!"\`.
+- **Notification emails** use \`{{token}}\` markers instead: \`{{formName}}\`, \`{{respondentName}}\` (the full name), \`{{respondentEmail}}\`, \`{{score}}\`, \`{{outcomeLabel}}\`, \`{{formLink}}\` and \`{{answers}}\`.
+
 ## Form lifecycle
 
 1. **Create:** \`POST /v1/forms\` with \`{ "name", "config" }\`. The config is live at once: the form answers at its \`publicUrl\` right away.
@@ -112,6 +125,7 @@ Tell the user what you changed, and give them the \`publicUrl\` and the \`editor
 - \`reference/errors.md\`: the error format and every error code.
 - \`reference/form-config.schema.json\`: JSON Schema of the form \`config\`. Validate against it before you send.
 - \`recipes/quiz-with-scoring.md\`: a scored quiz with result ranges.
+- \`recipes/gate-a-step-by-score.md\`: show a step, such as a booking page, only above a score.
 - \`recipes/edit-a-step.md\`: change one question without losing the rest.
 - \`recipes/publish-and-revert.md\`: publish a draft and roll it back.
 - \`recipes/responses-with-filters.md\`: read responses with filters and pagination.
@@ -275,7 +289,7 @@ Each answer adds points; the total picks one of the \`outcomes\` by its \`minSco
 - \`slider\` steps score with \`sliderScoring\` ranges.
 - Ask for the person's name with a \`name\` step and their email with an \`email\` step, never with \`text\` (see Step types in \`SKILL.md\`).
 - \`scoring: { "enabled": false }\` turns scoring and outcomes off; leave it true.
-- An outcome's \`message\` is the result screen text; \`[step_key]\` inserts an answer. \`redirectUrl\` sends the person to a page instead.
+- An outcome's \`label\` and \`message\` are the result screen's heading and text; \`[step_key]\` inserts an answer, and \`[name]\` the full name from a \`name\` step. \`redirectUrl\` sends the person to a page instead, and takes placeholders too, except when the form is embedded: then every query parameter with a placeholder is left out.
 
 ~~~bash
 curl -sS -X POST "${apiUrl}/v1/forms" \\
@@ -291,6 +305,39 @@ ${json({ name: 'Plan quiz', config: QUIZ_CONFIG })}
 ~~~
 
 The 201 answer carries \`id\`, \`updatedAt\`, \`publicUrl\` and \`editorUrl\`. The quiz is live at once; give the user the \`publicUrl\` as is. If the call fails or times out, \`GET /v1/forms\` before trying again.
+`;
+}
+
+function scoreGateRecipe({ apiUrl }: SkillUrls): string {
+  return `# Recipe: show a step only above a score
+
+A booking page only for good leads: the scheduler step carries a \`hideWhen\` on \`@score\`, so a low score skips it and the form goes straight to its outcome.
+
+~~~json
+{ "field": "@score", "op": "lt", "value": 14 }
+~~~
+
+- \`@score\` is the running score: the points of the steps shown before the gated step, not counting the step itself. Here it is \`team_size\` plus \`timeline\`, at most 18.
+- Put the gated step after the last scored question. A scored question after the gate still counts for the outcome, but never for the gate.
+- \`hideWhen\` with \`lt\` 14 is the same as \`showWhen\` with \`gt\` 13. \`between\` takes \`min\` and \`max\`, both inclusive.
+- The outcome ranges use the same total: below 14 lands on \`p3\`, 14 or more on \`p1\`.
+- The screens: \`team_size\`, \`timeline\`, \`name\`, \`email\`, then \`demo\` only from 14 points, then the outcome.
+- \`[firstname]\` and \`[name]\` (first and last name joined) come from the \`name\` step; they work in any step after it and in the outcomes.
+
+~~~bash
+curl -sS -X POST "${apiUrl}/v1/forms" \\
+  -H "Authorization: Bearer $DFORMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  --data @demo.json
+~~~
+
+\`demo.json\`:
+
+~~~json
+${json({ name: 'Demo booking', config: SCORE_GATE_CONFIG })}
+~~~
+
+Replace the scheduler \`url\` with the user's own booking page. Check the gate on the \`publicUrl\`: answer low and the booking page never shows.
 `;
 }
 
@@ -402,7 +449,7 @@ The answer:
     {
       "id": "8f0c1d52-0000-4000-8000-000000000000",
       "formId": "$FORM_ID",
-      "data": { "name": "Ana", "email": "ana@example.com", "interest": "demo" },
+      "data": { "firstname": "Ana", "lastname": "Ruiz", "email": "ana@example.com", "interest": "demo" },
       "score": 15,
       "startedAt": 1759334400000,
       "completedAt": 1759334460000,
@@ -419,7 +466,7 @@ The answer:
 - \`from\` and \`to\` as \`YYYY-MM-DD\` are whole days in the workspace's time zone; epoch ms works too.
 - \`answers\` only filters choice questions; \`search\` looks inside written answers.
 - \`completedAt: null\` is a partial: the person left before the end.
-- Answers are keyed by step \`key\`. Read the form's \`config.steps\` to turn keys and option values into the questions and labels people saw.
+- Answers are keyed by step \`key\`, except a \`name\` step, which stores \`firstname\` and \`lastname\`. Read the form's \`config.steps\` to turn keys and option values into the questions and labels people saw.
 `;
 }
 
@@ -541,6 +588,7 @@ export function buildSkillFiles(urls: SkillUrls): SkillFile[] {
     ['reference/errors.md', errorsMd()],
     ['reference/form-config.schema.json', `${json(formConfigJsonSchema())}\n`],
     ['recipes/quiz-with-scoring.md', quizRecipe(urls)],
+    ['recipes/gate-a-step-by-score.md', scoreGateRecipe(urls)],
     ['recipes/edit-a-step.md', editRecipe(urls)],
     ['recipes/publish-and-revert.md', publishRecipe(urls)],
     ['recipes/responses-with-filters.md', responsesRecipe(urls)],

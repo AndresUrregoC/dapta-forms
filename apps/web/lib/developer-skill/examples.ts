@@ -68,7 +68,7 @@ export const QUIZ_CONFIG: FormConfig = {
       label: 'Starter',
       minScore: 0,
       maxScore: 7,
-      message: 'Starter covers a small team. We sent the details to [email].',
+      message: '[name], Starter covers a small team. We sent the details to [email].',
     },
     {
       id: 'growth',
@@ -83,6 +83,70 @@ export const QUIZ_CONFIG: FormConfig = {
       minScore: 15,
       message: 'Scale is built for larger teams. Someone will reach out soon.',
       redirectUrl: 'https://example.com/scale',
+    },
+  ],
+};
+
+/**
+ * A scored booking form: two scored questions, name and email, then a booking
+ * step that only a high score sees. Below 14 points the scheduler is skipped
+ * and the form ends on the low outcome's text.
+ */
+export const SCORE_GATE_CONFIG: FormConfig = {
+  version: 1,
+  title: 'Book a demo',
+  steps: [
+    {
+      key: 'team_size',
+      type: 'multiple_choice',
+      question: 'How many people are on your sales team?',
+      required: true,
+      options: [
+        { label: 'Just me', value: 'solo', points: 0 },
+        { label: '2 to 10', value: 'small', points: 6 },
+        { label: 'More than 10', value: 'large', points: 10 },
+      ],
+    },
+    {
+      key: 'timeline',
+      type: 'multiple_choice',
+      question: 'When do you want to start?',
+      required: true,
+      options: [
+        { label: 'This month', value: 'now', points: 8 },
+        { label: 'This quarter', value: 'quarter', points: 4 },
+        { label: 'Just looking', value: 'later', points: 0 },
+      ],
+    },
+    { key: 'name', type: 'name', question: 'What is your name?', required: true },
+    {
+      key: 'email',
+      type: 'email',
+      question: 'What is your work email, [firstname]?',
+      required: true,
+    },
+    {
+      key: 'demo',
+      type: 'scheduler',
+      question: 'Pick a time for your demo, [name]',
+      scheduler: { provider: 'calendly', url: 'https://calendly.com/example/demo' },
+      hideWhen: { field: '@score', op: 'lt', value: 14 },
+    },
+  ],
+  scoring: { enabled: true },
+  outcomes: [
+    {
+      id: 'p3',
+      label: 'Thanks, [name]',
+      minScore: 0,
+      maxScore: 13,
+      message: 'We will send a few resources to [email].',
+    },
+    {
+      id: 'p1',
+      label: 'See you soon, [name]',
+      minScore: 14,
+      message: 'Your demo is booked. The invite is on its way to [email].',
     },
   ],
 };
@@ -125,6 +189,7 @@ export const LEAD_CONFIG_EDITED: FormConfig = {
 /** Every example, by name, for the specs. */
 export const EXAMPLE_CONFIGS: Record<string, FormConfig> = {
   quiz: QUIZ_CONFIG,
+  scoreGate: SCORE_GATE_CONFIG,
   lead: LEAD_CONFIG,
   leadEdited: LEAD_CONFIG_EDITED,
 };
