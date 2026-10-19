@@ -18,6 +18,7 @@ import {
 import type { AdminCrudController } from './admin-crud.controller';
 import type { AnalyticsController } from './analytics.controller';
 import { API_KEY_PREFIX, hashApiKey, markMcpRequest } from './api-keys';
+import { isKeyAllowedRoute, routeOf } from './api-key-routes';
 import type { ReqLike } from './auth.provider';
 
 /**
@@ -42,13 +43,48 @@ interface ApiCallerContext {
   req: ReqLike;
 }
 
+/**
+ * Every controller handler the MCP calls, by name. The single list both the
+ * types below and the route check derive from: a handler can only be called
+ * if it is named here, and naming it here is checked against the API-key
+ * route allowlist (`keyAllowedRoutes`).
+ */
+export const MCP_FORM_HANDLERS = [
+  'me',
+  'listForms',
+  'getForm',
+  'createForm',
+  'updateForm',
+  'publishForm',
+  'revertForm',
+  'formSubmissions',
+] as const;
+export const MCP_ANALYTICS_HANDLERS = ['formAnalytics'] as const;
+
 /** The handlers the backend calls. The controllers themselves in the app; fakes in a spec. */
 export interface McpHandlers {
-  forms: Pick<
-    AdminCrudController,
-    'me' | 'listForms' | 'getForm' | 'createForm' | 'updateForm' | 'publishForm' | 'revertForm' | 'formSubmissions'
-  >;
-  analytics: Pick<AnalyticsController, 'formAnalytics'>;
+  forms: Pick<AdminCrudController, (typeof MCP_FORM_HANDLERS)[number]>;
+  analytics: Pick<AnalyticsController, (typeof MCP_ANALYTICS_HANDLERS)[number]>;
+}
+
+/**
+ * The routes of `names` on `controller`, each proven callable with an API key.
+ *
+ * The MCP calls handlers in process, so the app-wide `ApiKeyRouteGuard` never
+ * runs for it. This is the same check, made once at boot: a handler with no
+ * route metadata, or whose route is not on `API_KEY_ALLOWED_ROUTES`, throws,
+ * and the API refuses to start rather than let a tool reach a route a key may
+ * not call over HTTP.
+ */
+export function keyAllowedRoutes(controller: abstract new (...args: never[]) => object, names: readonly string[]): string[] {
+  return names.map((name) => {
+    const handler = (controller.prototype as Record<string, unknown>)[name];
+    const route = typeof handler === 'function' ? routeOf(controller, handler) : null;
+    if (route === null) throw new Error(`MCP handler ${controller.name}.${name} has no route: it cannot be checked against the API-key allowlist.`);
+    if (!isKeyAllowedRoute(route))
+      throw new Error(`MCP handler ${controller.name}.${name} (${route}) is not on the API-key route allowlist.`);
+    return route;
+  });
 }
 
 /**

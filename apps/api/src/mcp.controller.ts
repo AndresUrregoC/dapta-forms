@@ -6,7 +6,14 @@ import type { ServerEnv } from '@quill/config/env';
 import { FormsMcpServer, McpDoor, unlimited, type DoorRequest, type DoorResponse, type RateLimiter } from '@quill/mcp';
 import { AdminCrudController } from './admin-crud.controller';
 import { AnalyticsController } from './analytics.controller';
-import { ApiFormsBackend, authenticateMcpKey, type McpHandlers } from './mcp.backend';
+import {
+  ApiFormsBackend,
+  MCP_ANALYTICS_HANDLERS,
+  MCP_FORM_HANDLERS,
+  authenticateMcpKey,
+  keyAllowedRoutes,
+  type McpHandlers,
+} from './mcp.backend';
 import { TokenBucketRateLimiter, clientKey, resolveTrustProxyHops } from './rate-limit';
 import { DB, ENV, RATE_LIMITER } from './tokens';
 
@@ -71,16 +78,25 @@ export class McpController implements OnModuleInit {
     });
   }
 
-  /** The form handlers live in the app's other controllers; resolved once the module is built. */
+  /**
+   * The form handlers live in the app's other controllers; resolved once the
+   * module is built. Boot fails here if any handler the MCP calls is not a
+   * route an API key may call (see `keyAllowedRoutes`), because the app-wide
+   * key guard never sees in-process calls.
+   */
   onModuleInit(): void {
     this.resolveHandlers();
   }
 
   private resolveHandlers(): McpHandlers {
-    this.handlers ??= {
-      forms: this.moduleRef.get(AdminCrudController, { strict: false }),
-      analytics: this.moduleRef.get(AnalyticsController, { strict: false }),
-    };
+    if (!this.handlers) {
+      keyAllowedRoutes(AdminCrudController, MCP_FORM_HANDLERS);
+      keyAllowedRoutes(AnalyticsController, MCP_ANALYTICS_HANDLERS);
+      this.handlers = {
+        forms: this.moduleRef.get(AdminCrudController, { strict: false }),
+        analytics: this.moduleRef.get(AnalyticsController, { strict: false }),
+      };
+    }
     return this.handlers;
   }
 
