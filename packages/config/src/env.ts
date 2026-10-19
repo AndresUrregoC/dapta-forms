@@ -16,6 +16,15 @@ const boolish = z
   .transform((v) => v === 'true' || v === '1' || v === 'yes')
   .pipe(z.boolean());
 
+/**
+ * A blank value reads as unset, so a deploy template that renders an empty
+ * string falls back to the default instead of failing the boot (a blank
+ * number would coerce to 0 and fail `positive()`; a blank switch would read
+ * as off).
+ */
+const blankAsUnset = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema);
+
 export const serverEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 
@@ -186,6 +195,26 @@ export const serverEnvSchema = z.object({
   RATE_LIMIT_ENABLED: boolish.default('true'),
   RATE_LIMIT_CAPACITY: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_REFILL_PER_SEC: z.coerce.number().positive().default(1),
+
+  // MCP endpoint (`POST /mcp`, packages/mcp): the dForms MCP server, served by
+  // this API with the workspace API keys (`Authorization: Bearer dforms_...`).
+  // Every variable is optional and a blank value means unset. On by default;
+  // MCP_ENABLED=false answers 404. A request carrying a browser Origin is
+  // refused unless the origin is listed in MCP_ALLOWED_ORIGINS (MCP clients
+  // send none); the same list is the CORS allowlist of /mcp, kept apart from
+  // CORS_ORIGINS. MCP_ALLOWED_HOSTS, when set, is the only Host names served
+  // (DNS-rebinding guard). Buckets are per API key, in memory per pod, and off
+  // with the rest of the limiting when RATE_LIMIT_ENABLED=false: every request
+  // takes from MCP_RATE_LIMIT_*, write tools also from MCP_WRITE_RATE_LIMIT_*.
+  // Requests without a valid key take from the per-IP RATE_LIMIT_* bucket.
+  MCP_ENABLED: blankAsUnset(boolish.default('true')),
+  MCP_ALLOWED_ORIGINS: z.string().optional(),
+  MCP_ALLOWED_HOSTS: z.string().optional(),
+  MCP_RATE_LIMIT_CAPACITY: blankAsUnset(z.coerce.number().int().positive().default(120)),
+  MCP_RATE_LIMIT_REFILL_PER_SEC: blankAsUnset(z.coerce.number().positive().default(2)),
+  MCP_WRITE_RATE_LIMIT_CAPACITY: blankAsUnset(z.coerce.number().int().positive().default(20)),
+  MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC: blankAsUnset(z.coerce.number().positive().default(0.2)),
+  MCP_TOOL_TIMEOUT_MS: blankAsUnset(z.coerce.number().int().positive().max(120_000).default(20_000)),
 
   // Product analytics — OUR OWN telemetry about the people who USE Dapta Forms
   // (signup, publish, activation), drained from the outbox by AnalyticsCapture.

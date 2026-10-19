@@ -19,7 +19,7 @@
 import { ForbiddenException, HttpException, HttpStatus, Logger, UnauthorizedException } from '@nestjs/common';
 import { findApiKeyPrincipal, touchApiKeyLastUsed, type Db } from '@quill/db';
 import type { ServerEnv } from '@quill/config/env';
-import { hashApiKey } from './api-keys';
+import { hashApiKey, isMcpRequest } from './api-keys';
 import { header, type HostPrincipal, type ReqLike } from './auth.provider';
 import { NoopRateLimiter, TokenBucketRateLimiter, type RateLimiter } from './rate-limit';
 
@@ -101,6 +101,7 @@ export class ApiKeyAuthenticator {
       role: row.role,
       via: 'api_key',
       apiKeyId: row.keyId,
+      ...(isMcpRequest(req) ? { channel: 'mcp' as const } : {}),
     };
   }
 
