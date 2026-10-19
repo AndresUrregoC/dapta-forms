@@ -14,6 +14,7 @@ import {
   keyAllowedRoutes,
   type McpHandlers,
 } from './mcp.backend';
+import { noteApiKeyCall } from './deprecated-hosts';
 import { TokenBucketRateLimiter, clientKey, resolveTrustProxyHops } from './rate-limit';
 import { DB, ENV, RATE_LIMITER } from './tokens';
 
@@ -73,6 +74,8 @@ export class McpController implements OnModuleInit {
       allowedOrigins: csv(env.MCP_ALLOWED_ORIGINS),
       allowedHosts: csv(env.MCP_ALLOWED_HOSTS),
       authenticate: (token) => authenticateMcpKey(db, token),
+      // A key call on a deprecated API host is logged by key id, like REST.
+      onAuthenticated: (req, caller) => noteApiKeyCall(req, caller.credentialId, caller.accountId),
       keyLimiter: bucket(env.MCP_RATE_LIMIT_CAPACITY, env.MCP_RATE_LIMIT_REFILL_PER_SEC),
       ipLimiter,
     });

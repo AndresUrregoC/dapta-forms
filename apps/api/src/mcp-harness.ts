@@ -11,6 +11,7 @@ import { loadServerEnv } from '@quill/config/env';
 import { AppModule } from './app.module';
 import { generateApiKey } from './api-keys';
 import { configureCors } from './cors';
+import { configureDeprecatedHosts } from './deprecated-hosts';
 import { McpController } from './mcp.controller';
 
 /**
@@ -24,6 +25,8 @@ export interface Harness {
   url: string;
   db: Db;
   audit: string[];
+  /** The lines the deprecated-hosts middleware logged (API_DEPRECATED_HOSTS). */
+  deprecatedHostLog: string[];
   accountId: string;
   ownerId: string;
   /** The seeded "Lead Qualifier" form. */
@@ -57,6 +60,10 @@ const ENV_KEYS = [
   'MCP_TOOL_TIMEOUT_MS',
   'RATE_LIMIT_CAPACITY',
   'RATE_LIMIT_REFILL_PER_SEC',
+  'API_DEPRECATED_HOSTS',
+  'API_SUCCESSOR_URL',
+  'API_DEPRECATION_DATE',
+  'API_SUNSET_DATE',
 ] as const;
 
 export const APP_URL = 'https://forms.example.test';
@@ -85,7 +92,10 @@ export async function bootHarness(env: Partial<Record<(typeof ENV_KEYS)[number],
   const other = await seedOtherTenant(db);
 
   const app = await NestFactory.create(AppModule, { logger: false });
-  // The same CORS wiring main.ts applies, so the specs see the real policy.
+  // The same wiring main.ts applies, in the same order, so the specs see the
+  // real policy: the deprecated-hosts middleware, then CORS.
+  const deprecatedHostLog: string[] = [];
+  configureDeprecatedHosts(app, loadServerEnv(), (line) => deprecatedHostLog.push(line));
   configureCors(app, loadServerEnv());
   await app.listen(0, '127.0.0.1');
   // Providers read the environment while the app is built; put it back at once
@@ -118,6 +128,7 @@ export async function bootHarness(env: Partial<Record<(typeof ENV_KEYS)[number],
     url: `${base}/mcp`,
     db,
     audit,
+    deprecatedHostLog,
     accountId,
     ownerId,
     formId,

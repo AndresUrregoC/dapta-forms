@@ -39,6 +39,13 @@ export interface McpDoorOptions {
    * past the door changes.
    */
   authenticate(token: string): Promise<McpCaller | null>;
+  /**
+   * Called once a request's credential resolved to a caller, before its rate
+   * limit is taken, with the request as the host passed it in. Lets the host
+   * attribute the request (forms-api notes the key id of a call on a
+   * deprecated API host). Optional; it must not throw.
+   */
+  onAuthenticated?(req: DoorRequest, caller: McpCaller): void;
   /** Every request of an authenticated credential takes a token, keyed by credential. */
   keyLimiter: RateLimiter;
   /** Requests without a credential and failed attempts take a token, keyed by client address. */
@@ -187,6 +194,7 @@ export class McpDoor {
       });
       return;
     }
+    this.options.onAuthenticated?.(req, caller);
     const { allowed, retryAfterMs } = this.options.keyLimiter.take(`mcp-key:${caller.credentialId}`);
     if (!allowed) return this.tooMany(res, retryAfterMs);
 
