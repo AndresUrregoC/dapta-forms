@@ -221,6 +221,22 @@ on, the default), the seeded demo form (`ONBOARDING_WIZARD=false` +
 **not** seed a form — the wizard suppresses it, so that the two can never both
 write a "first" form into the same account.
 
+### MCP endpoint (API, optional)
+
+The API serves the dForms MCP server at `POST /mcp` with the workspace API keys
+(see [`docs/MCP.md`](docs/MCP.md)). Every variable is optional and a blank
+value counts as unset, so a deployment that sets none of them gets the safe
+defaults below.
+
+| Var | Default | Required when | Secret |
+|---|---|---|---|
+| `MCP_ENABLED` | `true` | set `false` to answer 404 on `/mcp` | no |
+| `MCP_ALLOWED_ORIGINS` | _(unset: any browser `Origin` is refused)_ | a browser-based MCP client must reach the endpoint | no |
+| `MCP_ALLOWED_HOSTS` | _(unset: no `Host` check)_ | to restrict the `Host` header (DNS-rebinding guard) | no |
+| `MCP_RATE_LIMIT_CAPACITY` / `MCP_RATE_LIMIT_REFILL_PER_SEC` | `120` / `2` | per API key, every request; off with `RATE_LIMIT_ENABLED=false` | no |
+| `MCP_WRITE_RATE_LIMIT_CAPACITY` / `MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC` | `20` / `0.2` | per API key, write tools only | no |
+| `MCP_TOOL_TIMEOUT_MS` | `20000` | a tool call that runs longer is abandoned | no |
+
 ### Auth
 
 | Var | Default | Required when | Secret |
@@ -329,6 +345,8 @@ are runtime server env for the web container.
 | `IAM_BASE_URL` | _(unset)_ | **required** when `AUTH_PROVIDER=workos` — upstream identity service the web calls for the login URL / logout | no |
 | `IAM_API_KEY` | _(unset)_ | the onboarding cohort probe (key-gated IAM status endpoint); unset probes fail closed to the short wizard | yes |
 | `PUBLIC_APP_URL` | _(empty)_ | trusted origin for OAuth redirects (same as API) | no |
+| `PUBLIC_API_URL` | `API_URL` when public, else `NEXT_PUBLIC_API_URL`, else `http://localhost:4000` | `API_URL` is a cluster-internal address: where customers reach the API (docs page, skill zip) | no |
+| `MCP_PUBLIC_URL` | `<PUBLIC_API_URL>/mcp` | the MCP endpoint customers reach is on another host (a dedicated MCP hostname); runtime, shown in the MCP setup guide | no |
 
 ## Reverse proxy + TLS
 
@@ -447,4 +465,5 @@ through the same outbox with retry + backoff).
 - [`README.md`](README.md) — quickstart + feature overview.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — request flow, package boundaries, ports/adapters.
 - [`.env.example`](.env.example) — every variable with inline notes.
+- [`docs/MCP.md`](docs/MCP.md): the MCP endpoint, its tools and how to connect an agent.
 - [`docker-compose.prod.yml`](docker-compose.prod.yml) — the reference production stack.
