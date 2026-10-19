@@ -1,7 +1,7 @@
 # Architecture
 
 Dapta Forms is a Turborepo + pnpm-workspaces monorepo: two deployable apps over
-eight packages. This page is the map — the request flow, the dependency direction,
+eight packages. This page is the map: the request flow, the dependency direction,
 and the ports/adapters seams that keep the project self-hostable. For how to run
 and change it, see [`CLAUDE.md`](CLAUDE.md); for contribution mechanics,
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
