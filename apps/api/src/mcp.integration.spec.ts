@@ -304,6 +304,50 @@ describe('the door on the real app', () => {
   });
 });
 
+describe('browser access (CORS)', () => {
+  const preflight = (h: Harness, path: string, origin: string) =>
+    fetch(`${h.base}${path}`, {
+      method: 'OPTIONS',
+      headers: {
+        origin,
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'authorization,content-type,mcp-protocol-version',
+      },
+    });
+
+  it('lets an origin listed in MCP_ALLOWED_ORIGINS preflight and call /mcp, without credentials', async () => {
+    const origin = 'https://inspector.example.test';
+    const h = await boot({ MCP_ALLOWED_ORIGINS: `${origin}/` });
+    const pre = await preflight(h, '/mcp', origin);
+    expect(pre.status).toBe(204);
+    expect(pre.headers.get('access-control-allow-origin')).toBe(origin);
+    expect(pre.headers.get('access-control-allow-headers')).toContain('authorization');
+    expect(pre.headers.get('access-control-allow-credentials')).toBeNull();
+    const res = await h.post(initialize('2025-06-18'), { authorization: `Bearer ${(await h.key()).key}`, origin });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBe(origin);
+    expect(res.headers.get('access-control-expose-headers')).toContain('WWW-Authenticate');
+  });
+
+  it('keeps the two allowlists apart: the dashboard origin cannot reach /mcp, an MCP origin cannot reach /v1', async () => {
+    const mcpOrigin = 'https://inspector.example.test';
+    const h = await boot({ MCP_ALLOWED_ORIGINS: mcpOrigin });
+    const dashboard = await preflight(h, '/mcp', APP_URL);
+    expect(dashboard.headers.get('access-control-allow-origin')).toBeNull();
+    const rest = await preflight(h, '/v1/forms', APP_URL);
+    expect(rest.headers.get('access-control-allow-origin')).toBe(APP_URL);
+    expect(rest.headers.get('access-control-allow-credentials')).toBe('true');
+    const crossed = await preflight(h, '/v1/forms', mcpOrigin);
+    expect(crossed.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  it('with no MCP origin configured, no browser can preflight /mcp', async () => {
+    const h = await boot();
+    const pre = await preflight(h, '/mcp', 'https://inspector.example.test');
+    expect(pre.headers.get('access-control-allow-origin')).toBeNull();
+  });
+});
+
 describe('config', () => {
   it('boots with nothing set and with blank deploy-rendered values', () => {
     const base = loadServerEnv({ NODE_ENV: 'test' } as NodeJS.ProcessEnv);

@@ -231,7 +231,7 @@ defaults below.
 | Var | Default | Required when | Secret |
 |---|---|---|---|
 | `MCP_ENABLED` | `true` | set `false` to answer 404 on `/mcp` | no |
-| `MCP_ALLOWED_ORIGINS` | _(unset: any browser `Origin` is refused)_ | a browser-based MCP client must reach the endpoint | no |
+| `MCP_ALLOWED_ORIGINS` | _(unset: any browser `Origin` is refused)_ | a browser-based MCP client must reach the endpoint; also the CORS allowlist of `/mcp`, apart from `CORS_ORIGINS` | no |
 | `MCP_ALLOWED_HOSTS` | _(unset: no `Host` check)_ | to restrict the `Host` header (DNS-rebinding guard) | no |
 | `MCP_RATE_LIMIT_CAPACITY` / `MCP_RATE_LIMIT_REFILL_PER_SEC` | `120` / `2` | per API key, every request; off with `RATE_LIMIT_ENABLED=false` | no |
 | `MCP_WRITE_RATE_LIMIT_CAPACITY` / `MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC` | `20` / `0.2` | per API key, write tools only | no |

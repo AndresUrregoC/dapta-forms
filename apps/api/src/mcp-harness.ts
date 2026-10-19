@@ -7,8 +7,10 @@ import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createDb, insertApiKey, migrate, seed, sql, type Db } from '@quill/db';
+import { loadServerEnv } from '@quill/config/env';
 import { AppModule } from './app.module';
 import { generateApiKey } from './api-keys';
+import { configureCors } from './cors';
 import { McpController } from './mcp.controller';
 
 /**
@@ -37,6 +39,7 @@ export interface Harness {
 }
 
 const ENV_KEYS = [
+  'CORS_ORIGINS',
   'DATABASE_URL',
   'NODE_ENV',
   'OUTBOX_WORKER_ENABLED',
@@ -82,6 +85,8 @@ export async function bootHarness(env: Partial<Record<(typeof ENV_KEYS)[number],
   const other = await seedOtherTenant(db);
 
   const app = await NestFactory.create(AppModule, { logger: false });
+  // The same CORS wiring main.ts applies, so the specs see the real policy.
+  configureCors(app, loadServerEnv());
   await app.listen(0, '127.0.0.1');
   // Providers read the environment while the app is built; put it back at once
   // so harnesses booted side by side do not leak settings into each other.

@@ -201,7 +201,8 @@ export const serverEnvSchema = z.object({
   // Every variable is optional and a blank value means unset. On by default;
   // MCP_ENABLED=false answers 404. A request carrying a browser Origin is
   // refused unless the origin is listed in MCP_ALLOWED_ORIGINS (MCP clients
-  // send none). MCP_ALLOWED_HOSTS, when set, is the only Host names served
+  // send none); the same list is the CORS allowlist of /mcp, kept apart from
+  // CORS_ORIGINS. MCP_ALLOWED_HOSTS, when set, is the only Host names served
   // (DNS-rebinding guard). Buckets are per API key, in memory per pod, and off
   // with the rest of the limiting when RATE_LIMIT_ENABLED=false: every request
   // takes from MCP_RATE_LIMIT_*, write tools also from MCP_WRITE_RATE_LIMIT_*.

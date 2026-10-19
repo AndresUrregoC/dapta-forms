@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { bootHarness, capped, errorText, initialize, structured, type Harness, type HarnessOptions } from './__tests__/harness';
-import { hostnameOf } from './door';
+import { hostnameOf, mcpCorsPolicy } from './door';
 
 const open: Harness[] = [];
 async function boot(opts: HarnessOptions = {}) {
@@ -70,6 +70,17 @@ describe('transport guards', () => {
     const h = await boot();
     const res = await h.post(initialize('2025-06-18'));
     expect(res.headers.get('x-request-id')).toMatch(/^req-\d+$/);
+  });
+});
+
+describe('browser policy', () => {
+  it('matches the door: the same normalized allowlist, POST only, no credentials, off when empty', () => {
+    expect(mcpCorsPolicy([])).toMatchObject({ origin: false, credentials: false });
+    const policy = mcpCorsPolicy(['https://Inspector.Example.test/', ' ']);
+    expect(policy.origin).toEqual(['https://inspector.example.test']);
+    expect(policy.methods).toEqual(['POST']);
+    expect(policy.credentials).toBe(false);
+    expect(policy.exposedHeaders).toEqual(expect.arrayContaining(['WWW-Authenticate', 'Retry-After']));
   });
 });
 

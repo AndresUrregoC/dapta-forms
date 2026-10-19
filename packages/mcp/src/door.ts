@@ -61,6 +61,31 @@ function normalizeOrigin(value: string): string {
   return value.trim().toLowerCase().replace(/\/+$/, '');
 }
 
+/**
+ * The browser (CORS) policy that matches the door, in the shape the `cors`
+ * middleware takes: the same allowlist, no credentials (the endpoint
+ * authenticates with a bearer key, never a cookie), POST only. An empty list
+ * turns CORS off for the endpoint, so a browser cannot even preflight. The
+ * request headers are reflected on a preflight because the protocol sends
+ * dynamic ones (`Mcp-Param-*`). The host mounts it for the MCP path only.
+ */
+export function mcpCorsPolicy(allowedOrigins: readonly string[]): {
+  origin: string[] | false;
+  methods: string[];
+  exposedHeaders: string[];
+  credentials: false;
+  maxAge: number;
+} {
+  const origins = allowedOrigins.map(normalizeOrigin).filter(Boolean);
+  return {
+    origin: origins.length > 0 ? origins : false,
+    methods: ['POST'],
+    exposedHeaders: ['WWW-Authenticate', 'Retry-After', 'X-Request-Id', 'Mcp-Session-Id'],
+    credentials: false,
+    maxAge: 600,
+  };
+}
+
 /** The hostname of a `Host` header, port and brackets handled. */
 export function hostnameOf(host: string | undefined): string {
   const h = (host ?? '').trim().toLowerCase();

@@ -135,6 +135,9 @@ const forms = await client.callTool({ name: 'list_forms', arguments: {} });
   when set (403), a browser `Origin` not in `MCP_ALLOWED_ORIGINS` (403; clients
   without an `Origin`, which is every non-browser MCP client, are unaffected),
   credentials in the URL (400), `application/json` only (415), then the key.
+  The same list is the endpoint's CORS policy (preflight answered, no
+  credentials), kept apart from the dashboard's `CORS_ORIGINS`: neither list
+  opens the other surface.
   Bodies are capped by the API's JSON parser, like every REST route.
 - **Rate limits.** Every request of a key takes a token from its MCP bucket
   (`MCP_RATE_LIMIT_*`, HTTP 429 with `Retry-After`); write tools also take one

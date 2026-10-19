@@ -11,7 +11,7 @@
  *   examples), shared with the web app's API skill.
  */
 export * from './backend';
-export { McpDoor, hostnameOf, type DoorContext, type DoorRequest, type DoorResponse, type McpDoorOptions } from './door';
+export { McpDoor, hostnameOf, mcpCorsPolicy, type DoorContext, type DoorRequest, type DoorResponse, type McpDoorOptions } from './door';
 export { unlimited, type RateLimiter } from './rate-limit';
 export {
   CALL_KEY,
