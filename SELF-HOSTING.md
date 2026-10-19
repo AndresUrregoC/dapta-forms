@@ -357,6 +357,14 @@ Terminate TLS at a proxy in front of both apps and forward to web (3000) and API
   `https://forms.example.com`). This is the **trusted origin**: the web builds OAuth
   `returnTo` / post-login redirects from it (never from attacker-controllable `Host`
   / `X-Forwarded-Host` headers) and it is the default CORS allowlist entry.
+  The sign-in hand-off only starts on this host: a request to `/api/auth/login`
+  that arrives on any other hostname (an old domain still serving after a move,
+  say) gets a 302 to the same path and query on `PUBLIC_APP_URL`, before any
+  cookie is set, because the sign-in state cookie only lives on the host that
+  set it. Hostnames are compared case-insensitively; port and scheme are
+  ignored. The request's host is read from the first `X-Forwarded-Host` entry,
+  else `Host`, so the proxy must pass the public host in one of them, which
+  Next's Server Actions origin check already requires.
 - Set **`TRUST_PROXY_HOPS`** to the number of trusted proxies in front of the API.
   `X-Forwarded-For` is client-appended and spoofable from the left; behind exactly N
   trusted proxies the real client IP is the Nth entry from the right (used by the

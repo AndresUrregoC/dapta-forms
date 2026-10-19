@@ -73,5 +73,59 @@ export function selfHost(get: (name: string) => string | null | undefined): stri
       // Same fall-through as above: a bad env var must not break the request.
     }
   }
+  return headerHost(get);
+}
+
+/**
+ * The host the request itself names, from the headers alone: the first hop of
+ * `X-Forwarded-Host`, else `Host`. That is the order Next's own Server Actions
+ * origin check reads them in, so a deployment whose admin can save at all
+ * already hands the app its public host here.
+ *
+ * NOT an origin to build URLs from (see `selfHost` for that): the headers are
+ * client-supplied. Only fit for a decision whose every outcome is safe for the
+ * person who sent them.
+ */
+export function headerHost(get: (name: string) => string | null | undefined): string | null {
   return get('x-forwarded-host')?.split(',')[0]?.trim() || get('host')?.trim() || null;
+}
+
+/**
+ * The `PUBLIC_APP_URL` origin when the request arrived on a different hostname,
+ * else null (no `PUBLIC_APP_URL`, same hostname, or nothing parseable).
+ *
+ * Built for the login hand-off, whose state cookie is host-only: a login started
+ * on any other hostname comes back to the `PUBLIC_APP_URL` callback without it.
+ *
+ * Hostnames only, case-insensitive (the URL parser lowercases them). Port and
+ * scheme are ignored on purpose: cookies are not isolated by port, so a login on
+ * another port of the same hostname already works; and behind TLS termination the
+ * app cannot see the public scheme or port reliably, so comparing them could send
+ * a login on the right host into a redirect loop.
+ *
+ * Safe on spoofed headers because the answer is never taken FROM them: it is the
+ * configured origin or nothing. A forged `X-Forwarded-Host` can only send its
+ * sender to `PUBLIC_APP_URL`, or keep today's behavior for its sender.
+ */
+export function canonicalOriginElsewhere(
+  get: (name: string) => string | null | undefined,
+): string | null {
+  const configured = process.env.PUBLIC_APP_URL?.trim();
+  if (!configured) return null;
+  let canonical: URL;
+  try {
+    canonical = new URL(configured);
+  } catch {
+    // Same rule as `originFrom`: a bad env var never breaks the request.
+    return null;
+  }
+  const arrived = headerHost(get);
+  if (!arrived) return null;
+  let arrivedHostname: string;
+  try {
+    arrivedHostname = new URL(`http://${arrived}`).hostname;
+  } catch {
+    return null;
+  }
+  return arrivedHostname === canonical.hostname ? null : canonical.origin;
 }
