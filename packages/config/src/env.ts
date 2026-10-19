@@ -345,6 +345,18 @@ export const serverEnvSchema = z.object({
   // follows an outage, inside a total budget of 4 s, so a submit is never held
   // past the browser's own 8 s per-attempt limit.
   CAPTCHA_VERIFY_TIMEOUT_MS: z.coerce.number().int().positive().max(4000).default(2500),
+  // Token hosts: a comma-separated list of the hostnames a challenge token may
+  // have been minted on (bare hostnames, not origins). When UNSET the token's
+  // host must be the host of PUBLIC_APP_URL, and is not checked when that is
+  // empty. When SET it must be one of the list, and the host of PUBLIC_APP_URL
+  // is always included. For a deployment that serves its public forms on more
+  // than one host, e.g. during a domain move,
+  // CAPTCHA_HOSTNAMES="forms.example.com,forms.example.org". Entries are
+  // trimmed and lowercased and blanks are dropped (all blank reads as unset).
+  // An entry written as an origin (https://forms.example.com) is reduced to
+  // its hostname; anything else that is not a plain hostname (a wildcard, a
+  // host:port) refuses to boot while the check is on.
+  CAPTCHA_HOSTNAMES: z.string().optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -389,13 +401,70 @@ export function captchaSettings(env: CaptchaEnv): CaptchaSettings | null {
   return { provider: 'turnstile', siteKey, secretKey, timeoutMs: env.CAPTCHA_VERIFY_TIMEOUT_MS };
 }
 
+type CaptchaHostEnv = Pick<ServerEnv, 'CAPTCHA_HOSTNAMES' | 'PUBLIC_APP_URL'>;
+
+/** One DNS name: dot-separated labels of letters, digits and inner hyphens. */
+const HOSTNAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
+
+/**
+ * The hosts a challenge token may have been minted on, or null when the host
+ * is not checked. CAPTCHA_HOSTNAMES unset (or blank) keeps the original rule:
+ * the host of PUBLIC_APP_URL, and no check when that is empty. Set, it is that
+ * list plus the host of PUBLIC_APP_URL, so the app's own host can never be
+ * listed out. Throws on an entry that is not a hostname: a typo there would
+ * otherwise refuse every protected submit made on that host.
+ */
+export function captchaHostnames(env: CaptchaHostEnv): string[] | null {
+  const appHost = appHostnameOf(env.PUBLIC_APP_URL);
+  const listed = (env.CAPTCHA_HOSTNAMES ?? '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean)
+    .map(captchaHostnameOf);
+  if (listed.length === 0) return appHost ? [appHost] : null;
+  return [...new Set(appHost ? [appHost, ...listed] : listed)];
+}
+
+/** An entry of CAPTCHA_HOSTNAMES (trimmed, lowercased) as a bare hostname. */
+function captchaHostnameOf(entry: string): string {
+  let host: string | null = entry;
+  if (entry.includes('://')) {
+    // An origin is what an operator copies from CORS_ORIGINS; the token
+    // carries no scheme or port, so only the hostname is compared.
+    try {
+      const url = new URL(entry);
+      host = url.protocol === 'https:' || url.protocol === 'http:' ? url.hostname : null;
+    } catch {
+      host = null;
+    }
+  }
+  if (!host || !HOSTNAME.test(host)) {
+    throw new Error(
+      `Refusing to boot: CAPTCHA_HOSTNAMES entry "${entry}" is not a hostname. List bare ` +
+        'hostnames (forms.example.com) or origins (https://forms.example.com), comma-separated; ' +
+        'wildcards and ports are not supported.',
+    );
+  }
+  return host;
+}
+
+function appHostnameOf(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Fail loud on a half-configured check rather than run without it: one key
  * without the other is a typo, not a choice, and quietly treating it as "off"
  * would ship an unprotected form its owner believes is protected. The kill
- * switch is exempt, so reaching for it can never be what stops a pod booting.
+ * switch is exempt, so reaching for it can never be what stops a pod booting,
+ * and so is a deployment without keys, where CAPTCHA_HOSTNAMES is never read.
  */
-function assertCaptchaEnv(env: CaptchaEnv): void {
+function assertCaptchaEnv(env: CaptchaEnv & CaptchaHostEnv): void {
   if (env.CAPTCHA_PROVIDER === 'none') return;
   const site = Boolean(env.CAPTCHA_SITE_KEY?.trim());
   const secret = Boolean(env.CAPTCHA_SECRET_KEY?.trim());
@@ -410,6 +479,7 @@ function assertCaptchaEnv(env: CaptchaEnv): void {
       'Refusing to boot: CAPTCHA_PROVIDER=turnstile needs CAPTCHA_SITE_KEY and CAPTCHA_SECRET_KEY.',
     );
   }
+  if (site && secret) captchaHostnames(env);
 }
 
 export const clientEnvSchema = z.object({
