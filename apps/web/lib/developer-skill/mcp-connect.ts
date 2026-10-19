@@ -21,25 +21,13 @@
  */
 import { API_KEY_ENV } from './agent-setup';
 import { publicApiUrl } from './public-api-url';
+import { cleanPublicUrl } from './public-url';
 
 /** The name the server is registered under in each agent's config. */
 export const MCP_SERVER_NAME = 'dforms';
 
-/** An absolute http(s) URL with no trailing slash (path kept), or null. */
-function clean(raw: string | undefined): string | null {
-  const value = raw?.trim();
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-    return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
-  } catch {
-    return null;
-  }
-}
-
 export function publicMcpUrl(env: Record<string, string | undefined> = process.env): string | null {
-  const explicit = clean(env.MCP_PUBLIC_URL);
+  const explicit = cleanPublicUrl(env.MCP_PUBLIC_URL);
   if (explicit) return explicit;
   const api = publicApiUrl(env);
   return api ? `${api}/mcp` : null;
