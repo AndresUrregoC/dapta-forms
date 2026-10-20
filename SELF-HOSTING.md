@@ -290,13 +290,23 @@ the switch disabled, and no form loads anything from Cloudflare.
 | `CAPTCHA_SECRET_KEY` | _(unset)_ | to enable the check (API only) | yes |
 | `CAPTCHA_PROVIDER` | _(unset)_ | `none` turns the check off everywhere while keeping the keys loaded; unset with both keys means `turnstile` | no |
 | `CAPTCHA_VERIFY_TIMEOUT_MS` | `2500` | per-attempt timeout of the server-side check (one retry, 4 s budget; max 4000) | no |
+| `CAPTCHA_HOSTNAMES` | _(unset: the host of `PUBLIC_APP_URL`)_ | the public forms are served on more than one host; comma-separated bare hostnames, the host of `PUBLIC_APP_URL` always included | no |
 
 The two keys come as a pair: one without the other refuses to boot, and so does
 `CAPTCHA_PROVIDER=turnstile` without them. Create a **Managed** widget in the
 Cloudflare dashboard and list the host your forms are served from (the host of
 `PUBLIC_APP_URL`); forms embedded on other sites need nothing more, because the
 widget runs inside the form's own iframe. The token's host is checked against
-`PUBLIC_APP_URL` when it is set. Nothing is needed on the web container. If a
+`PUBLIC_APP_URL` when it is set. A deployment that serves its public forms on
+more than one host (for example while it moves to a new domain, with both the
+old and the new host live) lists them in `CAPTCHA_HOSTNAMES`, such as
+`CAPTCHA_HOSTNAMES=forms.example.com,forms.example.org`, and lists the same
+hosts on the widget. A token is then accepted from any listed host or from the
+host of `PUBLIC_APP_URL`, which is always included. Entries are trimmed and
+lowercased and blanks are dropped, so an empty value means unset; an entry
+written as an origin (`https://forms.example.com`) is reduced to its hostname,
+and anything else that is not a plain hostname (a wildcard, a `host:port`)
+refuses to boot. Nothing is needed on the web container. If a
 proxy in front of the web app adds a Content-Security-Policy, allow
 `https://challenges.cloudflare.com` in `script-src` and `frame-src`. For CI and
 local runs, Cloudflare publishes test keys (for example site key
