@@ -64,8 +64,21 @@ export interface DoorContext {
   requestId: string;
 }
 
-function normalizeOrigin(value: string): string {
-  return value.trim().toLowerCase().replace(/\/+$/, '');
+/**
+ * `value` without any trailing `char`, in linear time. `/\/+$/` backtracks on
+ * a long run of '/' that is not at the end, and the `Origin` header is client
+ * input. The same contract as `trimTrailing` in `@quill/shared`, which this
+ * package does not depend on.
+ */
+function trimTrailing(value: string, char: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === char) end--;
+  return value.slice(0, end);
+}
+
+/** An origin as the allowlist compares it: trimmed, lower case, no trailing slash. */
+export function normalizeOrigin(value: string): string {
+  return trimTrailing(value.trim().toLowerCase(), '/');
 }
 
 /**

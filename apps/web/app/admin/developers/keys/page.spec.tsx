@@ -4,8 +4,9 @@
  * a link to the API docs page, in the reader's language. The docs themselves
  * are not on this page any more.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { Window } from 'happy-dom';
 import type { ReactElement } from 'react';
 import { getMessages, type Locale } from '@quill/shared';
 
@@ -121,9 +122,18 @@ describe('DevelopersPage', () => {
   describe('setup guide', () => {
     const download = (html: string) =>
       html.match(/<a [^>]*data-testid="api-keys-skill-download"[^>]*>.*?<\/a>/)?.[0];
-    /** The text a reader sees: tags (the code highlight's spans) dropped, entities decoded. */
-    const decode = (html: string) =>
-      html.replace(/<[^>]+>/g, '').replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    /**
+     * The text a reader sees: the markup parsed by a real HTML parser and its
+     * text read back, so the code highlight's spans are gone and entities are
+     * decoded.
+     */
+    const reader = new Window();
+    afterAll(() => reader.happyDOM.close());
+    const decode = (html: string) => {
+      const template = reader.document.createElement('template');
+      template.innerHTML = html;
+      return template.content.textContent ?? '';
+    };
 
     afterEach(() => {
       delete process.env.MCP_PUBLIC_URL;

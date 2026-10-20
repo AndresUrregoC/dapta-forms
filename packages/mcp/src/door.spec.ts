@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { bootHarness, capped, errorText, initialize, structured, type Harness, type HarnessOptions } from './__tests__/harness';
-import { hostnameOf, mcpCorsPolicy } from './door';
+import { hostnameOf, mcpCorsPolicy, normalizeOrigin } from './door';
 
 const open: Harness[] = [];
 async function boot(opts: HarnessOptions = {}) {
@@ -21,6 +21,14 @@ describe('transport guards', () => {
     expect((await h.post(initialize('2025-06-18'), { ...auth, origin: 'null' })).status).toBe(403);
     expect((await h.post(initialize('2025-06-18'), { ...auth, origin: 'https://inspector.example.test' })).status).toBe(200);
     expect((await h.post(initialize('2025-06-18'), auth)).status).toBe(200);
+  });
+
+  it('compares the Origin header normalized, and refuses a long run of slashes without slowing down', async () => {
+    const h = await boot({ door: { allowedOrigins: ['https://inspector.example.test'] } });
+    const auth = { authorization: `Bearer ${h.key()}` };
+    expect((await h.post(initialize('2025-06-18'), { ...auth, origin: 'https://Inspector.Example.test//' })).status).toBe(200);
+    const hostile = `https://inspector.example.test${'/'.repeat(8_000)}x`;
+    expect((await h.post(initialize('2025-06-18'), { ...auth, origin: hostile })).status).toBe(403);
   });
 
   it('with nothing configured every browser origin is refused, before any credential is read', async () => {
@@ -81,6 +89,25 @@ describe('browser policy', () => {
     expect(policy.methods).toEqual(['POST']);
     expect(policy.credentials).toBe(false);
     expect(policy.exposedHeaders).toEqual(expect.arrayContaining(['WWW-Authenticate', 'Retry-After']));
+  });
+});
+
+describe('normalizeOrigin', () => {
+  it('trims whitespace, folds case and drops every trailing slash', () => {
+    expect(normalizeOrigin('  https://Inspector.Example.test///  ')).toBe('https://inspector.example.test');
+    expect(normalizeOrigin('https://inspector.example.test')).toBe('https://inspector.example.test');
+    expect(normalizeOrigin('HTTP://LOCALHOST:3000/')).toBe('http://localhost:3000');
+    expect(normalizeOrigin('null')).toBe('null');
+    expect(normalizeOrigin(' / ')).toBe('');
+    expect(normalizeOrigin('')).toBe('');
+  });
+
+  it('stays linear on a long run of slashes that is not at the end', () => {
+    const input = `${'/'.repeat(100_000)}x`;
+    const started = performance.now();
+    expect(normalizeOrigin(input)).toBe(input);
+    expect(normalizeOrigin(`https://a.test${'/'.repeat(100_000)}`)).toBe('https://a.test');
+    expect(performance.now() - started).toBeLessThan(100);
   });
 });
 
