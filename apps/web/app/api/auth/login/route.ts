@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { parseAttribution } from '@quill/types';
 import { PH_ID_COOKIE, PH_ID_QUERY_KEY, sanitizeLandingDistinctId } from '@/lib/attribution';
 import { authProvider } from '@/lib/auth-session';
-import { requestOrigin } from '@/lib/request-origin';
+import { canonicalOriginElsewhere, requestOrigin } from '@/lib/request-origin';
 
 const OAUTH_STATE_COOKIE = 'quill_oauth_state';
 /**
@@ -30,6 +30,25 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const iam = process.env.IAM_BASE_URL?.replace(/\/$/, '');
   if (authProvider() !== 'workos' || !iam) {
     return NextResponse.redirect(new URL('/login', origin));
+  }
+
+  // Start the login where it ends. `returnTo` is always the PUBLIC_APP_URL
+  // callback and the state cookie below is host-only, so a login started on any
+  // other hostname (an old domain still serving after a move) can only come back
+  // as /login?error=state. Hop to the same path and query, as this route got
+  // them, on the PUBLIC_APP_URL origin BEFORE any cookie is written: the tags,
+  // `ph_id`, `next` and `prompt` are then parked on the host whose callback
+  // reads them. (Next has already normalized the query encoding by now, so the
+  // canonical host parses exactly what it would on a direct visit.)
+  // The target is the configured origin, never taken from a header, so this is
+  // no open redirect. `no-store`: the decision depends on request headers, and a
+  // cached hop served back to the canonical host would loop.
+  const canonical = canonicalOriginElsewhere((n) => req.headers.get(n));
+  if (canonical) {
+    const { pathname, search } = new URL(req.url);
+    const hop = NextResponse.redirect(`${canonical}${pathname}${search}`, 302);
+    hop.headers.set('cache-control', 'no-store');
+    return hop;
   }
 
   const state = randomBytes(24).toString('base64url');
