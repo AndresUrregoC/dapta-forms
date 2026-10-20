@@ -184,7 +184,8 @@ export async function bootHarness(opts: HarnessOptions = {}): Promise<Harness> {
       Object.assign(req, { body });
       await door.handle(req as never, res, { ip: '203.0.113.7', requestId: `req-${++seq}` });
     })().catch((err: unknown) => {
-      res.writeHead(500);
+      // Plain text, so a client never reads the error message as HTML.
+      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
       res.end(String(err));
     });
   });

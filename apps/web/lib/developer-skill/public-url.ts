@@ -1,3 +1,5 @@
+import { trimTrailing } from '@quill/shared';
+
 /**
  * An absolute http(s) URL with no trailing slash, or null. A path prefix is
  * kept (an API mounted under /forms-api), the query and hash are dropped.
@@ -15,5 +17,5 @@ export function cleanPublicUrl(raw: string | undefined): string | null {
     return null;
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+  return `${url.origin}${trimTrailing(url.pathname, '/')}`;
 }
