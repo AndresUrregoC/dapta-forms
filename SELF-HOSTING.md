@@ -237,6 +237,53 @@ defaults below.
 | `MCP_WRITE_RATE_LIMIT_CAPACITY` / `MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC` | `20` / `0.2` | per API key, write tools only | no |
 | `MCP_TOOL_TIMEOUT_MS` | `20000` | a tool call that runs longer is abandoned | no |
 
+### Deprecated API hosts (API, optional)
+
+When the API moves to a new domain, the old host has to keep answering for a
+while: a redirect would drop the `Authorization: Bearer dforms_...` header, so
+every API key call (and every MCP client) on the old host would break. List the
+old hostnames in `API_DEPRECATED_HOSTS` and the API keeps serving them, but it
+tells callers to move and shows you who has not.
+
+| Var | Default | Required when | Secret |
+|---|---|---|---|
+| `API_DEPRECATED_HOSTS` | _(unset: off)_ | the API answers on hosts callers should leave; comma-separated bare hostnames | no |
+| `API_SUCCESSOR_URL` | _(unset)_ | with `API_DEPRECATED_HOSTS`: the https origin to move to, e.g. `https://api.example.org` | no |
+| `API_DEPRECATION_DATE` | _(unset)_ | with `API_DEPRECATED_HOSTS`: when the hosts were deprecated, `YYYY-MM-DD` (midnight UTC) or an ISO 8601 date-time with a zone | no |
+| `API_SUNSET_DATE` | _(unset: no `Sunset` header)_ | you know when the hosts stop answering; same formats, never earlier than `API_DEPRECATION_DATE` | no |
+
+A request is on a listed host when its `Host` header names one, compared
+case-insensitively and without the port. `X-Forwarded-Host` is never read, as
+everywhere else in the API. Every response there, errors included, carries:
+
+- `Deprecation: @<unix seconds>` ([RFC 9745](https://www.rfc-editor.org/rfc/rfc9745)),
+  from `API_DEPRECATION_DATE`;
+- `Link: <API_SUCCESSOR_URL + the same path>; rel="successor-version"`, the
+  path without its query (`successor-version` is the RFC 5829 relation for the
+  resource that replaces this one; RFC 9745's own `deprecation` relation is for
+  human-readable documentation, which this setting does not point at);
+- `Sunset: <HTTP-date>` ([RFC 8594](https://www.rfc-editor.org/rfc/rfc8594)),
+  only when `API_SUNSET_DATE` is set.
+
+Each call made there with an API key, on the REST routes or on `/mcp`, is
+logged once when its response ends, as one JSON line through the API's logger
+(context `DeprecatedApiHost`):
+
+```
+{"event":"deprecated_api_host_call","host":"api.example.com","keyId":"<api_key.id>","accountId":"<workspace id>","method":"GET","route":"/v1/forms/:id","status":200}
+```
+
+`route` is the route pattern (null when no route matched), never the URL, and
+the line carries the key's id, never the key. A call without a key gets the
+headers and no line. When those lines stop appearing for long enough, the old
+host can be redirected safely. Health checks and in-cluster calls reach the API
+by its IP or its service name, which you do not list, so they are never
+affected. Entries are trimmed and lowercased and blanks are dropped (an empty
+value means off, and the other three are then not read); an entry written as an
+origin is reduced to its hostname. A wildcard, a `host:port`, the successor's
+own host, a successor that is not a plain https origin, a missing or malformed
+date, or a sunset before the deprecation refuses to boot.
+
 ### Auth
 
 | Var | Default | Required when | Secret |

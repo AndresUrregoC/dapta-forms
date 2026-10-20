@@ -108,6 +108,20 @@ describe('credentials', () => {
     expect(res.status).toBe(401);
   });
 
+  it('tells the host who a request authenticated as, once, and only when it did', async () => {
+    const seen: Array<{ url: string | undefined; credentialId: string; accountId: string }> = [];
+    const h = await boot({
+      door: { onAuthenticated: (req, caller) => seen.push({ url: req.url, credentialId: caller.credentialId, accountId: caller.accountId }) },
+    });
+    expect((await h.post(initialize('2025-06-18'))).status).toBe(401);
+    expect((await h.post(initialize('2025-06-18'), { authorization: 'Bearer dforms_unknown' })).status).toBe(401);
+    expect(seen).toEqual([]);
+    expect((await h.post(initialize('2025-06-18'), { authorization: `Bearer ${h.key()}` })).status).toBe(200);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ url: '/mcp' });
+    expect(seen[0]!.credentialId).toEqual(expect.any(String));
+  });
+
   it('builds the challenge through the OAuth seam when one is given', async () => {
     const h = await boot({ door: { challenge: () => 'Bearer resource_metadata="https://mcp.example.test/.well-known/oauth-protected-resource"' } });
     const res = await h.post(initialize('2025-06-18'));
