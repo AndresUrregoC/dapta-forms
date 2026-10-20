@@ -422,6 +422,17 @@ Terminate TLS at a proxy in front of both apps and forward to web (3000) and API
   ignored. The request's host is read from the first `X-Forwarded-Host` entry,
   else `Host`, so the proxy must pass the public host in one of them, which
   Next's Server Actions origin check already requires.
+  The dashboard and the session refresh follow the same rule, because the
+  session cookie is host-only too: a GET or HEAD for `/admin` or anything
+  under it, or for `/onboarding`, opened in the browser on another hostname
+  (an old link in an email, a bookmark) gets the same 302 to `PUBLIC_APP_URL`
+  before any session is read, and so does any GET or HEAD for
+  `/api/auth/refresh`. Nothing else moves: public forms, embeds, `/embed.js`,
+  file links, `/api/public/*`, static assets and images keep serving on every
+  host, and POSTs (Server Actions, form posts from a tab opened before the
+  move) are never redirected. On another hostname, sign-out clears that host's
+  session cookie, stays on that host and does not revoke the upstream session,
+  which can be the one the `PUBLIC_APP_URL` host is signed in with.
 - Set **`TRUST_PROXY_HOPS`** to the number of trusted proxies in front of the API.
   `X-Forwarded-For` is client-appended and spoofable from the left; behind exactly N
   trusted proxies the real client IP is the Nth entry from the right (used by the

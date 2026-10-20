@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { NextRequest } from 'next/server';
-import { canonicalOriginElsewhere, headerHost, originFrom, requestOrigin, selfHost } from './request-origin';
+import { NextRequest } from 'next/server';
+import {
+  canonicalHop,
+  canonicalOriginElsewhere,
+  headerHost,
+  originFrom,
+  requestOrigin,
+  selfHost,
+} from './request-origin';
 
 /** The two things `requestOrigin` reads off a request, and nothing else. */
 function request(url: string, headers: Record<string, string> = {}): NextRequest {
@@ -156,5 +163,34 @@ describe('canonicalOriginElsewhere', () => {
   it('a trailing-dot hostname is another cookie host, so it hops (once: the target has no dot)', () => {
     process.env.PUBLIC_APP_URL = 'https://forms.example';
     expect(canonicalOriginElsewhere(get({ host: 'forms.example.' }))).toBe('https://forms.example');
+  });
+});
+
+describe('canonicalHop', () => {
+  const at = (path: string, method = 'GET', host = 'forms.example.org') =>
+    canonicalHop(new NextRequest(`http://0.0.0.0:3000${path}`, { method, headers: { host } }));
+
+  beforeEach(() => {
+    process.env.PUBLIC_APP_URL = 'https://app.example.com';
+  });
+
+  it('is a 302 to the same path and query on PUBLIC_APP_URL, uncached, with no cookie', () => {
+    const hop = at('/admin/forms?tab=all&q=a+b&empty=&bare');
+
+    expect(hop?.status).toBe(302);
+    expect(hop?.headers.get('location')).toBe('https://app.example.com/admin/forms?tab=all&q=a+b&empty=&bare');
+    expect(hop?.headers.get('cache-control')).toBe('no-store');
+    expect(hop?.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('hops GET and HEAD only: a 302 would turn a POST into a GET and drop its body', () => {
+    expect(at('/admin', 'HEAD')?.status).toBe(302);
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) expect(at('/admin', method)).toBeNull();
+  });
+
+  it('is null wherever canonicalOriginElsewhere is', () => {
+    expect(at('/admin', 'GET', 'app.example.com')).toBeNull();
+    delete process.env.PUBLIC_APP_URL;
+    expect(at('/admin')).toBeNull();
   });
 });

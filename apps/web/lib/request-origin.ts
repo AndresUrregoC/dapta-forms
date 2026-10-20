@@ -1,4 +1,4 @@
-import type { NextRequest } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 
 /**
  * Public origin of the running deployment, used to build OAuth `returnTo` URLs
@@ -128,4 +128,31 @@ export function canonicalOriginElsewhere(
     return null;
   }
   return arrivedHostname === canonical.hostname ? null : canonical.origin;
+}
+
+/**
+ * The hop itself: a 302 to the same path and query on the `PUBLIC_APP_URL`
+ * origin when a GET or HEAD arrives on another hostname, else null (see
+ * `canonicalOriginElsewhere` for when that is). Used by the routes and pages
+ * that only work where the session cookies live: the login hand-off, the
+ * dashboard, the first-run wizard and the session refresh (`proxy.ts`).
+ *
+ * GET and HEAD only. A 302 turns a POST into a GET and drops its body, so a
+ * Server Action or a form post sent from a tab opened before a domain move
+ * keeps running on the host it was sent to.
+ *
+ * The path and query go over exactly as this request got them (Next has
+ * already normalized the encoding, so the canonical host parses what it would
+ * on a direct visit). No cookie is read or written. `no-store`: the answer
+ * depends on request headers, and a cached hop served back to the canonical
+ * host would loop.
+ */
+export function canonicalHop(req: NextRequest): NextResponse | null {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return null;
+  const canonical = canonicalOriginElsewhere((n) => req.headers.get(n));
+  if (!canonical) return null;
+  const { pathname, search } = new URL(req.url);
+  const hop = NextResponse.redirect(`${canonical}${pathname}${search}`, 302);
+  hop.headers.set('cache-control', 'no-store');
+  return hop;
 }
