@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { parseAttribution } from '@quill/types';
 import { PH_ID_COOKIE, PH_ID_QUERY_KEY, sanitizeLandingDistinctId } from '@/lib/attribution';
 import { authProvider } from '@/lib/auth-session';
-import { canonicalOriginElsewhere, requestOrigin } from '@/lib/request-origin';
+import { canonicalHop, requestOrigin } from '@/lib/request-origin';
 
 const OAUTH_STATE_COOKIE = 'quill_oauth_state';
 /**
@@ -38,18 +38,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // as /login?error=state. Hop to the same path and query, as this route got
   // them, on the PUBLIC_APP_URL origin BEFORE any cookie is written: the tags,
   // `ph_id`, `next` and `prompt` are then parked on the host whose callback
-  // reads them. (Next has already normalized the query encoding by now, so the
-  // canonical host parses exactly what it would on a direct visit.)
-  // The target is the configured origin, never taken from a header, so this is
-  // no open redirect. `no-store`: the decision depends on request headers, and a
-  // cached hop served back to the canonical host would loop.
-  const canonical = canonicalOriginElsewhere((n) => req.headers.get(n));
-  if (canonical) {
-    const { pathname, search } = new URL(req.url);
-    const hop = NextResponse.redirect(`${canonical}${pathname}${search}`, 302);
-    hop.headers.set('cache-control', 'no-store');
-    return hop;
-  }
+  // reads them. The target is the configured origin, never taken from a
+  // header, so this is no open redirect (`canonicalHop` has the rest).
+  const hop = canonicalHop(req);
+  if (hop) return hop;
 
   const state = randomBytes(24).toString('base64url');
   const jar = await cookies();
