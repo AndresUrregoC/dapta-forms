@@ -15,6 +15,7 @@ import type { McpSnippets } from '@/lib/developer-skill/mcp-connect';
 import { createApiKeyAction, revokeApiKeyAction } from './actions';
 import { CodePanel } from './docs/code-panel';
 import { API_KEY_NAME_MAX } from './limits';
+import { ChatGuide } from './chat-guide';
 import { SetupGuide } from './setup-guide';
 
 type KeysMessages = FormsMessages['admin']['developers']['keys'];
@@ -29,6 +30,12 @@ export interface ApiKeysGuide {
   m: GuideMessages;
   mcp: McpSnippets | null;
   skill: { available: boolean; href: string; button: string; unavailable: string };
+  /**
+   * The chat path (Claude.ai, ChatGPT), only when this deployment's MCP takes
+   * a sign-in; null otherwise, and the key guide stands alone as before. `url`
+   * is null when the deployment has no public MCP address.
+   */
+  chat: { url: string | null } | null;
 }
 
 /** The person looking at the page, as `/v1/me` describes them in this workspace. */
@@ -132,9 +139,13 @@ export function ApiKeysPanel({
 
   return (
     <>
+      {guide?.chat ? (
+        <ChatGuide m={guide.m} copy={{ copy: m.copy, copied: m.copied, copyFailed: m.copyFailed }} url={guide.chat.url} />
+      ) : null}
       {guide ? (
         <SetupGuide
           m={guide.m}
+          afterChat={!!guide.chat}
           copy={{ copy: m.copy, copied: m.copied, copyFailed: m.copyFailed }}
           mcp={guide.mcp}
           skill={guide.skill}

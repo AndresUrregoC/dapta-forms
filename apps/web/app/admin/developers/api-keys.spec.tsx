@@ -375,10 +375,11 @@ describe('ApiKeysPanel: revoke', () => {
 describe('setup guide', () => {
   const g = getMessages('en').admin.developers.guide;
   const MCP_URL = 'https://api.forms.example.test/mcp';
-  const guide = (opts: { available?: boolean; mcp?: boolean } = {}): ApiKeysGuide => ({
+  const guide = (opts: { available?: boolean; mcp?: boolean; chat?: boolean } = {}): ApiKeysGuide => ({
     m: g,
     mcp: opts.mcp === false ? null : mcpSnippets(MCP_URL),
     skill: { available: opts.available ?? true, href: '/api/developers/skill', button: 'Download the skill', unavailable: 'Not yet' },
+    chat: opts.chat ? { url: opts.mcp === false ? null : MCP_URL } : null,
   });
   const step = (id: string) => $(`[data-testid="setup-step-${id}"]`)!;
 
@@ -477,6 +478,43 @@ describe('setup guide', () => {
     await mount({ keys: [], guide: guide() });
     expect($('[data-testid="setup-prompt"]')!.textContent).toContain(g.prompt);
     expect($('[data-testid="setup-chat-note"]')?.textContent).toBe(g.chatNote);
+    expect($('[data-testid="mcp-path-chat"]')).toBeNull();
+  });
+
+  describe('with the chat path (the MCP takes a sign-in)', () => {
+    it('puts the URL on the clipboard as it is, with no key anywhere on the path', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      await mount({ keys: [], guide: guide({ chat: true }) });
+      await click($('[data-testid="mcp-chat-url-copy"]'));
+      expect(writeText).toHaveBeenCalledWith(MCP_URL);
+      expect($('[data-testid="mcp-path-chat"]')!.textContent).not.toContain('DFORMS_API_KEY');
+    });
+
+    it('shows the steps of both chat apps at once, then a first prompt that does not mention a key', async () => {
+      await mount({ keys: [], guide: guide({ chat: true }) });
+      const claude = $('[data-testid="chat-app-claude"]')!;
+      const chatgpt = $('[data-testid="chat-app-chatgpt"]')!;
+      expect([...claude.querySelectorAll('li')].map((li) => li.textContent)).toEqual(g.chat.claude.steps);
+      expect([...chatgpt.querySelectorAll('li')].map((li) => li.textContent)).toEqual(g.chat.chatgpt.steps);
+      expect($('[data-testid="chat-prompt"]')!.textContent).toContain(g.chat.prompt);
+      expect(g.chat.prompt).not.toMatch(/key/i);
+    });
+
+    it('turns the key guide into the terminal path, still able to create a key, without the not-yet note', async () => {
+      await mount({ keys: [], guide: guide({ chat: true }) });
+      expect($('#setup-guide-title')!.textContent).toBe(g.terminal.title);
+      expect($('[data-testid="setup-chat-note"]')).toBeNull();
+      await click($('[data-testid="setup-create-key"]'));
+      expect($('[data-testid="api-key-name"]')).not.toBeNull();
+    });
+
+    it('says there is nothing to connect to, on both paths, without a public MCP address', async () => {
+      await mount({ keys: [], guide: guide({ chat: true, mcp: false }) });
+      expect($('[data-testid="mcp-chat-unavailable"]')?.textContent).toBe(g.mcpUnavailable);
+      expect($('[data-testid="mcp-chat-url"]')).toBeNull();
+      expect($('[data-testid="setup-mcp-unavailable"]')?.textContent).toBe(g.mcpUnavailable);
+    });
   });
 });
 

@@ -59,6 +59,7 @@ export function SetupGuide({
   hasKey,
   agentConnected,
   onCreate,
+  afterChat = false,
 }: {
   m: GuideMessages;
   copy: CopyLabels;
@@ -73,6 +74,12 @@ export function SetupGuide({
   hasKey: boolean;
   agentConnected: boolean;
   onCreate: () => void;
+  /**
+   * The chat path sits above (the MCP takes a sign-in): this becomes the
+   * terminal path, and the note that chat apps cannot connect yet goes, since
+   * it would be false.
+   */
+  afterChat?: boolean;
 }) {
   const [agent, setAgent] = useState<SetupAgent>('claude-code');
   useEffect(() => {
@@ -92,9 +99,9 @@ export function SetupGuide({
       className="mb-10 rounded-xl border border-border bg-card p-5 sm:p-6"
     >
       <h2 id="setup-guide-title" className="text-lg font-semibold text-foreground">
-        {m.title}
+        {afterChat ? m.terminal.title : m.title}
       </h2>
-      <p className="mt-1 text-sm text-muted-foreground">{m.intro}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{afterChat ? m.terminal.intro : m.intro}</p>
 
       <ol className="mt-6 flex flex-col">
         <Step n={1} title={m.keyTitle} done={hasKey} doneLabel={m.stepDone} testId="setup-step-key">
@@ -123,10 +130,12 @@ export function SetupGuide({
             wrap
             testId="setup-prompt"
           />
-          <p className="mt-4 flex gap-2 text-xs text-muted-foreground" data-testid="setup-chat-note">
-            <i aria-hidden className="pi pi-info-circle mt-px shrink-0" style={{ fontSize: 12 }} />
-            <span>{m.chatNote}</span>
-          </p>
+          {afterChat ? null : (
+            <p className="mt-4 flex gap-2 text-xs text-muted-foreground" data-testid="setup-chat-note">
+              <i aria-hidden className="pi pi-info-circle mt-px shrink-0" style={{ fontSize: 12 }} />
+              <span>{m.chatNote}</span>
+            </p>
+          )}
         </Step>
       </ol>
 
@@ -156,7 +165,7 @@ export function SetupGuide({
 }
 
 /** One numbered step, with the rail that joins it to the next. */
-function Step({
+export function Step({
   n,
   title,
   done,

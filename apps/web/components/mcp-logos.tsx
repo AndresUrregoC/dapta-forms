@@ -94,3 +94,27 @@ export function McpLogos({ size = 20, paused = false }: { size?: number; paused?
     </span>
   );
 }
+
+/**
+ * One logo, still, for a place that names a single app (the chat path of the
+ * MCP page). Same files and the same colors as the rotating stack, so the
+ * page and the rail draw each brand alike. Decoration: the app's name sits
+ * next to it.
+ */
+export function McpAppLogo({ logo, size = 16 }: { logo: McpLogo; size?: number }) {
+  const mask = `url(/mcp/logos/${logo}.svg) center / contain no-repeat`;
+  return (
+    <span
+      aria-hidden
+      data-logo={logo}
+      className="inline-block shrink-0"
+      style={{
+        width: size,
+        height: size,
+        WebkitMask: mask,
+        mask,
+        backgroundColor: MCP_BRAND_COLORS[logo] ?? 'currentColor',
+      }}
+    />
+  );
+}

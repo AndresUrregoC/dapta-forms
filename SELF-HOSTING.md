@@ -404,6 +404,7 @@ are runtime server env for the web container.
 | `PUBLIC_APP_URL` | _(empty)_ | trusted origin for OAuth redirects (same as API) | no |
 | `PUBLIC_API_URL` | `API_URL` when public, else `NEXT_PUBLIC_API_URL`, else `http://localhost:4000` | `API_URL` is a cluster-internal address: where customers reach the API (docs page, skill zip) | no |
 | `MCP_PUBLIC_URL` | `<PUBLIC_API_URL>/mcp` | the MCP endpoint customers reach is on another host (a dedicated MCP hostname); runtime, shown in the MCP setup guide | no |
+| `MCP_OAUTH_PROVIDER` | _(empty)_ | mirror the API value: the MCP page then shows the chat path (Claude.ai, ChatGPT: paste the URL, sign in) above the key guide; runtime; unset or unknown shows the key guide alone | no |
 
 ## Reverse proxy + TLS
 
