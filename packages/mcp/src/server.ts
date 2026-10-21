@@ -107,12 +107,12 @@ export class FormsMcpServer {
     let result: ToolResult | undefined;
     let failure: ToolFailure | undefined;
     let caller: McpCaller | null = null;
+    const named = (args as { workspace_id?: string } | undefined)?.workspace_id;
     try {
       // The door refuses every request without a caller, so this is a wiring
       // fault, not a user error. Refuse rather than run a tool as nobody.
       if (!call) throw new ToolFailure('AUTH_REQUIRED', 'This call carries no credential.', 'Send Authorization: Bearer <your dForms API key>.');
       if (def.workspace !== 'none') {
-        const named = (args as { workspace_id?: string } | undefined)?.workspace_id;
         caller = await resolveWorkspace(call.credential, named, {
           required: def.workspace === 'required',
           appUrl: this.options.appUrl,
@@ -128,7 +128,10 @@ export class FormsMcpServer {
           ...result,
           data: {
             ...result.data,
-            workspace: { id: caller.accountId, name: caller.workspaceName, ...(staff ? { access: 'staff' as const } : {}) },
+            // Echo the id the agent sent: a staff search can hand out the
+            // identity provider's id, which differs from ours, and an agent
+            // that compares ids would think it landed somewhere else.
+            workspace: { id: named ?? caller.accountId, name: caller.workspaceName, ...(staff ? { access: 'staff' as const } : {}) },
           },
           summary: `In workspace "${caller.workspaceName}"${staff ? ' (staff access)' : ''}: ${result.summary}`,
         };
