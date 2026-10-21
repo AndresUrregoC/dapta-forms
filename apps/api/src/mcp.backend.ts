@@ -138,7 +138,7 @@ export async function authenticateMcpKey(db: Db, token: string): Promise<McpCall
  * none: their tools answer NO_WORKSPACE, which the agent can explain.
  *
  * The workspaces are dForms' own active members, matched by the person's
- * identity-service id or email exactly as the web's workspace switcher does,
+ * identity-service id, or by email on a member no other person holds yet,
  * never the identity provider's view. Rows held by a staff access grant are
  * left out: a connection reaches the workspaces the person belongs to, never
  * a customer's through staff access. Like a key, this is a lookup only, done
@@ -170,7 +170,10 @@ export async function authenticateMcpConnection(
     );
   }
   const label = `oauth:${person.id}`;
-  const rows = await listWorkspacesForIdentity(db, { externalId: person.id, email: person.email });
+  // An email match counts only on a member nobody holds yet, or this person:
+  // the email comes from the identity service, and must never reach a member
+  // another person already signed in as.
+  const rows = await listWorkspacesForIdentity(db, { externalId: person.id, email: person.email }, { emailOnlyWhenUnbound: true });
   const workspaces = rows
     .filter((w) => w.status === 'active' && w.accessGrant === null)
     .map(

@@ -105,6 +105,48 @@ describe('listWorkspacesForIdentity (both dialects)', () => {
   });
 });
 
+describe('listWorkspacesForIdentity: one row per workspace (both dialects)', () => {
+  async function account(name: string) {
+    const id = randomUUID();
+    created.push(id);
+    await db.run(sql`INSERT INTO account (id, code, name, created_at) VALUES (${id}, ${`c${id.slice(0, 8)}`}, ${name}, ${Date.now()})`);
+    return id;
+  }
+  async function member(accountId: string, fields: { email: string | null; externalId: string | null; status: string }) {
+    const id = randomUUID();
+    await db.run(
+      sql`INSERT INTO member (id, account_id, email, external_id, role, status, created_at)
+          VALUES (${id}, ${accountId}, ${fields.email}, ${fields.externalId}, 'member', ${fields.status}, ${Date.now()})`,
+    );
+    return id;
+  }
+
+  it('lists the active membership when a stale invitation in the same workspace matches too', async () => {
+    const acct = await account('Both rows');
+    // The invitation is written first, so it is the row a scan meets first.
+    await member(acct, { email: EMAIL, externalId: null, status: 'invited' });
+    const active = await member(acct, { email: null, externalId: SUB, status: 'active' });
+    const list = await listWorkspacesForIdentity(db, { externalId: SUB, email: EMAIL });
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ accountId: acct, memberId: active, status: 'active' });
+  });
+
+  it("matches an email bound to someone else only for the switcher, never with emailOnlyWhenUnbound", async () => {
+    const theirs = await account('Bound to another person');
+    await member(theirs, { email: EMAIL, externalId: `other-${randomUUID()}`, status: 'active' });
+    const invite = await account('Unbound invitation');
+    await member(invite, { email: EMAIL, externalId: null, status: 'active' });
+    const own = await account('Bound to this person');
+    await member(own, { email: EMAIL, externalId: SUB, status: 'active' });
+
+    const switcher = await listWorkspacesForIdentity(db, { externalId: SUB, email: EMAIL });
+    expect(switcher.map((w) => w.accountName).sort()).toEqual(['Bound to another person', 'Bound to this person', 'Unbound invitation']);
+
+    const strict = await listWorkspacesForIdentity(db, { externalId: SUB, email: EMAIL }, { emailOnlyWhenUnbound: true });
+    expect(strict.map((w) => w.accountName).sort()).toEqual(['Bound to this person', 'Unbound invitation']);
+  });
+});
+
 describe('projectMemberships', () => {
   it('is idempotent and disables only what upstream stopped naming', async () => {
     const a = `ws-${randomUUID()}`, b = `ws-${randomUUID()}`;

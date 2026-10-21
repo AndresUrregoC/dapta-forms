@@ -112,6 +112,23 @@ describe('list_my_workspaces, what it leaves out', () => {
   });
 });
 
+describe('list_my_workspaces, matching by email', () => {
+  it("leaves out a member that carries the person's email but belongs to someone else, and keeps an unbound one", async () => {
+    const h = await boot();
+    const p = newPerson(h);
+    // Globex: a member with this email that another person already holds.
+    await join(h, { personId: `someone-else-${randomUUID()}`, email: p.email }, h.other.accountId, 'owner');
+    // Acme: an active member with this email that nobody holds yet.
+    await h.db.run(
+      sql`INSERT INTO member (id, account_id, email, role, status, created_at)
+          VALUES (${randomUUID()}, ${h.accountId}, ${p.email}, 'member', 'active', ${Date.now()})`,
+    );
+    const c = await signIn(h, p.subject);
+    const listed = structured<Listed>(await c.callTool({ name: 'list_my_workspaces', arguments: {} }));
+    expect(listed.workspaces.map((w) => w.id)).toEqual([h.accountId]);
+  });
+});
+
 describe('a person with two workspaces and a different role in each', () => {
   it('asks for workspace_id on a call that names none, and points at list_my_workspaces', async () => {
     const h = await boot();
