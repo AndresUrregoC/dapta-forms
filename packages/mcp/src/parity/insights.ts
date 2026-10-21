@@ -156,7 +156,11 @@ export const searchAnswers: ToolDef = {
       }),
       { what: 'Form or written question', hint: 'Check the form id with list_forms, and step_key against the written questions of get_form.' },
     );
-    const next = page.offset + page.items.length < page.total ? page.offset + page.items.length : null;
+    // The service drops rows it cannot render after the SQL page, so a page can
+    // hold fewer items than it read: step by the page the SQL read, never by
+    // what came back, or the next call reads the same rows again.
+    const end = page.offset + page.limit;
+    const next = end < page.total ? end : null;
     return {
       data: {
         form_id: args.form_id,

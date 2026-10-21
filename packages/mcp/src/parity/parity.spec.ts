@@ -218,6 +218,24 @@ describe('what the tools carry back', () => {
     expect(JSON.stringify(tool)).not.toMatch(/failed only|Failures only/);
   });
 
+  it('steps search_answers by the page read, even when the service dropped rows from it', async () => {
+    const local = await bootHarness({
+      backend: {
+        // 10 rows read, 2 of them dropped as unrenderable after the SQL.
+        searchAnswers: async () => ({ items: Array.from({ length: 8 }, (_, i) => ({ id: `r${i}`, text: 'x', respondent: null, at: 0 })), total: 25, limit: 10, offset: 10 }),
+      },
+    });
+    try {
+      const c = await local.connect(local.key());
+      const out = structured<{ next_offset: number | null }>(
+        await c.callTool({ name: 'search_answers', arguments: { form_id: 'form-1', step_key: 'notes', limit: 10, offset: 10 } }),
+      );
+      expect(out.next_offset).toBe(20);
+    } finally {
+      await local.close();
+    }
+  });
+
   it('says when the CSV was cut', async () => {
     const out = structured<{ rows: number; total_rows: number; truncated: boolean; respondent_supplied: { csv: string } }>(
       await owner.callTool({ name: 'export_responses_csv', arguments: { form_id: 'form-1', max_rows: 1 } }),
