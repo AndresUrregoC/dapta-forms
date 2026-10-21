@@ -2,6 +2,7 @@
 '@quill/mcp': minor
 '@quill/db': minor
 '@quill/shared': minor
+'@quill/engine': minor
 ---
 
 The MCP no longer answers OK when it did something other than what an agent
@@ -22,10 +23,12 @@ asked.
   exist, `@score` with op `in`, a min above its max. `update_form` refuses to
   drop the form's `branding` (`BRANDING_MISSING`, `null` removes it on
   purpose) and warns when it ignores `destinations`; `create_form` says when it
-  filled `branding` in. A problem the form already had in the config the agent
-  read says so. The REST API keeps its v1 behaviour.
-- A `publish_form` retried after it went through answers `nothing_published`
-  instead of `STALE`.
+  filled `branding` in. A problem of these kinds the form already had in the
+  config the agent read is saved as it was, with a warning; one the API
+  refuses anyway says it came with the form. The REST API keeps its v1
+  behaviour.
+- A `publish_form` with no draft pending answers `nothing_published`, and a
+  retry after it went through answers that instead of `STALE`.
 - `list_responses` gives each answer its `step_key` and `type`, each completed
   response its `outcome`, and keeps answers to removed steps (`step_removed`).
 - `get_form_analytics` warns when the funnel does not add up (responses
@@ -38,5 +41,7 @@ asked.
   `FormListItem.liveStepCount`, `ResponseItem.outcome` and
   `ResponseAnswer.stepKey`, `type` and `stepRemoved`.
 - `@quill/db`: `discardDraft` and `listLiveStepCounts`.
+- `@quill/engine`: `summarizeAnswersByStep`, the summary rows with each
+  step's key and type; `summarizeAnswers` is built on it and unchanged.
 - `@quill/shared`: `POST /v1/forms/:id/discard-draft` in the API reference,
   with its description in English and Spanish. An API key may call it.

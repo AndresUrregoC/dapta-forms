@@ -372,14 +372,12 @@ function itemOf(config: unknown, anchor: string): unknown {
 }
 
 /**
- * Mark the issues the form already had in the config the agent read (the
- * draft, or the live config), so the model knows the problem came with the
- * form and is not something it added: a step saved with an empty question
- * years ago fails the round trip, and without this the refusal reads as the
- * agent's own mistake.
+ * Which of `issues` the form already had in the config the agent read (the
+ * draft, or the live config): a problem that came with the form, not one the
+ * agent added.
  */
-export function markInherited(issues: BackendIssue[], sent: unknown, stored: unknown): BackendIssue[] {
-  if (!isObj(stored)) return issues;
+export function inheritedFlags(issues: BackendIssue[], sent: unknown, stored: unknown): boolean[] {
+  if (!isObj(stored)) return issues.map(() => false);
   const identity = (config: unknown, issue: BackendIssue) => {
     const { anchor, rest } = named(config, issue.path);
     return `${issue.code} ${anchor}.${rest.join('.')}`;
@@ -388,14 +386,62 @@ export function markInherited(issues: BackendIssue[], sent: unknown, stored: unk
     [...unknownFieldIssues(stored), ...semanticIssues(stored), ...emptyQuestionIssues(stored)].map((i) => identity(stored, i)),
   );
   return issues.map((issue) => {
-    let inherited = storedIssues.has(identity(sent, issue));
-    if (!inherited && issue.code === 'UNSUPPORTED_FIELD') {
-      // The API's own rule: the same value the form already stores.
-      const { anchor, rest } = named(sent, issue.path);
-      const sentValue = anchor.includes('[') ? at(itemOf(sent, anchor), rest) : at(sent, issue.path.split('.').slice(1));
-      const storedValue = anchor.includes('[') ? at(itemOf(stored, anchor), rest) : at(stored, issue.path.split('.').slice(1));
-      inherited = sentValue !== undefined && isDeepStrictEqual(sentValue, storedValue);
-    }
-    return inherited ? { ...issue, message: `${issue.message}${INHERITED_NOTE}` } : issue;
+    if (storedIssues.has(identity(sent, issue))) return true;
+    if (issue.code !== 'UNSUPPORTED_FIELD') return false;
+    // The API's own rule: the same value the form already stores.
+    const { anchor, rest } = named(sent, issue.path);
+    const sentValue = anchor.includes('[') ? at(itemOf(sent, anchor), rest) : at(sent, issue.path.split('.').slice(1));
+    const storedValue = anchor.includes('[') ? at(itemOf(stored, anchor), rest) : at(stored, issue.path.split('.').slice(1));
+    return sentValue !== undefined && isDeepStrictEqual(sentValue, storedValue);
   });
+}
+
+/**
+ * Mark the issues the form already had in the config the agent read, so the
+ * model knows the problem came with the form and is not something it added: a
+ * step saved with an empty question years ago fails the round trip, and
+ * without this the refusal reads as the agent's own mistake.
+ */
+export function markInherited(issues: BackendIssue[], sent: unknown, stored: unknown): BackendIssue[] {
+  const flags = inheritedFlags(issues, sent, stored);
+  return issues.map((issue, i) => (flags[i] ? { ...issue, message: `${issue.message}${INHERITED_NOTE}` } : issue));
+}
+
+/** Codes only the MCP refuses; the API saves them as it always has (see the top of this file). */
+const MCP_ONLY_CODES: ReadonlySet<string> = new Set([
+  'unrecognized_keys',
+  'DUPLICATE_KEY',
+  'DUPLICATE_VALUE',
+  'DUPLICATE_ID',
+  'UNKNOWN_STEP',
+  'INVALID_TARGET',
+  'UNKNOWN_FIELD',
+  'SCORE_OP',
+  'MIN_ABOVE_MAX',
+]);
+
+/**
+ * Split an update's own refusals into what the agent added (refused) and what
+ * the form already had (let through, with a warning each). A form built in the
+ * editor can carry a condition on a step deleted since; refusing it would
+ * block every edit of that form until the agent rewrote logic nobody asked it
+ * to touch. Only the MCP's own codes split: what the API refuses anyway stays
+ * a refusal, marked as inherited.
+ */
+export function splitInherited(
+  issues: BackendIssue[],
+  sent: unknown,
+  stored: unknown,
+): { refuse: BackendIssue[]; carried: string[] } {
+  const flags = inheritedFlags(issues, sent, stored);
+  const refuse: BackendIssue[] = [];
+  const carried: string[] = [];
+  issues.forEach((issue, i) => {
+    if (flags[i] && MCP_ONLY_CODES.has(issue.code)) {
+      carried.push(`${issue.path}: ${issue.message} It was already in the form before this edit and is saved as it was; fix it when the user agrees.`);
+    } else refuse.push(flags[i] ? { ...issue, message: `${issue.message}${INHERITED_NOTE}` } : issue);
+  });
+  // Only schema issues left (they joined because of the MCP's own): the API reports those itself.
+  if (refuse.every((issue) => !MCP_ONLY_CODES.has(issue.code) && issue.code !== 'BRANDING_MISSING')) return { refuse: [], carried };
+  return { refuse, carried };
 }

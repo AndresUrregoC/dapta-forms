@@ -106,12 +106,14 @@ handlers, so any role rule those handlers apply holds for the MCP too.
   `in` (`SCORE_OP`) and a min above its max (`MIN_ABOVE_MAX`). An
   `update_form` that leaves `branding` out of a form that has one answers
   `BRANDING_MISSING` (send it back as read, or `null` to remove it). A problem
-  the form already had in the config the agent read says so, so the model
-  knows it did not add it. The REST API keeps its v1 behaviour for all of
-  these.
+  of these kinds that the form already had in the config the agent read is
+  saved as it was, with a warning, so an editor-built form never blocks an
+  edit; one the API refuses anyway says it came with the form. The REST API
+  keeps its v1 behaviour for all of these.
 - `update_form` ignores `destinations` and says so in `warnings`.
 - What is saved is the engine's normalized config, the same shape the editor
   saves, so everything an agent writes opens and edits in the dForms editor.
+- Forms created through the MCP record `created_via = 'mcp'`.
 
 ### Dates
 
@@ -120,8 +122,7 @@ handlers, so any role rule those handlers apply holds for the MCP too.
 A value dForms cannot read (`2026-13-45`, `yesterday`, epoch seconds), a
 `from` after `to` or an unknown `time_zone` answers `VALIDATION_FAILED`
 instead of reading everything. With `include_daily`, `daily_truncated` says
-when the range was longer than the 366 days `daily` holds.
-- Forms created through the MCP record `created_via = 'mcp'`.
+when `daily` is at its 366-day cap and the range may hold earlier days.
 
 ### Untrusted text
 

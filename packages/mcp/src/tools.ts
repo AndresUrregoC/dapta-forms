@@ -13,7 +13,7 @@ import {
 } from './backend';
 import { GUIDE_PARTS, formGuide, type GuidePart } from './guide/guide';
 import { LEAD_CONFIG } from './guide/examples';
-import { markInherited, reviewConfig } from './config-check';
+import { markInherited, reviewConfig, splitInherited } from './config-check';
 import { ToolFailure, untrusted, validationFailure } from './support';
 import { openDFormsOnce } from './workspace';
 
@@ -546,7 +546,11 @@ const updateForm: ToolDef = {
           });
         }
       }
-      if (issues.length) throw validationFailure(markInherited(issues, config, await readConfig()));
+      if (issues.length) {
+        const { refuse, carried } = splitInherited(issues, config, await readConfig());
+        if (refuse.length) throw validationFailure(refuse);
+        warnings.push(...carried);
+      }
       warnings.push(...review.warnings);
       if ('destinations' in config) {
         warnings.push(
@@ -594,7 +598,7 @@ const publishForm: ToolDef = {
   name: 'publish_form',
   title: 'Publish a form',
   description:
-    "Make the form's unpublished draft live at its public_url, replacing what respondents see now. The replaced version is kept: revert_form brings it back. With no draft pending this changes nothing, and a retry after a timeout is safe: if the first call went through, it answers with nothing_published true. Returns the public_url to give the user.",
+    "Make the form's unpublished draft live at its public_url, replacing what respondents see now. The replaced version is kept: revert_form brings it back. With no draft pending this changes nothing and says so (nothing_published true), so a retry after a timeout is safe. Returns the public_url to give the user.",
   write: true,
   workspace: 'required',
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
@@ -613,18 +617,20 @@ const publishForm: ToolDef = {
   async run(args: z.infer<typeof publishFormInput>, ctx) {
     const caller = actingAs(ctx);
     const { backend } = ctx;
+    const started = Date.now();
     let f;
     try {
       f = await backend.publishForm(caller, args.form_id, args.expected_updated_at);
     } catch (error) {
       if (!(error instanceof BackendError) || error.code !== 'STALE') throw error;
-      // A retry of a publish that went through (the first call timed out)
-      // carries the stamp from before it: the draft is gone, so there is
-      // nothing left to publish, which is a success and not a conflict.
       const now = await backend.getForm(caller, args.form_id);
-      if (!now.hasDraft) {
-        const warning =
-          'No draft was pending, so nothing was published. Your expected_updated_at is older than the form, most likely because an earlier publish_form already went through. What is live now stays live.';
+      const stamp = args.expected_updated_at ?? 0;
+      // The last write was a publish made after the stamp, and no draft is
+      // left: a retry of a publish that went through (the first call timed
+      // out). Nothing is left to publish, which is not a conflict. Anything
+      // else (a draft still pending, or one discarded or saved over) is.
+      if (!now.hasDraft && now.publishedAt != null && now.publishedAt === now.updatedAt && now.publishedAt > stamp) {
+        const warning = `No draft was pending, so nothing was published. The form was already published at ${iso(now.publishedAt)}, after your expected_updated_at: most likely your earlier publish_form went through. If that publish was not yours, call get_form and check the live config holds your change.`;
         return {
           data: { form: summaryOf(now), ...publishStateOf(now), nothing_published: true, warnings: [warning] },
           summary: `"${now.name}": ${warning} ${linkLine(now)}`,
@@ -633,9 +639,21 @@ const publishForm: ToolDef = {
       }
       throw new ToolFailure(
         'STALE',
-        `The form was saved after the updated_at you sent. Its updated_at is now ${now.updatedAt}.`,
-        'Call get_form and review the pending draft before you publish it: it may hold edits that are not yours, or miss yours if your update_form failed. Then call publish_form with its updated_at.',
+        `The form changed after the updated_at you sent. Its updated_at is now ${now.updatedAt}.`,
+        now.hasDraft
+          ? 'Call get_form and review the pending draft before you publish it: it may hold edits that are not yours, or miss yours if your update_form failed. Then call publish_form with its updated_at.'
+          : 'No draft is pending any more: someone published or discarded it, or saved over it, after you read the form. Call get_form and check whether the live config holds your change; if not, apply it with update_form and publish again.',
       );
+    }
+    // Without a stamp the API answers a form with no draft unchanged: only a
+    // publish stamped during this call made anything live.
+    if (f.publishedAt == null || f.publishedAt < started) {
+      const warning = 'No draft was pending, so nothing was published. What is live now stays live.';
+      return {
+        data: { form: summaryOf(f), ...publishStateOf(f), nothing_published: true, warnings: [warning] },
+        summary: `"${f.name}": ${warning} ${linkLine(f)}`,
+        affected: [f.id],
+      };
     }
     return {
       data: { form: summaryOf(f), ...publishStateOf(f) },
@@ -833,7 +851,9 @@ const answerRow = z.object({
   type: z.string().nullable().describe('That step type (email, multiple_choice, ...). Null when the live form no longer has the step.'),
   step_removed: z
     .boolean()
-    .describe('True when the live form no longer has this step (deleted or renamed since): question is then the stored key.'),
+    .describe(
+      'True when the response stores this under a key the live form does not have: a step deleted or renamed since, or extra data the browser sent. question is then the stored key and answer the stored value, not an option label.',
+    ),
 });
 
 /** A step key as stored with the answers. For a step the form no longer has, it came from the respondent's browser. */
@@ -992,7 +1012,7 @@ const getFormAnalytics: ToolDef = {
           step_key: z
             .string()
             .nullable()
-            .describe('Null on the first row: the form being opened (its cover when it has one), whose question reads "(form opened)".'),
+            .describe('Null on the first row: the form being opened, whose question reads "(form opened)" (with the cover headline when it has a cover).'),
           question: z.string(),
           reached: z.number(),
           dropped: z.number(),
@@ -1019,7 +1039,9 @@ const getFormAnalytics: ToolDef = {
     daily_truncated: z
       .boolean()
       .optional()
-      .describe('With include_daily: true when the range is longer than 366 days and daily holds only its most recent 366.'),
+      .describe(
+        'With include_daily: true when daily is at its 366-day cap and the range may hold earlier days (always for a range longer than 366 days). Narrow from and to to read them.',
+      ),
     warnings: warningsField,
   }),
   async run(args: z.infer<typeof analyticsInput>, ctx) {
@@ -1034,7 +1056,7 @@ const getFormAnalytics: ToolDef = {
     const mode = a.dropoffMode === 'answered' ? 'answered' : 'viewed';
     const steps = a.dropoff.map((row) => ({
       step_key: row.key,
-      question: row.key == null ? '(form opened)' : row.question,
+      question: row.key == null ? (row.isCover && row.question ? `(form opened: its cover "${row.question}")` : '(form opened)') : row.question,
       reached: row.views,
       dropped: row.dropoff,
       dropoff_percent: row.dropoffPercent,
@@ -1044,7 +1066,7 @@ const getFormAnalytics: ToolDef = {
       null,
     );
     const warnings: string[] = [];
-    if (a.submissions > a.starts || a.starts > a.views || a.submissions > a.views) {
+    if (a.submissions > a.starts || a.starts > a.views) {
       warnings.push(
         `The funnel does not add up (${a.views} views, ${a.starts} starts, ${a.submissions} submissions): some responses never opened the form in a browser, for example responses created through the API. Views, starts, completion_rate and the drop-off undercount them. Report submissions as the number of responses and tell the user the funnel rates are not reliable for this form.`,
       );

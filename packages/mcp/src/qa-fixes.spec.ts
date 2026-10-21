@@ -267,11 +267,29 @@ describe('a publish retried with the stamp from before it went through', () => {
     throw new BackendError(409, 'STALE', 'This form was saved elsewhere since you loaded it.', [], { updatedAt: NOW + 9 });
   };
 
-  it('is a no-op success when no draft is left, not a STALE that says to apply the change again', async () => {
-    const { c } = await client({ backend: { publishForm: stale, getForm: async () => form({ updatedAt: NOW + 9 }) } });
+  it('is a no-op success when the last write was a publish after the stamp, not a STALE that says to apply the change again', async () => {
+    const { c } = await client({
+      backend: { publishForm: stale, getForm: async () => form({ updatedAt: NOW + 9, publishedAt: NOW + 9 }) },
+    });
     const result = await c.callTool({ name: 'publish_form', arguments: { form_id: 'form-1', expected_updated_at: NOW } });
     expect(structured(result)).toMatchObject({ nothing_published: true });
     expect(text(result)).toContain('nothing was published');
+    expect(text(result)).toContain('If that publish was not yours');
+  });
+
+  it('is still a STALE when the draft went some other way (discarded, saved over), and says to check the live config', async () => {
+    const { c } = await client({ backend: { publishForm: stale, getForm: async () => form({ updatedAt: NOW + 9, publishedAt: null }) } });
+    const error = errorText(await c.callTool({ name: 'publish_form', arguments: { form_id: 'form-1', expected_updated_at: NOW } }));
+    expect(error).toContain('STALE');
+    expect(error).toContain('No draft is pending any more');
+    expect(error).toContain('check whether the live config holds your change');
+  });
+
+  it('says nothing was published when no draft was pending, instead of "is live"', async () => {
+    const { c } = await client({ backend: { publishForm: async () => form({ publishedAt: NOW - 1_000 }) } });
+    const result = await c.callTool({ name: 'publish_form', arguments: { form_id: 'form-1' } });
+    expect(structured(result)).toMatchObject({ nothing_published: true });
+    expect(text(result)).not.toMatch(/"Lead form" is live/);
   });
 
   it('with a draft still pending, says to review that draft, never to apply the change again', async () => {
@@ -356,7 +374,7 @@ describe('get_form_analytics says when its numbers cannot be read as a funnel', 
     expect(whole.daily_truncated).toBe(false);
   });
 
-  it('names the first drop-off row "(form opened)", never the cover headline', async () => {
+  it('names the first drop-off row "(form opened)", never as if the cover headline were a question', async () => {
     const { c } = await client({
       backend: {
         formAnalytics: async () =>
@@ -368,7 +386,7 @@ describe('get_form_analytics says when its numbers cannot be read as a funnel', 
     const out = structured<{ dropoff: { steps: Array<{ question: string }> } }>(
       await c.callTool({ name: 'get_form_analytics', arguments: { form_id: 'form-1' } }),
     );
-    expect(out.dropoff.steps[0]!.question).toBe('(form opened)');
+    expect(out.dropoff.steps[0]!.question).toBe('(form opened: its cover "Welcome to our quiz")');
   });
 });
 
@@ -428,14 +446,27 @@ describe('a problem the form already had says so', () => {
     expect(second).not.toContain('already in the config get_form returned');
   });
 
-  it('marks a semantic problem the stored config already had, and not one the agent added', async () => {
+  it('refuses a problem the agent added, and not one an editor-built form already had', async () => {
     const stored = config([step('a', { hideWhen: { field: 'gone', values: ['x'] } }), step('b')]);
-    const { c } = await client({ backend: { getForm: async () => form({ config: stored }) } });
+    const { h, c } = await client({ backend: { getForm: async () => form({ config: stored }) } });
     const sent = config([step('a', { hideWhen: { field: 'gone', values: ['x'] } }), step('b', { showWhen: { field: 'nope', values: ['y'] } })]);
     const error = errorText(await c.callTool({ name: 'update_form', arguments: { form_id: 'form-1', config: sent, expected_updated_at: NOW } }));
-    const lines = error.split('\n').filter((l) => l.startsWith('- '));
-    expect(lines.find((l) => l.includes('steps.0.hideWhen.field'))).toContain('already in the config get_form returned');
-    expect(lines.find((l) => l.includes('steps.1.showWhen.field'))).not.toContain('already in the config get_form returned');
+    expect(error).toContain('VALIDATION_FAILED: 1 problem');
+    expect(error).toContain('config.steps.1.showWhen.field [UNKNOWN_FIELD]');
+    expect(error).not.toContain('steps.0.hideWhen.field');
+    expect(h.calls.some((x) => x.method === 'updateForm')).toBe(false);
+  });
+
+  it('saves an edit of a form that already had such a problem, and reports it as a warning', async () => {
+    const stored = config([step('a', { hideWhen: { field: 'gone', values: ['x'] } }), step('b')]);
+    const { h, c } = await client({ backend: { getForm: async () => form({ config: stored }) } });
+    const sent = config([step('a', { question: 'Edited?', hideWhen: { field: 'gone', values: ['x'] } }), step('b')]);
+    const out = structured<{ warnings: string[] }>(
+      await c.callTool({ name: 'update_form', arguments: { form_id: 'form-1', config: sent, expected_updated_at: NOW } }),
+    );
+    expect(out.warnings.join(' ')).toContain('config.steps.0.hideWhen.field: No step has the key "gone"');
+    expect(out.warnings.join(' ')).toContain('already in the form before this edit');
+    expect(h.calls.some((x) => x.method === 'updateForm')).toBe(true);
   });
 });
 

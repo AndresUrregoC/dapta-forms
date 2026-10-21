@@ -2,11 +2,9 @@ import { HttpException } from '@nestjs/common';
 import { findApiKeyPrincipal, getFormById, listLiveStepCounts, listWorkspacesForIdentity, type Db } from '@quill/db';
 import {
   formatAnswerValue,
-  isInputlessStep,
-  nameAnswer,
   nameFields,
   resolveOutcome,
-  resolveQuestion,
+  summarizeAnswersByStep,
   type Answers,
   type FormConfig as EngineConfig,
   type FormStep,
@@ -203,41 +201,32 @@ export async function authenticateMcpConnection(
   return { personId: person.id, email: person.email, label, workspaces };
 }
 
-/** Longest answer a row carries (the email rows' cap); the tool cuts again for the model. */
-const ANSWER_MAX = 2000;
-
-const blank = (value: unknown): boolean =>
-  value == null || (typeof value === 'string' && value.trim() === '') || (Array.isArray(value) && value.length === 0);
+/** Longest stored answer a leftover row carries (the summary rows' own cap); the tool cuts again for the model. */
+const LEFTOVER_MAX = 2000;
 
 /**
  * A response's answers as the owner reads them, each with the step it
- * answers: the question as the respondent saw it and the answer with option
- * labels, by the engine functions the notification emails use, in step
- * order. Answers stored under a key the live form no longer has (a step
- * deleted or renamed since) follow, marked `stepRemoved`, so an agent never
- * reads a response as having fewer answers than it does.
+ * answers: the rows the notification emails print (`summarizeAnswersByStep`:
+ * the question as the respondent saw it, option labels, step order). Then
+ * whatever the response stores under a key the live form does not have,
+ * marked `stepRemoved`: a step deleted or renamed since, or extra data the
+ * respondent's browser sent. Those print as stored (no step is left to map a
+ * value to its label), so an agent never reads a response as having fewer
+ * answers than it does.
  */
 export function answerRows(config: EngineConfig, data: Answers): ResponseAnswer[] {
-  const rows: ResponseAnswer[] = [];
-  const known = new Set<string>();
-  for (const step of config.steps ?? []) {
-    known.add(step.key);
-    for (const field of nameFields(step)) known.add(field);
-    if (isInputlessStep(step)) continue;
-    const value = step.type === 'name' ? nameAnswer(step, data) : blank(data[step.key]) ? '' : formatAnswerValue(step, data[step.key], { separator: ', ' });
-    if (!value) continue;
-    rows.push({
-      question: resolveQuestion(step, data).trim() || step.key,
-      answer: value.slice(0, ANSWER_MAX),
-      stepKey: step.key,
-      type: step.type,
-    });
-  }
+  const rows: ResponseAnswer[] = summarizeAnswersByStep(config, data).map((row) => ({
+    question: row.label,
+    answer: row.value,
+    stepKey: row.key,
+    type: row.type,
+  }));
+  const known = new Set((config.steps ?? []).flatMap((step) => [step.key, ...nameFields(step)]));
   for (const [key, raw] of Object.entries(data)) {
-    if (known.has(key) || blank(raw)) continue;
+    if (known.has(key)) continue;
     const value = formatAnswerValue({ key, type: 'text' } as FormStep, raw, { separator: ', ' });
     if (!value) continue;
-    rows.push({ question: key, answer: value.slice(0, ANSWER_MAX), stepKey: key, type: null, stepRemoved: true });
+    rows.push({ question: key, answer: value.slice(0, LEFTOVER_MAX), stepKey: key, type: null, stepRemoved: true });
   }
   return rows;
 }
@@ -356,9 +345,12 @@ export class ApiFormsBackend implements FormsBackend {
 
   listForms(caller: McpCaller): Promise<FormListItem[]> {
     return run(async () => {
-      const forms = await this.handlers().forms.listForms(reqOf(caller));
-      // The route above resolved the caller; the counts read the same workspace.
-      const live = await listLiveStepCounts(this.db, caller.accountId);
+      // In parallel: the counts are only used once the route has resolved the
+      // caller (it throws otherwise), and they read the same workspace.
+      const [forms, live] = await Promise.all([
+        this.handlers().forms.listForms(reqOf(caller)),
+        listLiveStepCounts(this.db, caller.accountId),
+      ]);
       return forms.map((f) => ({ ...listItemOf(f), liveStepCount: live.get(f.id) ?? null }));
     });
   }
