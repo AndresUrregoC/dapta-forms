@@ -81,8 +81,9 @@ export interface McpDoorOAuth {
    * Verify an access token and resolve the person it signs in, with every
    * workspace they may act in now, or null when the token does not verify.
    * Throws `DoorRefusal` when it verifies but names nobody the host knows: a
-   * 403 a new login would not change; and `DoorUnavailable` when it cannot be
-   * checked right now: a 503. A person with no workspace yet is not refused
+   * 403 a new login would not change; `DoorUnavailable` when it cannot be
+   * checked right now: a 503; and `DoorThrottled` when its lookups ran past
+   * their budget: a 429. A person with no workspace yet is not refused
    * here: their tools answer NO_WORKSPACE, which a model can explain.
    */
   authenticate(token: string): Promise<McpConnection | null>;
@@ -113,6 +114,18 @@ export class DoorUnavailable extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'DoorUnavailable';
+  }
+}
+
+/**
+ * A credential that verified, but whose lookups ran past their budget (a
+ * flood of requests for one person, say). The door answers it 429 with a
+ * `Retry-After`, never a 401: the sign-in is fine, it is only too frequent.
+ */
+export class DoorThrottled extends Error {
+  constructor(readonly retryAfterMs: number) {
+    super('Too many sign-in lookups.');
+    this.name = 'DoorThrottled';
   }
 }
 
@@ -272,11 +285,18 @@ export class McpDoor {
       return;
     }
     const token = /^Bearer\s+(\S+)$/i.exec(header.trim())?.[1];
-    const viaOAuth = oauth !== undefined && token !== undefined && !oauth.isApiKey(token);
+    // With an OAuth side, anything but an API key is the OAuth side's to
+    // answer, a header that is not a plain `Bearer <token>` included: its 401
+    // must point at the login, or a client that sent junk could never recover.
+    const viaOAuth = oauth !== undefined && (token === undefined || !oauth.isApiKey(token));
     let caller: McpCredential | null = null;
     try {
       if (token) caller = viaOAuth ? await oauth!.authenticate(token) : await this.options.authenticate(token);
     } catch (error) {
+      if (error instanceof DoorThrottled) {
+        if (!this.takeIp(res, ctx.ip)) return;
+        return this.tooMany(res, error.retryAfterMs);
+      }
       if (error instanceof DoorUnavailable) {
         if (!this.takeIp(res, ctx.ip)) return;
         rpcError(res, 503, -32000, error.message, { 'Retry-After': String(UNAVAILABLE_RETRY_AFTER_SECONDS) });

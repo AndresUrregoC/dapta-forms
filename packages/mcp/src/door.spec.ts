@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { bootHarness, capped, errorText, initialize, structured, type Harness, type HarnessOptions } from './__tests__/harness';
 import type { McpCaller, McpConnection } from './backend';
-import { DoorRefusal, DoorUnavailable, hostnameOf, mcpCorsPolicy, normalizeOrigin, type McpDoorOAuth } from './door';
+import { DoorRefusal, DoorThrottled, DoorUnavailable, hostnameOf, mcpCorsPolicy, normalizeOrigin, type McpDoorOAuth } from './door';
 
 const open: Harness[] = [];
 async function boot(opts: HarnessOptions = {}) {
@@ -202,7 +202,7 @@ function connection(workspaces: McpCaller[] = [workspaceCaller()]): McpConnectio
 }
 
 /** The door's OAuth side over a fixed table of access tokens, recording what it was asked. */
-function oauthSide(tokens: Record<string, McpConnection | DoorRefusal | DoorUnavailable> = {}) {
+function oauthSide(tokens: Record<string, McpConnection | DoorRefusal | DoorUnavailable | DoorThrottled> = {}) {
   const asked: string[] = [];
   const oauth: McpDoorOAuth = {
     isApiKey: (t) => t.startsWith('dforms_'),
@@ -210,7 +210,7 @@ function oauthSide(tokens: Record<string, McpConnection | DoorRefusal | DoorUnav
     async authenticate(t) {
       asked.push(t);
       const found = tokens[t];
-      if (found instanceof DoorRefusal || found instanceof DoorUnavailable) throw found;
+      if (found instanceof DoorRefusal || found instanceof DoorUnavailable || found instanceof DoorThrottled) throw found;
       return found ?? null;
     },
   };
@@ -274,6 +274,25 @@ describe('MCP connections (the OAuth side of the door)', () => {
     expect(res.headers.get('www-authenticate')).toBeNull();
     expect(((await res.json()) as { error: { message: string } }).error.message).toBe(outage.message);
     expect((await h.post(initialize('2025-06-18'), { authorization: 'Bearer directory-down' })).status).toBe(429);
+  });
+
+  it('answers a sign-in looked up too often with 429 and a delay, never a login loop', async () => {
+    const h = await boot({ door: { oauth: oauthSide({ flood: new DoorThrottled(2_500) }).oauth } });
+    const res = await h.post(initialize('2025-06-18'), { authorization: 'Bearer flood' });
+    expect(res.status).toBe(429);
+    expect(res.headers.get('retry-after')).toBe('3');
+    expect(res.headers.get('www-authenticate')).toBeNull();
+  });
+
+  it('answers any credential that is not a plain bearer with the OAuth challenge, so the client can sign in', async () => {
+    const { oauth, asked } = oauthSide();
+    const h = await boot({ door: { oauth } });
+    for (const authorization of ['Bearer', 'Basic abc', 'Bearer a b', 'Token xyz']) {
+      const res = await h.post(initialize('2025-06-18'), { authorization });
+      expect(res.status, authorization).toBe(401);
+      expect(res.headers.get('www-authenticate'), authorization).toBe(`Bearer error="invalid_token", resource_metadata="${METADATA}"`);
+    }
+    expect(asked).toEqual([]);
   });
 
   it('writes the person and the member to the audit line, never the token', async () => {

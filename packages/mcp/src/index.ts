@@ -14,6 +14,7 @@ export * from './backend';
 export { LIST_WORKSPACES_HINT, bucketOf, resolveWorkspace } from './workspace';
 export {
   DoorRefusal,
+  DoorThrottled,
   DoorUnavailable,
   McpDoor,
   hostnameOf,
