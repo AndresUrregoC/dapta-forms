@@ -333,6 +333,11 @@ describe('with an API key', () => {
     expect(await h.db.get(sql`SELECT id FROM form WHERE name = 'Escaped'`)).toBeUndefined();
     const own = structured<{ workspace: { id: string } }>(await c.callTool({ name: 'list_forms', arguments: { workspace_id: h.accountId } }));
     expect(own.workspace.id).toBe(h.accountId);
+    // Its own id in capitals is still its own workspace, not "another".
+    const ownShouted = structured<{ workspace: { id: string } }>(
+      await c.callTool({ name: 'list_forms', arguments: { workspace_id: h.accountId.toUpperCase() } }),
+    );
+    expect(ownShouted.workspace.id).toBe(h.accountId.toLowerCase());
     const none = structured<{ workspace: { id: string; name: string } }>(await c.callTool({ name: 'list_forms', arguments: {} }));
     expect(none.workspace).toEqual({ id: h.accountId, name: 'Acme Inc.' });
     const listed = structured<Listed>(await c.callTool({ name: 'list_my_workspaces', arguments: {} }));
@@ -470,7 +475,7 @@ describe('staff of the deployment', () => {
     const who = structured<{ workspace: { id: string }; member: { id: string; role: string }; staff: boolean }>(
       await c.callTool({ name: 'whoami', arguments: { workspace_id: globexUpstream } }),
     );
-    expect(who).toMatchObject({ workspace: { id: h.other.accountId }, member: { id: grant!.id, role: 'admin' }, staff: true });
+    expect(who).toMatchObject({ workspace: { id: globexUpstream }, member: { id: grant!.id, role: 'admin' }, staff: true });
 
     // A tool result echoes the id the agent sent, so it never looks like the
     // call landed in another workspace.
@@ -478,6 +483,11 @@ describe('staff of the deployment', () => {
       await c.callTool({ name: 'list_forms', arguments: { workspace_id: globexUpstream } }),
     );
     expect(byUpstream.workspace).toEqual({ id: globexUpstream, name: 'Globex', access: 'staff' });
+    // Case and stray spaces carry no meaning in an id: the same workspace, echoed normalized.
+    const shouted = structured<{ workspace: { id: string } }>(
+      await c.callTool({ name: 'list_forms', arguments: { workspace_id: ` ${globexUpstream.toUpperCase()} ` } }),
+    );
+    expect(shouted.workspace.id).toBe(globexUpstream);
 
     type Form = { form: { id: string; updated_at: number } };
     const created = structured<Form>(
@@ -503,7 +513,7 @@ describe('staff of the deployment', () => {
     const audit = JSON.parse(h.audit.at(-1)!) as Record<string, unknown>;
     expect(audit).toMatchObject({ tool: 'publish_form', accountId: h.other.accountId, memberId: grant!.id, personId: p.personId, via: 'staff_grant' });
     const lines = h.staffLog.map((l) => JSON.parse(l) as Record<string, unknown>);
-    expect(lines).toHaveLength(6);
+    expect(lines).toHaveLength(7);
     expect(lines[0]).toMatchObject({ msg: 'mcp.staff_access', channel: 'mcp', via: 'staff_grant', personId: p.personId, accountId: h.other.accountId, workspaceId: globexUpstream, granted: true });
     expect(lines.slice(1).every((l) => l.granted === false)).toBe(true);
     // Never on the customer's roster.

@@ -60,6 +60,11 @@ export function noWorkspace(appUrl?: string): ToolFailure {
   return new ToolFailure('NO_WORKSPACE', 'You are not an active member of any dForms workspace yet.', `Ask the user to ${openDFormsOnce(appUrl)}`);
 }
 
+/** A workspace id as compared and echoed: ids are UUIDs, so case and stray spaces carry no meaning. */
+export function normalizeWorkspaceId(id: string): string {
+  return id.trim().toLowerCase();
+}
+
 /**
  * The caller a tool call acts as, or a `ToolFailure` the model can act on.
  * `required` false (whoami): null instead of a failure when the call does not
@@ -71,8 +76,9 @@ export async function resolveWorkspace(
   workspaceId: string | undefined,
   opts: { required: boolean; appUrl?: string },
 ): Promise<McpCaller | null> {
+  const wanted = workspaceId === undefined ? undefined : normalizeWorkspaceId(workspaceId);
   if (!isConnection(credential)) {
-    if (workspaceId !== undefined && workspaceId !== credential.accountId) {
+    if (wanted !== undefined && wanted !== normalizeWorkspaceId(credential.accountId)) {
       throw new ToolFailure(
         'WORKSPACE_MISMATCH',
         'This API key belongs to one workspace and cannot act in another.',
@@ -82,11 +88,11 @@ export async function resolveWorkspace(
     return credential;
   }
   const { workspaces, staff } = credential;
-  if (workspaceId !== undefined) {
-    const named = workspaces.find((w) => w.accountId === workspaceId);
+  if (wanted !== undefined) {
+    const named = workspaces.find((w) => normalizeWorkspaceId(w.accountId) === wanted);
     if (named) return named;
     if (staff) {
-      const entered = await staff.enter(workspaceId);
+      const entered = await staff.enter(wanted);
       if (entered) return entered;
       throw new ToolFailure('NOT_FOUND', 'No live workspace has this id.', STAFF_WORKSPACE_HINT);
     }
