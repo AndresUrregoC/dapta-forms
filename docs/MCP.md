@@ -124,7 +124,11 @@ app's workspace switcher lets them (see
   key itself never becomes staff and never searches other workspaces). The
   workspace's owners and admins see it in their key list marked as created
   by Dapta staff (`createdBy.staff` in the API) and can revoke it at any
-  time. Offboarding someone from staff means revoking the keys they created.
+  time. Calls made with such a key are that key's calls, not staff calls:
+  they do not say `access: 'staff'`, and the audit names the key. Offboarding
+  someone from staff means revoking the keys they created; there is no list
+  of one person's keys across workspaces yet, so it is done workspace by
+  workspace (look for the staff mark).
 - **Said and logged.** Every result of such a call names the workspace with
   `access: 'staff'` and starts `In workspace "<name>" (staff access):`. The
   audit line carries `via: 'staff_grant'`, and the API logs one more line per

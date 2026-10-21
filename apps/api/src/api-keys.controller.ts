@@ -130,9 +130,12 @@ export class ApiKeysController {
     }
 
     const created = result.value;
+    // A key staff create through a grant is marked, so adoption metrics can
+    // leave the deployment's own staff out of the customer's numbers.
     await this.productAnalytics?.captureForMember('api_key_created', p, {
       api_key_id: created.id,
       role: p.role,
+      ...(p.accessGrant === 'staff' ? { staff_access: true } : {}),
     });
     return {
       id: created.id,
