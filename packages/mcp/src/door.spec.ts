@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { bootHarness, capped, errorText, initialize, structured, type Harness, type HarnessOptions } from './__tests__/harness';
-import { hostnameOf, mcpCorsPolicy, normalizeOrigin } from './door';
+import type { McpCaller } from './backend';
+import { DoorRefusal, hostnameOf, mcpCorsPolicy, normalizeOrigin, type McpDoorOAuth } from './door';
 
 const open: Harness[] = [];
 async function boot(opts: HarnessOptions = {}) {
@@ -149,10 +150,102 @@ describe('credentials', () => {
     expect(seen[0]!.credentialId).toEqual(expect.any(String));
   });
 
-  it('builds the challenge through the OAuth seam when one is given', async () => {
-    const h = await boot({ door: { challenge: () => 'Bearer resource_metadata="https://mcp.example.test/.well-known/oauth-protected-resource"' } });
+});
+
+const METADATA = 'https://mcp.example.test/.well-known/oauth-protected-resource/mcp';
+
+/** A connection's caller, as a host's OAuth side resolves it: a person acting as one member. */
+function connectionCaller(over: Partial<McpCaller> = {}): McpCaller {
+  return {
+    accountId: 'acct-1',
+    memberId: 'member-owner',
+    role: 'owner',
+    credentialId: 'member:member-owner',
+    label: 'oauth:person-1',
+    personId: 'person-1',
+    context: {},
+    ...over,
+  };
+}
+
+/** The door's OAuth side over a fixed table of access tokens, recording what it was asked. */
+function oauthSide(tokens: Record<string, McpCaller | DoorRefusal> = {}) {
+  const asked: string[] = [];
+  const oauth: McpDoorOAuth = {
+    isApiKey: (t) => t.startsWith('dforms_'),
+    resourceMetadataUrl: METADATA,
+    async authenticate(t) {
+      asked.push(t);
+      const found = tokens[t];
+      if (found instanceof DoorRefusal) throw found;
+      return found ?? null;
+    },
+  };
+  return { oauth, asked };
+}
+
+describe('MCP connections (the OAuth side of the door)', () => {
+  it('points a request without a credential at the protected-resource metadata', async () => {
+    const h = await boot({ door: { oauth: oauthSide().oauth } });
     const res = await h.post(initialize('2025-06-18'));
-    expect(res.headers.get('www-authenticate')).toContain('resource_metadata=');
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toBe(`Bearer resource_metadata="${METADATA}"`);
+    expect(((await res.json()) as { error: { message: string } }).error.message).toMatch(/sign in/i);
+  });
+
+  it('sends an API key down the key path only, and a dead key never invites a login', async () => {
+    const { oauth, asked } = oauthSide();
+    const h = await boot({ door: { oauth } });
+    expect((await h.post(initialize('2025-06-18'), { authorization: `Bearer ${h.key()}` })).status).toBe(200);
+    const dead = await h.post(initialize('2025-06-18'), { authorization: 'Bearer dforms_revoked' });
+    expect(dead.status).toBe(401);
+    expect(dead.headers.get('www-authenticate')).toContain('invalid_token');
+    expect(dead.headers.get('www-authenticate')).not.toContain('resource_metadata');
+    expect(((await dead.json()) as { error: { message: string } }).error.message).toContain('API key');
+    expect(asked).toEqual([]);
+  });
+
+  it('sends any other bearer to the OAuth side, and runs the tools as the caller it resolves', async () => {
+    const { oauth, asked } = oauthSide({ 'access-token-1': connectionCaller() });
+    const h = await boot({ door: { oauth } });
+    const c = await h.connect('access-token-1');
+    const who = structured<{ key: unknown; member: { role: string } }>(await c.callTool({ name: 'whoami', arguments: {} }));
+    expect(who.key).toBeNull();
+    expect(h.calls[0]).toMatchObject({ method: 'whoami', caller: { personId: 'person-1', memberId: 'member-owner' } });
+    expect(asked.every((t) => t === 'access-token-1')).toBe(true);
+  });
+
+  it('answers a token it cannot verify with 401 invalid_token that points at the login again', async () => {
+    const h = await boot({ door: { oauth: oauthSide().oauth } });
+    const res = await h.post(initialize('2025-06-18'), { authorization: 'Bearer eyJ.not.verified' });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toBe(`Bearer error="invalid_token", resource_metadata="${METADATA}"`);
+    expect(((await res.json()) as { error: { message: string } }).error.message).toMatch(/sign in again/i);
+  });
+
+  it('answers a refusal with 403 and its message, charged to the client address', async () => {
+    const refusal = new DoorRefusal('Open dForms once to create your workspace, then connect again.');
+    const h = await boot({ door: { oauth: oauthSide({ 'no-workspace': refusal }).oauth, ipLimiter: capped(1) } });
+    const res = await h.post(initialize('2025-06-18'), { authorization: 'Bearer no-workspace' });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { message: string } }).error.message).toBe(refusal.message);
+    expect((await h.post(initialize('2025-06-18'), { authorization: 'Bearer no-workspace' })).status).toBe(429);
+  });
+
+  it('writes the person and the member to the audit line, never the token', async () => {
+    const h = await boot({ door: { oauth: oauthSide({ 'access-token-1': connectionCaller() }).oauth } });
+    const c = await h.connect('access-token-1');
+    await c.callTool({ name: 'list_forms', arguments: {} });
+    const line = JSON.parse(h.audit[0]!) as Record<string, unknown>;
+    expect(line).toMatchObject({ caller: 'oauth:person-1', personId: 'person-1', memberId: 'member-owner', accountId: 'acct-1' });
+    expect(h.audit[0]).not.toContain('access-token-1');
+  });
+
+  it('without an OAuth side, every bearer is a key and nothing points at a login', async () => {
+    const h = await boot();
+    const res = await h.post(initialize('2025-06-18'), { authorization: 'Bearer eyJ.not.a.key' });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toBe('Bearer realm="dforms", error="invalid_token"');
   });
 });
 

@@ -128,7 +128,7 @@ const whoami: ToolDef = {
   name: 'whoami',
   title: 'Check the connection',
   description:
-    'The workspace and the member this API key acts as, with their role. Call it first to check the key works. Every other tool acts in this workspace only.',
+    'The workspace and the member this connection acts as (an API key, or a person signed in), with their role. Call it first to check the connection works. Every other tool acts in this workspace only.',
   write: false,
   annotations: READ,
   input: z.object({}),
@@ -145,7 +145,10 @@ const whoami: ToolDef = {
       email: z.string().nullable(),
       role: z.string().describe('owner, admin or member. Every role can create, edit and publish forms, as in the web app.'),
     }),
-    key: z.object({ prefix: z.string().describe('The public start of the key, as listed in dForms. Never the key itself.') }),
+    key: z
+      .object({ prefix: z.string().describe('The public start of the key, as listed in dForms. Never the key itself.') })
+      .nullable()
+      .describe('The API key this call used, or null for a connection signed in through OAuth.'),
   }),
   async run(_args: Record<string, never>, { caller, backend }) {
     const me = await backend.whoami(caller);
@@ -153,7 +156,7 @@ const whoami: ToolDef = {
       data: {
         workspace: { id: me.accountId, name: me.accountName, code: me.accountCode, time_zone: me.timezone },
         member: { id: me.memberId, name: me.displayName, email: me.email, role: me.role },
-        key: { prefix: caller.label },
+        key: caller.personId ? null : { prefix: caller.label },
       },
       summary: `Connected to workspace "${me.accountName}" as ${me.displayName ?? me.email ?? me.memberId} (${me.role}).`,
     };

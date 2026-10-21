@@ -33,12 +33,15 @@ export interface McpDoorOptions {
   /** When non-empty, the only `Host` names served (DNS-rebinding guard). */
   allowedHosts: readonly string[];
   /**
-   * Resolve a bearer token to the caller, or null when it is unknown, revoked
-   * or its member left. THE OAUTH SEAM: phase 1 accepts the host's API keys
-   * only; phase 2 resolves an OAuth access token here as well, and nothing
-   * past the door changes.
+   * Resolve an API key to the caller, or null when it is unknown, revoked or
+   * its member left. Without an `oauth` side every bearer comes here.
    */
   authenticate(token: string): Promise<McpCaller | null>;
+  /**
+   * The door's OAuth side (MCP connections), when the host has one. Absent:
+   * API keys only, and nothing points a client at a login.
+   */
+  oauth?: McpDoorOAuth;
   /**
    * Called once a request's credential resolved to a caller, before its rate
    * limit is taken, with the request as the host passed it in. Lets the host
@@ -46,16 +49,45 @@ export interface McpDoorOptions {
    * deprecated API host). Optional; it must not throw.
    */
   onAuthenticated?(req: DoorRequest, caller: McpCaller): void;
-  /** Every request of an authenticated credential takes a token, keyed by credential. */
+  /** Every request of an authenticated credential takes a token, keyed by `caller.credentialId`. */
   keyLimiter: RateLimiter;
-  /** Requests without a credential and failed attempts take a token, keyed by client address. */
+  /** Requests without a credential, failed attempts and refusals take a token, keyed by client address. */
   ipLimiter: RateLimiter;
+}
+
+/**
+ * The OAuth side of the door: the MCP server as an OAuth resource server.
+ *
+ * A bearer the host recognizes as an API key takes the key path, unchanged;
+ * any other bearer is an access token and comes here. A request without a
+ * credential, or with a token that does not verify, is answered 401 with the
+ * protected-resource metadata URL (RFC 9728), which is how a client discovers
+ * the login. A dead API key never is: a client holding a key cannot finish a
+ * login, so pointing it at one would loop.
+ */
+export interface McpDoorOAuth {
+  /** True for a bearer that is an API key (by its shape, never by a lookup). */
+  isApiKey(token: string): boolean;
   /**
-   * The `WWW-Authenticate` value of a 401. Phase 2 (OAuth) adds the
-   * protected-resource metadata URL here so a client can discover the
-   * authorization server.
+   * Verify an access token and resolve the caller it acts as, or null when the
+   * token does not verify. Throws `DoorRefusal` when it verifies but cannot
+   * act (a person with no workspace): a 403 a new login would not change.
    */
-  challenge?: (error?: 'invalid_token') => string;
+  authenticate(token: string): Promise<McpCaller | null>;
+  /** The URL of this resource's protected-resource metadata (RFC 9728). */
+  resourceMetadataUrl: string;
+}
+
+/**
+ * A verified credential that still cannot act, with a message the person can
+ * act on. The door answers it 403 with that message; anything else an
+ * authenticator throws is a fault.
+ */
+export class DoorRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DoorRefusal';
+  }
 }
 
 /** Per-request facts the host computes: the client address (behind its trusted proxies) and a request id. */
@@ -132,7 +164,8 @@ function rpcError(res: DoorResponse, status: number, code: number, message: stri
   res.end(JSON.stringify({ jsonrpc: '2.0', error: { code, message }, id: null }));
 }
 
-const defaultChallenge = (error?: 'invalid_token'): string =>
+/** The `WWW-Authenticate` of an API key's 401: it names no login, because a key holder cannot finish one. */
+const keyChallenge = (error?: 'invalid_token'): string =>
   error ? `Bearer realm="dforms", error="${error}"` : 'Bearer realm="dforms"';
 
 /**
@@ -149,13 +182,11 @@ export class McpDoor {
   private readonly node: ReturnType<typeof toNodeHandler>;
   private readonly origins: Set<string>;
   private readonly hosts: Set<string>;
-  private readonly challenge: (error?: 'invalid_token') => string;
 
   constructor(private readonly options: McpDoorOptions) {
     this.node = toNodeHandler(options.server.handler);
     this.origins = new Set(options.allowedOrigins.map(normalizeOrigin).filter(Boolean));
     this.hosts = new Set(options.allowedHosts.map((h) => hostnameOf(h)).filter(Boolean));
-    this.challenge = options.challenge ?? defaultChallenge;
   }
 
   async handle(req: DoorRequest, res: DoorResponse, ctx: DoorContext): Promise<void> {
@@ -189,21 +220,43 @@ export class McpDoor {
       return;
     }
 
+    const oauth = this.options.oauth;
     const header = firstHeader(req.headers.authorization);
     if (header === undefined || header.trim() === '') {
       if (!this.takeIp(res, ctx.ip)) return;
+      if (oauth) {
+        rpcError(res, 401, -32001, 'Authentication required: sign in, or send Authorization: Bearer <your dForms API key>.', {
+          'WWW-Authenticate': `Bearer resource_metadata="${oauth.resourceMetadataUrl}"`,
+        });
+        return;
+      }
       rpcError(res, 401, -32001, 'Authentication required: send Authorization: Bearer <your dForms API key>.', {
-        'WWW-Authenticate': this.challenge(),
+        'WWW-Authenticate': keyChallenge(),
       });
       return;
     }
     const token = /^Bearer\s+(\S+)$/i.exec(header.trim())?.[1];
-    const caller = token ? await this.options.authenticate(token) : null;
-    if (!caller) {
-      // A wrong key costs a lookup: count the attempt against the address.
+    const viaOAuth = oauth !== undefined && token !== undefined && !oauth.isApiKey(token);
+    let caller: McpCaller | null = null;
+    try {
+      if (token) caller = viaOAuth ? await oauth!.authenticate(token) : await this.options.authenticate(token);
+    } catch (error) {
+      if (!(error instanceof DoorRefusal)) throw error;
       if (!this.takeIp(res, ctx.ip)) return;
+      rpcError(res, 403, -32003, error.message);
+      return;
+    }
+    if (!caller) {
+      // A wrong credential costs a lookup: count the attempt against the address.
+      if (!this.takeIp(res, ctx.ip)) return;
+      if (viaOAuth) {
+        rpcError(res, 401, -32001, 'Invalid or expired access token: sign in again.', {
+          'WWW-Authenticate': `Bearer error="invalid_token", resource_metadata="${oauth!.resourceMetadataUrl}"`,
+        });
+        return;
+      }
       rpcError(res, 401, -32001, 'Invalid or revoked API key, or its owner left the workspace.', {
-        'WWW-Authenticate': this.challenge('invalid_token'),
+        'WWW-Authenticate': keyChallenge('invalid_token'),
       });
       return;
     }

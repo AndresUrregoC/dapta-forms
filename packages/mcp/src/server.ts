@@ -8,7 +8,7 @@ export const MCP_SERVER_NAME = 'dforms';
 export const MCP_SERVER_VERSION = '1.0.0';
 
 export const MCP_INSTRUCTIONS = [
-  'Tools to build, publish and read dForms forms in one workspace: the one the API key belongs to.',
+  'Tools to build, publish and read dForms forms in one workspace: the one the API key belongs to, or the signed-in person\'s workspace.',
   'Start with whoami. Read get_form_guide once before your first create_form or update_form.',
   'To edit: get_form, change a copy of its config, update_form with the whole config and expected_updated_at, then publish_form.',
   'Give users the public_url exactly as a tool returns it; never build a link.',
@@ -111,7 +111,8 @@ export class FormsMcpServer {
     const { allowed, retryAfterMs } = this.options.writeLimiter.take(`mcp-write:${call.caller.credentialId}`);
     if (!allowed) {
       const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
-      throw new ToolFailure('RATE_LIMITED', 'Too many writes with this API key.', 'Slow down, then retry.', seconds);
+      const whose = call.caller.personId ? 'by this member' : 'with this API key';
+      throw new ToolFailure('RATE_LIMITED', `Too many writes ${whose}.`, 'Slow down, then retry.', seconds);
     }
   }
 
@@ -139,7 +140,8 @@ export class FormsMcpServer {
   /**
    * One structured line per tool call. The arguments are reduced to a hash of
    * their redacted shape: no config, no names, no dates, no answers. The
-   * caller is the key's public prefix, never the key.
+   * caller is the key's public prefix or the connection's person, never a
+   * token.
    */
   private audit(
     def: ToolDef,
@@ -158,6 +160,7 @@ export class FormsMcpServer {
       caller: call?.caller.label ?? 'anonymous',
       accountId: call?.caller.accountId ?? null,
       memberId: call?.caller.memberId ?? null,
+      personId: call?.caller.personId ?? null,
       tool: def.name,
       argsHash: argsHash(args),
       affected: result?.affected ?? [],
