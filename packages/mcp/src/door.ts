@@ -71,7 +71,8 @@ export interface McpDoorOAuth {
   /**
    * Verify an access token and resolve the caller it acts as, or null when the
    * token does not verify. Throws `DoorRefusal` when it verifies but cannot
-   * act (a person with no workspace): a 403 a new login would not change.
+   * act (a person with no workspace): a 403 a new login would not change; and
+   * `DoorUnavailable` when it cannot be checked right now: a 503.
    */
   authenticate(token: string): Promise<McpCaller | null>;
   /** The URL of this resource's protected-resource metadata (RFC 9728). */
@@ -89,6 +90,23 @@ export class DoorRefusal extends Error {
     this.name = 'DoorRefusal';
   }
 }
+
+/**
+ * A credential the door cannot check right now, because something it depends
+ * on is down (the host's person directory, say). The door answers it 503 with
+ * its message and a `Retry-After`, never a 401: the person's sign-in is fine,
+ * and sending the client into a new login would not help. The message must
+ * not carry the dependency's internals.
+ */
+export class DoorUnavailable extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DoorUnavailable';
+  }
+}
+
+/** Seconds a client is told to wait after a `DoorUnavailable`. */
+const UNAVAILABLE_RETRY_AFTER_SECONDS = 30;
 
 /** Per-request facts the host computes: the client address (behind its trusted proxies) and a request id. */
 export interface DoorContext {
@@ -241,6 +259,11 @@ export class McpDoor {
     try {
       if (token) caller = viaOAuth ? await oauth!.authenticate(token) : await this.options.authenticate(token);
     } catch (error) {
+      if (error instanceof DoorUnavailable) {
+        if (!this.takeIp(res, ctx.ip)) return;
+        rpcError(res, 503, -32000, error.message, { 'Retry-After': String(UNAVAILABLE_RETRY_AFTER_SECONDS) });
+        return;
+      }
       if (!(error instanceof DoorRefusal)) throw error;
       if (!this.takeIp(res, ctx.ip)) return;
       rpcError(res, 403, -32003, error.message);

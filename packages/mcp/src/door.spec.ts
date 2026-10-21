@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { bootHarness, capped, errorText, initialize, structured, type Harness, type HarnessOptions } from './__tests__/harness';
 import type { McpCaller } from './backend';
-import { DoorRefusal, hostnameOf, mcpCorsPolicy, normalizeOrigin, type McpDoorOAuth } from './door';
+import { DoorRefusal, DoorUnavailable, hostnameOf, mcpCorsPolicy, normalizeOrigin, type McpDoorOAuth } from './door';
 
 const open: Harness[] = [];
 async function boot(opts: HarnessOptions = {}) {
@@ -169,7 +169,7 @@ function connectionCaller(over: Partial<McpCaller> = {}): McpCaller {
 }
 
 /** The door's OAuth side over a fixed table of access tokens, recording what it was asked. */
-function oauthSide(tokens: Record<string, McpCaller | DoorRefusal> = {}) {
+function oauthSide(tokens: Record<string, McpCaller | DoorRefusal | DoorUnavailable> = {}) {
   const asked: string[] = [];
   const oauth: McpDoorOAuth = {
     isApiKey: (t) => t.startsWith('dforms_'),
@@ -177,7 +177,7 @@ function oauthSide(tokens: Record<string, McpCaller | DoorRefusal> = {}) {
     async authenticate(t) {
       asked.push(t);
       const found = tokens[t];
-      if (found instanceof DoorRefusal) throw found;
+      if (found instanceof DoorRefusal || found instanceof DoorUnavailable) throw found;
       return found ?? null;
     },
   };
@@ -230,6 +230,17 @@ describe('MCP connections (the OAuth side of the door)', () => {
     expect(res.status).toBe(403);
     expect(((await res.json()) as { error: { message: string } }).error.message).toBe(refusal.message);
     expect((await h.post(initialize('2025-06-18'), { authorization: 'Bearer no-workspace' })).status).toBe(429);
+  });
+
+  it('answers a sign-in that cannot be checked right now with 503 and a retry, never a login loop', async () => {
+    const outage = new DoorUnavailable('dForms cannot check this sign-in right now. Try again in a minute.');
+    const h = await boot({ door: { oauth: oauthSide({ 'directory-down': outage }).oauth, ipLimiter: capped(1) } });
+    const res = await h.post(initialize('2025-06-18'), { authorization: 'Bearer directory-down' });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('30');
+    expect(res.headers.get('www-authenticate')).toBeNull();
+    expect(((await res.json()) as { error: { message: string } }).error.message).toBe(outage.message);
+    expect((await h.post(initialize('2025-06-18'), { authorization: 'Bearer directory-down' })).status).toBe(429);
   });
 
   it('writes the person and the member to the audit line, never the token', async () => {
