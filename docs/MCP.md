@@ -115,10 +115,16 @@ app's workspace switcher lets them (see
   workspace owner, or still an invitation) is never turned into a grant
   either: the call answers `MEMBERSHIP_NOT_ACTIVE` and the row stays as it
   was. A pending invitation by email is never adopted as the grant.
-- **No API keys.** A staff access grant never holds a working API key: one
-  cannot be created from a grant (`STAFF_ACCESS_NO_KEYS`), and a key whose
-  member is a grant row answers `INVALID_API_KEY`. A key carries no person
-  to judge staff by, so it would outlive the grant.
+- **API keys, as in Dapta's own MCP.** While they are staff, staff in a
+  workspace through a grant list, create and revoke its API keys from the
+  Developers page (or `/v1/api-keys` with their session), like any admin. A
+  key is a credential of the workspace, not of the person: one they create
+  acts as the grant's `admin` row, in that workspace only, and keeps working
+  until someone revokes it, even after its creator stops being staff (the
+  key itself never becomes staff and never searches other workspaces). The
+  workspace's owners and admins see it in their key list marked as created
+  by Dapta staff (`createdBy.staff` in the API) and can revoke it at any
+  time. Offboarding someone from staff means revoking the keys they created.
 - **Said and logged.** Every result of such a call names the workspace with
   `access: 'staff'` and starts `In workspace "<name>" (staff access):`. The
   audit line carries `via: 'staff_grant'`, and the API logs one more line per

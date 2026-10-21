@@ -19,7 +19,6 @@ import { WorkspaceProjection } from './workspace-projection';
 import { IamWorkspacesClient, type IamWorkspace } from './iam-workspaces';
 import { WorkspaceService } from './workspace.service';
 import { ApiKeysController } from './api-keys.controller';
-import { generateApiKey } from './api-keys';
 import { signJwtHs256 } from './jwt';
 
 const SECRET = 's';
@@ -530,7 +529,7 @@ describe('WorkspaceService (IAM-backed) — staff of the deployment', () => {
     return row!.id;
   }
 
-  it('a person who stops being staff (domain dropped) loses every grant in the web: list, header, enter, home and keys', async () => {
+  it('a person who stops being staff (domain dropped) loses every grant in the web: list, header, enter and home; the key they made keeps working', async () => {
     staffLast = WS_OWN;
     const { accountId } = await svc.enterEstateWorkspace(staffReq(), WS_OWN);
     // While staff: listed, enterable by header, and home is the workspace opened last.
@@ -538,9 +537,9 @@ describe('WorkspaceService (IAM-backed) — staff of the deployment', () => {
     expect((await auth.resolveHost(staffReq(accountId))).accountId).toBe(accountId);
     expect((await auth.resolveHost(staffReq())).accountId).toBe(accountId);
     const grantMember = (await auth.resolveHost(staffReq(accountId))).memberId;
-    // A key the grant row holds (minted before grants stopped holding keys).
-    const minted = generateApiKey();
-    await insertApiKey(db, { accountId, memberId: grantMember, name: 'old', keyHash: minted.keyHash, prefix: minted.prefix, last4: minted.last4 });
+    // A key created through the grant while staff.
+    const keys = new ApiKeysController(db, auth);
+    const created = await keys.create(staffReq(accountId), { name: 'support agent' });
 
     staffDomains.length = 0; // the domain is dropped from IAM_STAFF_DOMAINS
 
@@ -551,11 +550,19 @@ describe('WorkspaceService (IAM-backed) — staff of the deployment', () => {
     const home = await auth.resolveHost(staffReq());
     expect(home.accountId).not.toBe(accountId);
     expect(home.accessGrant).toBeUndefined();
-    // The key never authenticates.
-    await expect(auth.resolveHost({ headers: { authorization: `Bearer ${minted.key}` } })).rejects.toBeInstanceOf(UnauthorizedException);
-    // The row itself stays (grants are never revoked); it just stopped counting.
+    // Nor can they create keys there any more: the session never reaches the grant.
+    await expect(keys.create(staffReq(accountId), { name: 'again' })).rejects.toBeInstanceOf(ForbiddenException);
+    // The key is the workspace's, not the person's: it keeps working, as the
+    // grant's admin row in that workspace only, until someone revokes it.
+    const byKey = await auth.resolveHost({ headers: { authorization: `Bearer ${created.key}` } });
+    expect(byKey).toMatchObject({ accountId, memberId: grantMember, role: 'admin', via: 'api_key' });
+    expect(byKey.accessGrant).toBeUndefined();
+    // The row itself stays (grants are never revoked); it just stopped counting for the session.
     const row = await db.get<{ access_grant: string | null; status: string }>(sql`SELECT access_grant, status FROM member WHERE id = ${grantMember}`);
     expect(row).toEqual({ access_grant: 'staff', status: 'active' });
+    // Offboarding is revoking it: the workspace's admin does, and it stops.
+    await keys.revoke(customerReqIn(accountId), created.id);
+    await expect(auth.resolveHost({ headers: { authorization: `Bearer ${created.key}` } })).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('a person whose email moves off the staff domains loses every grant on the next request', async () => {
@@ -570,21 +577,32 @@ describe('WorkspaceService (IAM-backed) — staff of the deployment', () => {
     await expect(svc.enter(moved(), accountId)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('a staff access grant cannot create an API key, and no key a grant row holds authenticates', async () => {
+  it('staff create, list and revoke keys through a grant; the workspace sees them marked as staff and can revoke them', async () => {
     const { accountId } = await svc.enterEstateWorkspace(staffReq(), WS_OWN);
     const keys = new ApiKeysController(db, auth);
-    await expect(keys.create(staffReq(accountId), { name: 'support' })).rejects.toMatchObject({
-      response: { error: 'STAFF_ACCESS_NO_KEYS' },
-    });
-    // The customer's own admin still can, in the same workspace.
-    const created = await keys.create(customerReqIn(accountId), { name: 'mine' });
-    expect(created.key).toMatch(/^dforms_/);
-    // The grant's keys are not listed to the workspace either.
-    const p = await auth.resolveHost(staffReq(accountId));
-    const minted = generateApiKey();
-    await insertApiKey(db, { accountId, memberId: p.memberId, name: 'old', keyHash: minted.keyHash, prefix: minted.prefix, last4: minted.last4 });
-    await expect(auth.resolveHost({ headers: { authorization: `Bearer ${minted.key}` } })).rejects.toBeInstanceOf(UnauthorizedException);
-    expect((await keys.list(customerReqIn(accountId))).keys.map((k) => k.name)).toEqual(['mine']);
+    const staffKey = await keys.create(staffReq(accountId), { name: 'support' });
+    expect(staffKey.key).toMatch(/^dforms_/);
+    // The key acts as the grant row, an admin of this workspace, and nowhere else.
+    const grant = await auth.resolveHost(staffReq(accountId));
+    const byKey = await auth.resolveHost({ headers: { authorization: `Bearer ${staffKey.key}` } });
+    expect(byKey).toMatchObject({ accountId, memberId: grant.memberId, role: 'admin', via: 'api_key' });
+    await expect(
+      auth.resolveHost({ headers: { authorization: `Bearer ${staffKey.key}`, [WORKSPACE_HEADER]: 'another-account' } }),
+    ).rejects.toMatchObject({ response: { error: 'WORKSPACE_FORBIDDEN' } });
+    // The customer's own admin creates one too, in the same workspace.
+    const mine = await keys.create(customerReqIn(accountId), { name: 'mine' });
+    // Both see every key; the staff one is marked.
+    const listed = (await keys.list(customerReqIn(accountId))).keys;
+    expect(listed.map((k) => [k.name, k.createdBy.staff]).sort()).toEqual([['mine', false], ['support', true]]);
+    expect((await keys.list(staffReq(accountId))).keys.map((k) => k.name).sort()).toEqual(['mine', 'support']);
+    // Staff revoke their own key like any admin.
+    const second = await keys.create(staffReq(accountId), { name: 'second' });
+    await keys.revoke(staffReq(accountId), second.id);
+    await expect(auth.resolveHost({ headers: { authorization: `Bearer ${second.key}` } })).rejects.toBeInstanceOf(UnauthorizedException);
+    // The workspace's admin revokes the staff key.
+    await keys.revoke(customerReqIn(accountId), staffKey.id);
+    await expect(auth.resolveHost({ headers: { authorization: `Bearer ${staffKey.key}` } })).rejects.toBeInstanceOf(UnauthorizedException);
+    expect((await keys.list(customerReqIn(accountId))).keys.map((k) => k.id)).toEqual([mine.id]);
   });
 
   it('never turns a membership the owner disabled into an admin grant: the web entry refuses and leaves it untouched', async () => {

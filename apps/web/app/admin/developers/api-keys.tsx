@@ -45,8 +45,9 @@ export interface ApiKeysViewer {
   displayName: string | null;
   email: string | null;
   /**
-   * `'staff'` when they are in this workspace through a staff access grant,
-   * which never holds an API key: the create button is off, with the reason.
+   * `'staff'` when they are in this workspace through a staff access grant.
+   * They create keys like any admin; a note says the key is the workspace's,
+   * outlives their staff access until revoked, and is marked as theirs.
    */
   accessGrant?: 'staff' | null;
 }
@@ -101,7 +102,7 @@ export function ApiKeysPanel({
       last4: created.last4,
       createdAt: created.createdAt,
       lastUsedAt: null,
-      createdBy: { memberId: viewer.memberId, name: viewer.displayName, email: viewer.email },
+      createdBy: { memberId: viewer.memberId, name: viewer.displayName, email: viewer.email, staff: staffAccess },
     };
     setKeys((prev) => [row, ...prev.filter((k) => k.id !== row.id)]);
   };
@@ -174,12 +175,7 @@ export function ApiKeysPanel({
               </p>
             ) : null}
           </div>
-          <Button
-            data-testid="api-key-create"
-            onClick={() => setCreating(true)}
-            disabled={staffAccess}
-            className="shrink-0"
-          >
+          <Button data-testid="api-key-create" onClick={() => setCreating(true)} className="shrink-0">
             <i aria-hidden className="pi pi-plus" style={{ fontSize: 13 }} />
             {m.create}
           </Button>
@@ -247,8 +243,18 @@ export function ApiKeysPanel({
                     </Cell>
                     {showCreator ? (
                       <Cell label={m.colCreatedBy} testId="api-key-created-by">
-                        <span className="truncate" title={k.createdBy.email ?? undefined}>
-                          {creator}
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate" title={k.createdBy.email ?? undefined}>
+                            {creator}
+                          </span>
+                          {k.createdBy.staff ? (
+                            <span
+                              data-testid="api-key-created-by-staff"
+                              className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-2xs font-medium text-muted-foreground"
+                            >
+                              {m.createdByStaff}
+                            </span>
+                          ) : null}
                         </span>
                       </Cell>
                     ) : null}
@@ -294,7 +300,7 @@ function Cell({ label, testId, children }: { label: string; testId?: string; chi
   );
 }
 
-type CreateError = 'INVALID' | 'KEY_LIMIT' | 'FORBIDDEN' | 'STAFF_ACCESS' | 'FAILED';
+type CreateError = 'INVALID' | 'KEY_LIMIT' | 'FORBIDDEN' | 'FAILED';
 
 /**
  * Two steps in one dialog: name the key, then see it once. Unmounted while
@@ -380,7 +386,6 @@ function CreateKeyDialogBody({
     INVALID: m.errorInvalid,
     KEY_LIMIT: m.errorLimit,
     FORBIDDEN: m.errorForbidden,
-    STAFF_ACCESS: m.staffAccess,
     FAILED: m.errorFailed,
   };
 

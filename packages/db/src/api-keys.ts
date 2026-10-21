@@ -15,6 +15,12 @@
  * (disabled, removed, dropped by the identity service) revokes their keys in
  * the same transaction (`revokeKeysOfInactiveMembersSql`), so reactivating the
  * member later never brings an old key back.
+ *
+ * A key the deployment's staff create through a staff access grant belongs to
+ * the grant row (an `admin` of that workspace) and acts as it. It is a
+ * credential of the workspace, not of the person: it keeps working after they
+ * stop being staff, until someone revokes it. Grant rows are never disabled,
+ * so revoking is the only way such a key ends.
  */
 import { randomUUID } from "node:crypto";
 import type { SQL } from "drizzle-orm";
@@ -29,6 +35,12 @@ export interface ApiKeyCreator {
   memberId: string;
   name: string | null;
   email: string | null;
+  /**
+   * True when the key belongs to a staff access grant row: the deployment's
+   * staff created it while acting in this workspace. The Developers page marks
+   * it so the workspace's owners and admins can tell it apart and revoke it.
+   */
+  staff: boolean;
 }
 
 /** An active key as the Developers page lists it. Never carries the hash. */
@@ -66,9 +78,11 @@ export interface ApiKeyPrincipalRow {
   role: AccountRole;
   memberStatus: string;
   /**
-   * `'staff'` when the key's member is a staff access grant row. Such a key
-   * never authenticates: a grant lives only while its person is staff, and a
-   * key carries no person to judge that by.
+   * `'staff'` when the key's member is a staff access grant row, that is, a
+   * key the deployment's staff created in this workspace. Informational: such
+   * a key authenticates like any other. A key is a credential of the
+   * workspace, so it keeps working after its creator stops being staff, until
+   * someone revokes it.
    */
   accessGrant: "staff" | null;
   lastUsedAt: number | null;
@@ -158,11 +172,12 @@ export async function getApiKeyById(
  * `memberId` narrows to that member's own keys (what a plain member sees);
  * omitted, every active key of the workspace (owner and admin).
  *
- * Only keys of members who are active there and hold a real membership:
- * those are the only ones that authenticate. Taking a member out revokes
- * their keys anyway; this also hides a key whose member was disabled some
- * other way (by hand, or before keys followed their member), and a key a
- * staff access grant held before grants stopped holding keys.
+ * Only keys of members who are active there: those are the only ones that
+ * authenticate. Taking a member out revokes their keys anyway; this also
+ * hides a key whose member was disabled some other way (by hand, or before
+ * keys followed their member). Keys the deployment's staff created through a
+ * staff access grant are listed too, marked `createdBy.staff`, so the
+ * workspace can see and revoke them.
  */
 export async function listApiKeys(
   db: Db,
@@ -172,10 +187,9 @@ export async function listApiKeys(
   const mine = memberId === undefined ? sql`` : sql` AND k.member_id = ${memberId}`;
   const rows = await db.all<Record<string, unknown>>(
     sql`SELECT k.id, k.name, k.last4, k.created_at, k.last_used_at_ms, k.member_id,
-               m.display_name, m.email
+               m.display_name, m.email, m.access_grant
         FROM api_key k
         JOIN member m ON m.id = k.member_id AND m.account_id = k.account_id AND m.status = 'active'
-          AND m.access_grant IS NULL
         WHERE k.account_id = ${accountId} AND k.revoked_at_ms IS NULL${mine}
         ORDER BY k.created_at DESC, k.id ASC`,
   );
@@ -189,6 +203,7 @@ export async function listApiKeys(
       memberId: r.member_id == null ? "" : String(r.member_id),
       name: r.display_name == null ? null : String(r.display_name),
       email: r.email == null ? null : String(r.email),
+      staff: r.access_grant === "staff",
     },
   }));
 }

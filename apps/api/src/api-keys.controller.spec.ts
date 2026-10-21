@@ -199,7 +199,7 @@ describe('GET /v1/api-keys', () => {
       last4: b.last4,
       createdAt: b.createdAt,
       lastUsedAt: null,
-      createdBy: { memberId: bobId, name: 'bob', email: 'bob@example.com' },
+      createdBy: { memberId: bobId, name: 'bob', email: 'bob@example.com', staff: false },
     });
 
     for (const viewer of [ownerId, adminId]) {

@@ -143,14 +143,26 @@ describe('ApiKeysPanel: roles', () => {
           createdBy: { memberId: 'mem-2', name: 'Sam Lee', email: 'sam@example.com' },
         }),
         key({ id: 'key-3', name: 'Old script', createdBy: { memberId: 'mem-3', name: null, email: null } }),
+        key({
+          id: 'key-4',
+          name: 'Support agent',
+          last4: 'k4k4',
+          createdBy: { memberId: 'mem-staff', name: 'Dana Ops', email: 'dana@example.com', staff: true },
+        }),
       ],
     });
-    expect($$('[data-testid="api-key-row"]')).toHaveLength(3);
+    expect($$('[data-testid="api-key-row"]')).toHaveLength(4);
     expect(document.body.textContent).toContain(m.colCreatedBy);
     const creators = $$('[data-testid="api-key-created-by"]').map((el) => el.textContent);
     expect(creators[0]).toContain(m.you);
     expect(creators[1]).toContain('Sam Lee');
     expect(creators[2]).toContain(m.unknownCreator);
+    // A key the deployment's staff created is marked, so the workspace can tell it apart and revoke it.
+    expect(creators[3]).toContain('Dana Ops');
+    const tags = $$('[data-testid="api-key-created-by-staff"]');
+    expect(tags).toHaveLength(1);
+    expect(tags[0]!.textContent).toBe(m.createdByStaff);
+    expect($$('[data-testid="api-key-row"]')[3]!.querySelector('[data-testid="api-key-revoke"]')).not.toBeNull();
     expect(document.body.textContent).toContain(m.subtitleAdmin);
   });
 
@@ -266,19 +278,26 @@ describe('ApiKeysPanel: create', () => {
     expect($$('[data-testid="api-key-row"]')).toHaveLength(1);
   });
 
-  it('turns the create button off for staff access, with the reason, and says it if a create is tried anyway', async () => {
+  it('lets staff access create a key, says what that key is, and marks the new row as staff', async () => {
+    actions.createApiKeyAction.mockResolvedValue({
+      ok: true,
+      key: { id: 'key-9', name: 'Support', last4: 'a1b2', createdAt: Date.UTC(2026, 9, 12), key: SECRET },
+    });
     await mount({ keys: [], viewer: { ...admin, accessGrant: 'staff' } });
-    expect($<HTMLButtonElement>('[data-testid="api-key-create"]')?.disabled).toBe(true);
+    expect($<HTMLButtonElement>('[data-testid="api-key-create"]')?.disabled).toBe(false);
     expect($('[data-testid="api-keys-staff-access"]')?.textContent).toBe(m.staffAccess);
+    await createNamed('Support');
+    expect(actions.createApiKeyAction).toHaveBeenCalledWith('Support');
+    expect($('[data-testid="api-key-secret"]')).not.toBeNull();
+    const row = $$('[data-testid="api-key-row"]');
+    expect(row).toHaveLength(1);
+    expect(row[0]!.querySelector('[data-testid="api-key-created-by-staff"]')?.textContent).toBe(m.createdByStaff);
     await act(async () => root.unmount());
     host.remove();
 
-    actions.createApiKeyAction.mockResolvedValue({ ok: false, code: 'STAFF_ACCESS' });
-    await mount({ keys: [] });
-    expect($<HTMLButtonElement>('[data-testid="api-key-create"]')?.disabled).toBe(false);
+    // Without staff access there is no note.
+    await mount({ keys: [], viewer: admin });
     expect($('[data-testid="api-keys-staff-access"]')).toBeNull();
-    await createNamed('Support');
-    expect($('[role="alert"]')?.textContent).toBe(m.staffAccess);
   });
 
   it('does not send a blank name', async () => {
