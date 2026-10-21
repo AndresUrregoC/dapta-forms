@@ -27,6 +27,16 @@ describe('isStaffEmail', () => {
     expect(isStaffEmail('example.com@evil.test', domains)).toBe(false);
   });
 
+  it('is false for anything but one local part, one @ and one domain', () => {
+    // The domain after the LAST @ used to decide: these all read as staff.
+    expect(isStaffEmail('evil@x.com@example.com', domains)).toBe(false);
+    expect(isStaffEmail('@example.com', domains)).toBe(false);
+    expect(isStaffEmail('a@@example.com', domains)).toBe(false);
+    expect(isStaffEmail('ana smith@example.com', domains)).toBe(false);
+    expect(isStaffEmail('ana@exa mple.com', domains)).toBe(false);
+    expect(isStaffEmail('ana@example.com\n@evil.test', domains)).toBe(false);
+  });
+
   it('is false without an email, without a domain, or with no domains listed', () => {
     expect(isStaffEmail(null, domains)).toBe(false);
     expect(isStaffEmail(undefined, domains)).toBe(false);
