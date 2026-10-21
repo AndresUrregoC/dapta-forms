@@ -89,7 +89,11 @@ export function parityFakes(): ApiParityBackend {
         startedAt: NOW - 60_000,
         partialAt: null,
         score: 7,
-        answers: [{ question: 'Email?', answer: 'ana@example.test [click](https://evil.example)' }],
+        outcome: { id: 'hot', label: 'Hot lead' },
+        answers: [
+          { question: 'Email?', answer: 'ana@example.test [click](https://evil.example)', stepKey: 'email', type: 'email' },
+          { question: 'old_q', answer: 'kept', stepKey: 'old_q', type: null, stepRemoved: true },
+        ],
         files: [{ stepKey: 'cv', question: 'Your CV' }],
       };
     },

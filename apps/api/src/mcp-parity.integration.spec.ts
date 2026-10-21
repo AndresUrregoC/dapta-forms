@@ -217,6 +217,26 @@ describe('responses', () => {
     expect((await c.callTool({ name: 'get_response', arguments: { form_id: formId } })).isError).toBe(true);
   });
 
+  it('get_response carries each answer and the outcome exactly as list_responses does, a removed step included', async () => {
+    const id = await upsertSubmission(h.db, {
+      formId: h.formId,
+      sessionId: randomUUID(),
+      // `budget` is a step the seeded form no longer has.
+      data: { role: 'founder', team_size: 12, email: 'lead@example.org', budget: 'Over 10k' },
+      score: 18,
+    }).then((row) => row.id);
+    type Item = { id: string; outcome: unknown; respondent_supplied: { answers: Array<Record<string, unknown>> } };
+    const one = structured<Item>(await member.callTool({ name: 'get_response', arguments: { form_id: h.formId, response_id: id } }));
+    const listed = structured<{ responses: Item[] }>(
+      await member.callTool({ name: 'list_responses', arguments: { form_id: h.formId, limit: 50 } }),
+    ).responses.find((r) => r.id === id)!;
+    expect(one.outcome).toEqual({ id: 'qualified', label: 'Qualified' });
+    expect(one.outcome).toEqual(listed.outcome);
+    expect(one.respondent_supplied.answers).toEqual(listed.respondent_supplied.answers);
+    expect(one.respondent_supplied.answers).toContainEqual({ question: 'budget', answer: 'Over 10k', step_key: 'budget', type: null, step_removed: true });
+    expect(one.respondent_supplied.answers.find((a) => a.step_key === 'email')).toMatchObject({ type: 'email', step_removed: false });
+  });
+
   it('get_response_file answers NOT_FOUND when the deployment stores no files, or the ids do not match', async () => {
     notFound(errorText(await c.callTool({ name: 'get_response_file', arguments: { form_id: formId, response_id: ana, step_key: 'notes' } })));
     notFound(errorText(await c.callTool({ name: 'get_response_file', arguments: { form_id: h.formId, response_id: ana, step_key: 'cv' } })));

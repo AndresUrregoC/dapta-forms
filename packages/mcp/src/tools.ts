@@ -9,6 +9,7 @@ import {
   type FormsBackend,
   type McpCaller,
   type McpCredential,
+  type ResponseAnswer,
   type ResponseItem,
 } from './backend';
 import { GUIDE_PARTS, formGuide, type GuidePart } from './guide/guide';
@@ -964,7 +965,8 @@ const listResponsesInput = z.object({
   offset: z.number().int().min(0).default(0),
 });
 
-const answerRow = z.object({
+/** One answer as list_responses and get_response carry it. */
+export const answerRow = z.object({
   question: z.string(),
   answer: z.string(),
   step_key: z.string().nullable().describe('The key of the step this answers. Null when unknown.'),
@@ -979,6 +981,26 @@ const answerRow = z.object({
 /** A step key as stored with the answers. For a step the form no longer has, it came from the respondent's browser. */
 const MAX_KEY_CHARS = 64;
 
+/** The outcome a completed response lands in, as list_responses and get_response carry it. */
+export const responseOutcome = z
+  .object({ id: z.string(), label: z.string() })
+  .nullable()
+  .describe("The result range a completed response lands in, by the live form's outcomes. Null for a partial or a form without outcomes.");
+
+/** One answer for the model: cleaned, cut to `maxAnswer` characters, with its step and whether that step is gone. */
+export function answerOf(a: ResponseAnswer, maxAnswer: number = MAX_ANSWER_CHARS): z.infer<typeof answerRow> {
+  return {
+    question: untrusted(a.question, MAX_QUESTION_CHARS),
+    answer: untrusted(a.answer, maxAnswer),
+    step_key: a.stepKey == null ? null : untrusted(a.stepKey, MAX_KEY_CHARS),
+    type: a.stepRemoved ? null : (a.type ?? null),
+    step_removed: a.stepRemoved === true,
+  };
+}
+
+/** The summary's note when some answers belong to steps the form no longer has. */
+export const STEP_REMOVED_NOTE = ' Some answers belong to steps the form no longer has (step_removed).';
+
 function responseOf(r: ResponseItem) {
   return {
     id: r.id,
@@ -988,13 +1010,7 @@ function responseOf(r: ResponseItem) {
     started_at: iso(r.startedAt),
     completed_at: iso(r.completedAt),
     respondent_supplied: {
-      answers: r.answers.slice(0, MAX_ANSWERS_PER_RESPONSE).map((a) => ({
-        question: untrusted(a.question, MAX_QUESTION_CHARS),
-        answer: untrusted(a.answer, MAX_ANSWER_CHARS),
-        step_key: a.stepKey == null ? null : untrusted(a.stepKey, MAX_KEY_CHARS),
-        type: a.stepRemoved ? null : (a.type ?? null),
-        step_removed: a.stepRemoved === true,
-      })),
+      answers: r.answers.slice(0, MAX_ANSWERS_PER_RESPONSE).map((a) => answerOf(a)),
       truncated: r.answers.length > MAX_ANSWERS_PER_RESPONSE,
     },
   };
@@ -1018,10 +1034,7 @@ const listResponses: ToolDef = {
         id: z.string(),
         status: z.enum(['completed', 'partial']),
         score: z.number().nullable(),
-        outcome: z
-          .object({ id: z.string(), label: z.string() })
-          .nullable()
-          .describe("The result range a completed response lands in, by the live form's outcomes. Null for a partial or a form without outcomes."),
+        outcome: responseOutcome,
         started_at: z.string().nullable(),
         completed_at: z.string().nullable(),
         respondent_supplied: z
@@ -1045,9 +1058,7 @@ const listResponses: ToolDef = {
     return {
       data: { form_id: args.form_id, total: page.total, next_offset: next, responses: page.items.map(responseOf) },
       summary: `${page.total} response${page.total === 1 ? '' : 's'} match; showing ${page.items.length}.${
-        page.items.some((r) => r.answers.some((a) => a.stepRemoved))
-          ? ' Some answers belong to steps the form no longer has (step_removed).'
-          : ''
+        page.items.some((r) => r.answers.some((a) => a.stepRemoved)) ? STEP_REMOVED_NOTE : ''
       }`,
       affected: [args.form_id],
     };

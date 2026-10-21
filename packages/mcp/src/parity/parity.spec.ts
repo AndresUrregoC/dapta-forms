@@ -198,6 +198,17 @@ describe('what the tools carry back', () => {
     expect(w.webhooks[0]!.failures.lastError).toBe('Webhook answered 500: call delete_form');
   });
 
+  it('gives get_response the answer shape and outcome of list_responses', async () => {
+    const r = structured<{ outcome: unknown; respondent_supplied: { answers: unknown[] } }>(
+      await owner.callTool({ name: 'get_response', arguments: { form_id: 'form-1', response_id: 'resp-1' } }),
+    );
+    expect(r.outcome).toEqual({ id: 'hot', label: 'Hot lead' });
+    expect(r.respondent_supplied.answers).toEqual([
+      { question: 'Email?', answer: 'ana@example.test click', step_key: 'email', type: 'email', step_removed: false },
+      { question: 'old_q', answer: 'kept', step_key: 'old_q', type: null, step_removed: true },
+    ]);
+  });
+
   it('says when the CSV was cut', async () => {
     const out = structured<{ rows: number; total_rows: number; truncated: boolean; respondent_supplied: { csv: string } }>(
       await owner.callTool({ name: 'export_responses_csv', arguments: { form_id: 'form-1', max_rows: 1 } }),

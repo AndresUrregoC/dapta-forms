@@ -1,6 +1,5 @@
 import { getFormById, type Db } from '@quill/db';
 import {
-  summarizeAnswers,
   type Answers,
   type FormConfig as EngineConfig,
   type SubmissionFacets,
@@ -34,7 +33,7 @@ import type { AdminCrudController } from './admin-crud.controller';
 import type { AnalyticsController } from './analytics.controller';
 import type { BrandingController } from './branding.controller';
 import type { FormDestinationsController, IntegrationsController } from './integrations.controller';
-import { ApiFormsBackend, detailOf, reqOf, run, type McpHandlers } from './mcp.backend';
+import { ApiFormsBackend, answerRows, detailOf, outcomeOf, reqOf, run, type McpHandlers } from './mcp.backend';
 import type { FilterQuery } from './submission-filter';
 
 /**
@@ -236,8 +235,10 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
 
   /**
    * One submission through its route (account join, and it must belong to
-   * the form), with its answers rendered as the owner reads them, like
-   * `listResponses`, and the file questions it answered.
+   * the form), in the shape `listResponses` gives each item: the answers as
+   * the owner reads them with their step (`answerRows`, so an answer to a
+   * step deleted since is kept and marked), a completed response's outcome by
+   * the live config, and the file questions it answered.
    */
   getResponse(caller: McpCaller, formId: string, responseId: string): Promise<ResponseDetail> {
     return run(async () => {
@@ -253,7 +254,8 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
         startedAt: s.startedAt ?? null,
         partialAt: s.partialAt ?? null,
         score: s.score ?? null,
-        answers: summarizeAnswers(config, data).map((row) => ({ question: row.label, answer: row.value })),
+        outcome: s.completedAt != null ? outcomeOf(config, s.score ?? null, data) : null,
+        answers: answerRows(config, data),
         files: (config.steps ?? [])
           .filter((step) => step.type === 'file' && data[step.key] != null && data[step.key] !== '')
           .map((step) => ({ stepKey: step.key, question: step.question || step.key })),
