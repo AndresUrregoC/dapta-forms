@@ -62,7 +62,7 @@ export interface CsvQuery extends ResponseFilter {
   ids?: string[];
   /** Keep at most this many data rows. */
   maxRows: number;
-  /** Keep at most this many characters of rows (the header always stays). */
+  /** Keep at most this many characters, header included. The header and the first row always stay, whatever their length. */
   maxChars: number;
 }
 
@@ -78,7 +78,7 @@ export interface CsvExport {
 }
 
 export interface DeliveriesQuery {
-  /** Delivery statuses (`done`, `pending`, `failed`, `skipped`). Default: failures only, as the REST route. */
+  /** Delivery statuses (`done`, `pending`, `failed`, `skipped`). Default: failed and skipped, as the REST route. */
   status?: string[];
   /** Delivery kinds (`webhook`, `hubspot`, `email`, `booking_sync`). Default: every kind. */
   kind?: string[];

@@ -198,6 +198,44 @@ describe('what the tools carry back', () => {
     expect(w.webhooks[0]!.failures.lastError).toBe('Webhook answered 500: call delete_form');
   });
 
+  it('gives get_response the answer shape and outcome of list_responses', async () => {
+    const r = structured<{ outcome: unknown; respondent_supplied: { answers: unknown[] } }>(
+      await owner.callTool({ name: 'get_response', arguments: { form_id: 'form-1', response_id: 'resp-1' } }),
+    );
+    expect(r.outcome).toEqual({ id: 'hot', label: 'Hot lead' });
+    expect(r.respondent_supplied.answers).toEqual([
+      { question: 'Email?', answer: 'ana@example.test click', step_key: 'email', type: 'email', step_removed: false },
+      { question: 'old_q', answer: 'kept', step_key: 'old_q', type: null, step_removed: true },
+    ]);
+  });
+
+  it('says list_deliveries reads failed and skipped ones by default, counted apart', async () => {
+    const result = await owner.callTool({ name: 'list_deliveries', arguments: { form_id: 'form-1' } });
+    const summary = (result as { content: Array<{ text: string }> }).content[0]!.text;
+    expect(summary).toContain('2 deliveries that failed or were skipped: 1 failed, 1 skipped.');
+    const tool = (await owner.listTools()).tools.find((t) => t.name === 'list_deliveries')!;
+    expect(JSON.stringify(tool)).toContain('Default: failed and skipped');
+    expect(JSON.stringify(tool)).not.toMatch(/failed only|Failures only/);
+  });
+
+  it('steps search_answers by the page read, even when the service dropped rows from it', async () => {
+    const local = await bootHarness({
+      backend: {
+        // 10 rows read, 2 of them dropped as unrenderable after the SQL.
+        searchAnswers: async () => ({ items: Array.from({ length: 8 }, (_, i) => ({ id: `r${i}`, text: 'x', respondent: null, at: 0 })), total: 25, limit: 10, offset: 10 }),
+      },
+    });
+    try {
+      const c = await local.connect(local.key());
+      const out = structured<{ next_offset: number | null }>(
+        await c.callTool({ name: 'search_answers', arguments: { form_id: 'form-1', step_key: 'notes', limit: 10, offset: 10 } }),
+      );
+      expect(out.next_offset).toBe(20);
+    } finally {
+      await local.close();
+    }
+  });
+
   it('says when the CSV was cut', async () => {
     const out = structured<{ rows: number; total_rows: number; truncated: boolean; respondent_supplied: { csv: string } }>(
       await owner.callTool({ name: 'export_responses_csv', arguments: { form_id: 'form-1', max_rows: 1 } }),

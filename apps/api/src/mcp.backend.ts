@@ -245,7 +245,7 @@ export function answerRows(config: EngineConfig, data: Answers): ResponseAnswer[
 }
 
 /** The outcome a completed response lands in, by the live config; null when none applies. */
-function outcomeOf(config: EngineConfig, score: number | null, data: Answers): { id: string; label: string } | null {
+export function outcomeOf(config: EngineConfig, score: number | null, data: Answers): { id: string; label: string } | null {
   try {
     const outcome = resolveOutcome(config, score ?? 0, data);
     return outcome ? { id: outcome.id, label: outcome.label } : null;

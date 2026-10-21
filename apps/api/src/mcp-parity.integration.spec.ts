@@ -8,11 +8,14 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Client } from '@modelcontextprotocol/client';
 import { sql, upsertSubmission } from '@quill/db';
 import { WEBHOOK_SECRET_MASK } from '@quill/types';
+import { AnalyticsService } from './analytics.service';
 import { APP_URL, bootHarness, errorText, structured, type Harness } from './mcp-harness';
+import type { RateLimiter } from './rate-limit';
+import { API_KEY_RATE_LIMITER } from './tokens';
 
 const CONFIG = {
   version: 1,
@@ -210,11 +213,35 @@ describe('responses', () => {
       await member.callTool({ name: 'get_response', arguments: { form_id: formId, response_id: ana } }),
     );
     expect(r.status).toBe('completed');
-    expect(r.respondent_supplied.answers).toContainEqual({ question: 'What are you interested in?', answer: 'A demo' });
-    expect(r.respondent_supplied.answers).toContainEqual({ question: 'Anything else?', answer: 'We run ads in three countries.' });
+    expect(r.respondent_supplied.answers).toContainEqual(
+      expect.objectContaining({ question: 'What are you interested in?', answer: 'A demo', step_key: 'interest' }),
+    );
+    expect(r.respondent_supplied.answers).toContainEqual(
+      expect.objectContaining({ question: 'Anything else?', answer: 'We run ads in three countries.', step_key: 'notes' }),
+    );
     notFound(errorText(await c.callTool({ name: 'get_response', arguments: { form_id: h.formId, response_id: ana } })));
     notFound(errorText(await c.callTool({ name: 'get_response', arguments: { form_id: formId, response_id: randomUUID() } })));
     expect((await c.callTool({ name: 'get_response', arguments: { form_id: formId } })).isError).toBe(true);
+  });
+
+  it('get_response carries each answer and the outcome exactly as list_responses does, a removed step included', async () => {
+    const id = await upsertSubmission(h.db, {
+      formId: h.formId,
+      sessionId: randomUUID(),
+      // `budget` is a step the seeded form no longer has.
+      data: { role: 'founder', team_size: 12, email: 'lead@example.org', budget: 'Over 10k' },
+      score: 18,
+    }).then((row) => row.id);
+    type Item = { id: string; outcome: unknown; respondent_supplied: { answers: Array<Record<string, unknown>> } };
+    const one = structured<Item>(await member.callTool({ name: 'get_response', arguments: { form_id: h.formId, response_id: id } }));
+    const listed = structured<{ responses: Item[] }>(
+      await member.callTool({ name: 'list_responses', arguments: { form_id: h.formId, limit: 50 } }),
+    ).responses.find((r) => r.id === id)!;
+    expect(one.outcome).toEqual({ id: 'qualified', label: 'Qualified' });
+    expect(one.outcome).toEqual(listed.outcome);
+    expect(one.respondent_supplied.answers).toEqual(listed.respondent_supplied.answers);
+    expect(one.respondent_supplied.answers).toContainEqual({ question: 'budget', answer: 'Over 10k', step_key: 'budget', type: null, step_removed: true });
+    expect(one.respondent_supplied.answers.find((a) => a.step_key === 'email')).toMatchObject({ type: 'email', step_removed: false });
   });
 
   it('get_response_file answers NOT_FOUND when the deployment stores no files, or the ids do not match', async () => {
@@ -243,6 +270,44 @@ describe('responses', () => {
     expect(completed.respondent_supplied.csv).toContain('ana@example.com');
     notFound(errorText(await c.callTool({ name: 'export_responses_csv', arguments: { form_id: h.other.formId } })));
     expect((await c.callTool({ name: 'export_responses_csv', arguments: { form_id: formId, max_rows: 5000 } })).isError).toBe(true);
+  });
+
+  it('export_responses_csv is the download byte for byte, reading only the rows it returns', async () => {
+    const key = (await h.key('admin')).key;
+    const k = await h.connect(key);
+    const id = await newForm(k, 'Injection');
+    // Formula triggers and a phone number: the cells csvField rewrites.
+    await respond(id, { firstname: '=HYPERLINK("https://evil.example")', email: '+57 318 000 0000', notes: '@SUM(A1), "quoted"\nline' });
+    await respond(id, { firstname: 'Bo', email: '-1+1', interest: 'pricing' });
+    await respond(id, { firstname: 'Cy', email: 'cy@example.com' });
+    const rest = await fetch(`${h.base}/v1/forms/${id}/submissions.csv`, { headers: { Authorization: `Bearer ${key}` } });
+    expect(rest.status).toBe(200);
+    const download = (await rest.text()).replace(/^\uFEFF/, '').replace(/\r\n$/, '');
+    expect(download).toContain(`'=HYPERLINK`);
+    expect(download).toContain('"=""+57 318 000 0000"""');
+
+    const service = h.app.get(AnalyticsService, { strict: false });
+    const all = vi.spyOn(service, 'exportSubmissions');
+    const first = vi.spyOn(service, 'firstExportSubmissions');
+    try {
+      const whole = structured<{ rows: number; total_rows: number; respondent_supplied: { csv: string } }>(
+        await k.callTool({ name: 'export_responses_csv', arguments: { form_id: id } }),
+      );
+      expect(whole).toMatchObject({ rows: 3, total_rows: 3 });
+      expect(whole.respondent_supplied.csv).toBe(download);
+
+      const one = structured<{ rows: number; total_rows: number; truncated: boolean; respondent_supplied: { csv: string } }>(
+        await k.callTool({ name: 'export_responses_csv', arguments: { form_id: id, max_rows: 1 } }),
+      );
+      expect(one).toMatchObject({ rows: 1, total_rows: 3, truncated: true });
+      expect(download.startsWith(one.respondent_supplied.csv)).toBe(true);
+      // Never the unbounded export query: the first max_rows rows only.
+      expect(all).not.toHaveBeenCalled();
+      expect(first.mock.calls.map((c) => c[2])).toEqual([200, 1]);
+    } finally {
+      all.mockRestore();
+      first.mockRestore();
+    }
   });
 
   it('get_form_summary, get_response_facets and search_answers read the answers as the Summary tab does', async () => {
@@ -380,6 +445,34 @@ describe('integrations, read only', () => {
     expect(structured<{ enabled: boolean }>(await member.callTool({ name: 'list_hubspot_properties', arguments: {} })).enabled).toBe(false);
     expect(structured<{ enabled: boolean }>(await member.callTool({ name: 'list_calendly_event_types', arguments: {} })).enabled).toBe(false);
     expect((await c.callTool({ name: 'list_webhooks', arguments: { workspace_id: 3 } })).isError).toBe(true);
+  });
+});
+
+describe('one tool call, one API-key call', () => {
+  it('counts a tool that reads before it writes once against the key budget, as one REST call', async () => {
+    const limiter = h.app.get<RateLimiter>(API_KEY_RATE_LIMITER, { strict: false });
+    const take = vi.spyOn(limiter, 'take');
+    try {
+      const c = await owner();
+      const spent = async (name: string, args: Record<string, unknown>) => {
+        take.mockClear();
+        await c.callTool({ name, arguments: args });
+        return take.mock.calls.length;
+      };
+      const formId = await newForm(c);
+      const [a, b] = [await respond(formId, { email: 'a@example.com' }), await respond(formId, { email: 'b@example.com' })];
+      const folder = structured<{ folder: { id: string } }>(
+        await c.callTool({ name: 'create_folder', arguments: { name: `F ${randomUUID().slice(0, 6)}` } }),
+      ).folder;
+      expect(await spent('get_response_file', { form_id: formId, response_id: a, step_key: 'email' })).toBe(1);
+      expect(await spent('delete_response', { form_id: formId, response_id: a })).toBe(1);
+      expect(await spent('delete_folder', { folder_id: folder.id })).toBe(1);
+      // A later call is resolved, and counted, again.
+      expect(await spent('get_response', { form_id: formId, response_id: b })).toBe(1);
+      expect(await spent('delete_form', { form_id: formId })).toBe(1);
+    } finally {
+      take.mockRestore();
+    }
   });
 });
 

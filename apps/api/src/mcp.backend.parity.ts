@@ -1,6 +1,5 @@
 import { getFormById, type Db } from '@quill/db';
 import {
-  summarizeAnswers,
   type Answers,
   type FormConfig as EngineConfig,
   type SubmissionFacets,
@@ -34,7 +33,8 @@ import type { AdminCrudController } from './admin-crud.controller';
 import type { AnalyticsController } from './analytics.controller';
 import type { BrandingController } from './branding.controller';
 import type { FormDestinationsController, IntegrationsController } from './integrations.controller';
-import { ApiFormsBackend, detailOf, reqOf, run, type McpHandlers } from './mcp.backend';
+import { callRequest } from './in-process-principal';
+import { ApiFormsBackend, answerRows, detailOf, outcomeOf, reqOf, run, type McpHandlers } from './mcp.backend';
 import type { FilterQuery } from './submission-filter';
 
 /**
@@ -49,7 +49,9 @@ import type { FilterQuery } from './submission-filter';
  * with nothing restated here. Where a route answers 204 for an id it cannot
  * see (deleting a form, a folder or a response), the method first reads it
  * through the matching read route, so the agent hears NOT_FOUND instead of a
- * success that did nothing.
+ * success that did nothing. Such a method runs both handlers on one
+ * `callRequest`, so the principal is resolved, and an API key counted, once
+ * per tool call.
  */
 
 /** Every handler the parity tools call, by controller. Each is checked against the API-key allowlist at boot. */
@@ -86,7 +88,12 @@ type Names<K extends keyof typeof MCP_PARITY_HANDLERS> = (typeof MCP_PARITY_HAND
 /** The handlers the parity methods call. The controllers themselves in the app; fakes in a spec. */
 export interface McpParityHandlers {
   forms: Pick<AdminCrudController, Names<'forms'>>;
-  analytics: Pick<AnalyticsController, Names<'analytics'>>;
+  /**
+   * Plus `exportCsvFirst`, the CSV route's handler cut to the first rows. It
+   * has no route of its own; it runs the route's checks, and the route it
+   * stands for (`exportCsv`, listed above) is the one checked at boot.
+   */
+  analytics: Pick<AnalyticsController, Names<'analytics'> | 'exportCsvFirst'>;
   destinations: Pick<FormDestinationsController, Names<'destinations'>>;
   branding: Pick<BrandingController, Names<'branding'>>;
   integrations: Pick<IntegrationsController, Names<'integrations'>>;
@@ -106,46 +113,22 @@ function filterQuery(f: ResponseFilter): FilterQuery {
 }
 
 /**
- * A stream that keeps what the CSV route writes, cut to the caps. The route
- * writes the header (after the byte-order mark) first, then one row per
- * write, so every write after the first is one data row.
+ * The CSV an agent gets: the header, then the rows in order while the whole
+ * text, header included, stays within `maxChars`. The first row always comes
+ * back, however long: a single response past the cap must not make every
+ * export of it come back empty. The rows kept are always the first ones,
+ * never a set with a gap.
  */
-export class CsvCollector {
-  private header: string | null = null;
-  private readonly kept: string[] = [];
-  private chars = 0;
-  /** Set at the first row that does not fit: the rows kept are always the first ones, never a set with a gap. */
-  private full = false;
-  total = 0;
-
-  constructor(
-    private readonly maxRows: number,
-    private readonly maxChars: number,
-  ) {}
-
-  setHeader(): void {}
-
-  write(chunk: string): void {
-    if (this.header === null) {
-      this.header = chunk.replace(/^\uFEFF/, '');
-      return;
-    }
-    this.total += 1;
-    if (this.full) return;
-    if (this.kept.length >= this.maxRows || this.chars + chunk.length > this.maxChars) {
-      this.full = true;
-      return;
-    }
-    this.kept.push(chunk);
-    this.chars += chunk.length;
+export function cutCsv(header: string, lines: readonly string[], total: number, maxChars: number): CsvExport {
+  const kept: string[] = [];
+  let chars = header.length;
+  for (const line of lines) {
+    if (kept.length > 0 && chars + line.length > maxChars) break;
+    kept.push(line);
+    chars += line.length;
   }
-
-  end(): void {}
-
-  result(): CsvExport {
-    const csv = `${this.header ?? ''}${this.kept.join('')}`.replace(/\r?\n$/, '');
-    return { csv, rows: this.kept.length, totalRows: this.total, truncated: this.kept.length < this.total };
-  }
+  const csv = `${header}${kept.join('')}`.replace(/\r?\n$/, '');
+  return { csv, rows: kept.length, totalRows: total, truncated: kept.length < total };
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -178,7 +161,7 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
 
   deleteForm(caller: McpCaller, formId: string) {
     return run(async () => {
-      const req = reqOf(caller);
+      const req = callRequest(reqOf(caller));
       const form = await this.parity().forms.getForm(req, formId);
       await this.parity().forms.deleteForm(req, formId);
       return { id: form.id, name: form.name };
@@ -201,7 +184,7 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
 
   deleteFolder(caller: McpCaller, folderId: string): Promise<FolderItem> {
     return run(async () => {
-      const req = reqOf(caller);
+      const req = callRequest(reqOf(caller));
       const folder = (await this.parity().forms.listFolders(req)).find((f) => f.id === folderId);
       if (!folder) throw new BackendError(404, 'NOT_FOUND', 'Not found.');
       await this.parity().forms.deleteFolder(req, folderId);
@@ -236,8 +219,10 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
 
   /**
    * One submission through its route (account join, and it must belong to
-   * the form), with its answers rendered as the owner reads them, like
-   * `listResponses`, and the file questions it answered.
+   * the form), in the shape `listResponses` gives each item: the answers as
+   * the owner reads them with their step (`answerRows`, so an answer to a
+   * step deleted since is kept and marked), a completed response's outcome by
+   * the live config, and the file questions it answered.
    */
   getResponse(caller: McpCaller, formId: string, responseId: string): Promise<ResponseDetail> {
     return run(async () => {
@@ -253,7 +238,8 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
         startedAt: s.startedAt ?? null,
         partialAt: s.partialAt ?? null,
         score: s.score ?? null,
-        answers: summarizeAnswers(config, data).map((row) => ({ question: row.label, answer: row.value })),
+        outcome: s.completedAt != null ? outcomeOf(config, s.score ?? null, data) : null,
+        answers: answerRows(config, data),
         files: (config.steps ?? [])
           .filter((step) => step.type === 'file' && data[step.key] != null && data[step.key] !== '')
           .map((step) => ({ stepKey: step.key, question: step.question || step.key })),
@@ -263,7 +249,7 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
 
   getResponseFile(caller: McpCaller, formId: string, responseId: string, stepKey: string): Promise<ResponseFile> {
     return run(async () => {
-      const req = reqOf(caller);
+      const req = callRequest(reqOf(caller));
       // The file route reads the response by account alone; the form must match too.
       await this.parity().analytics.submission(req, formId, responseId);
       const f = await this.parity().forms.submissionFile(req, responseId, stepKey);
@@ -271,17 +257,21 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
     });
   }
 
+  /**
+   * The CSV route's own file (`exportCsvFirst`: its principal, scope,
+   * validation, columns and cell encoding), reading only the first
+   * `maxRows` rows, then cut to `maxChars`.
+   */
   exportResponsesCsv(caller: McpCaller, formId: string, query: CsvQuery): Promise<CsvExport> {
     return run(async () => {
-      const res = new CsvCollector(query.maxRows, query.maxChars);
-      await this.parity().analytics.exportCsv(
+      const out = await this.parity().analytics.exportCsvFirst(
         reqOf(caller),
-        res,
         formId,
         { ...filterQuery(query), ...(query.sort ? { sort: query.sort } : {}) },
         query.ids ? query.ids.join(',') : undefined,
+        query.maxRows,
       );
-      return res.result();
+      return cutCsv(out.header, out.rows, out.total, query.maxChars);
     });
   }
 
@@ -291,7 +281,7 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
 
   deleteResponse(caller: McpCaller, formId: string, responseId: string): Promise<void> {
     return run(async () => {
-      const req = reqOf(caller);
+      const req = callRequest(reqOf(caller));
       await this.parity().analytics.submission(req, formId, responseId);
       await this.parity().analytics.deleteSubmission(req, responseId);
     });

@@ -156,10 +156,10 @@ its REST route, with the same role rule and the same masking.
 | Destinations | `POST /v1/forms/:id/destinations/webhook/ping` | `ping_webhook` | write, owners and admins |
 | Responses | `GET /v1/forms/:id/submissions/:submissionId` | `get_response` | read |
 | Responses | `GET /v1/forms/:id/submissions/:submissionId/files/:stepKey` | `get_response_file` | read (a short-lived link, never the bytes) |
-| Responses | `GET /v1/forms/:id/submissions.csv` | `export_responses_csv` | read (CSV text, at most `max_rows` rows and 100,000 characters, with `truncated`) |
+| Responses | `GET /v1/forms/:id/submissions.csv` | `export_responses_csv` | read (CSV text, at most `max_rows` rows and 100,000 characters counting the header, the first row always whole, with `truncated`; only those rows are read) |
 | Responses | `POST /v1/forms/:id/submissions/bulk-delete` | `delete_responses` | **destructive** |
 | Responses | `DELETE /v1/submissions/:id` | `delete_response` | **destructive** |
-| Responses | `GET /v1/forms/:id/deliveries` | `list_deliveries` | read |
+| Responses | `GET /v1/forms/:id/deliveries` | `list_deliveries` | read (failed and skipped unless `status` says otherwise) |
 | Analytics | `GET /v1/forms/:id/summary` | `get_form_summary` | read |
 | Analytics | `GET /v1/forms/:id/submissions-facets` | `get_response_facets` | read |
 | Analytics | `GET /v1/forms/:id/summary/:stepKey/answers` | `search_answers` | read |
@@ -325,8 +325,9 @@ const forms = await client.callTool({ name: 'list_forms', arguments: {} });
 - **Rate limits.** Every request of a key takes a token from its MCP bucket
   (`MCP_RATE_LIMIT_*`, HTTP 429 with `Retry-After`); write tools also take one
   from a tighter bucket (`MCP_WRITE_RATE_LIMIT_*`, a `RATE_LIMITED` tool error
-  with a delay); and every tool call counts against the key's 120 calls a
-  minute, shared with the REST API. Requests without a valid key take from the
+  with a delay); and every tool call counts once against the key's 120 calls
+  a minute, shared with the REST API (a tool that reads an id before it
+  deletes it, like `delete_form`, still counts once). Requests without a valid key take from the
   per-address `RATE_LIMIT_*` bucket, so guessing keys is throttled. Buckets live
   in each process: with N replicas the effective limit is up to N times higher.
 - **Timeout.** A tool call longer than `MCP_TOOL_TIMEOUT_MS` is abandoned with a
