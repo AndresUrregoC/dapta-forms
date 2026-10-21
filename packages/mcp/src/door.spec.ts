@@ -58,6 +58,33 @@ describe('transport guards', () => {
     }
   });
 
+  it('refuses credentials in the URL whatever their case, bearer and access_key included', async () => {
+    const h = await boot();
+    for (const p of ['API_KEY', 'Token', 'bearer', 'Bearer', 'access_key', 'ACCESS_TOKEN', 'Authorization']) {
+      const res = await h.post(initialize('2025-06-18'), { authorization: `Bearer ${h.key()}` }, `/mcp?${p}=dforms_abc`);
+      expect(res.status, p).toBe(400);
+    }
+    // A query that carries no credential still passes.
+    expect((await h.post(initialize('2025-06-18'), { authorization: `Bearer ${h.key()}` }, '/mcp?tokens_used=1')).status).toBe(200);
+  });
+
+  it('refuses a JSON-RPC batch at the door, so one request cannot run a hundred tool calls', async () => {
+    const h = await boot();
+    const auth = { authorization: `Bearer ${h.key()}`, 'mcp-protocol-version': '2025-06-18' };
+    const batch = Array.from({ length: 100 }, (_, i) => ({
+      jsonrpc: '2.0',
+      id: i + 1,
+      method: 'tools/call',
+      params: { name: 'get_form_guide', arguments: {} },
+    }));
+    const res = await h.post(batch, auth);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: number; message: string } }).error).toMatchObject({ code: -32600 });
+    expect(h.audit).toHaveLength(0);
+    // Even a batch of one is refused: a single message is sent as an object.
+    expect((await h.post([initialize('2025-06-18')], auth)).status).toBe(400);
+  });
+
   it('answers 405 to GET and DELETE and 415 to a body that is not JSON', async () => {
     const h = await boot();
     for (const method of ['GET', 'DELETE']) {
@@ -242,6 +269,31 @@ describe('timeout and failures', () => {
     const text = errorText(await c.callTool({ name: 'create_form', arguments: { name: 'Slow', config: { version: 1, steps: [] } } }));
     expect(text).toContain('TIMEOUT');
     expect(text).toContain('list_forms');
+  });
+
+  it('reports an unexpected failure to the host by class and code only, never its message or stack', async () => {
+    const reports: unknown[][] = [];
+    const leaky = Object.assign(new TypeError('row for ada@example.test: config {"secret":"hunter2"}'), { code: 'SQLITE_BUSY' });
+    const h = await boot({
+      backend: { listForms: () => Promise.reject(leaky), getForm: () => Promise.reject('a bare string with hunter2') },
+      onInternalError: (...args: unknown[]) => reports.push(args),
+    });
+    const c = await h.connect(h.key());
+    errorText(await c.callTool({ name: 'list_forms', arguments: {} }));
+    errorText(await c.callTool({ name: 'get_form', arguments: { form_id: 'form-1' } }));
+    expect(reports).toEqual([
+      ['list_forms', expect.stringMatching(/^req-\d+$/), { errorClass: 'TypeError', code: 'SQLITE_BUSY' }],
+      ['get_form', expect.stringMatching(/^req-\d+$/), { errorClass: 'string' }],
+    ]);
+    expect(JSON.stringify(reports)).not.toMatch(/hunter2|ada@|at .*\.ts/);
+  });
+
+  it('reports a transport problem by class only, never the body that caused it', async () => {
+    const reports: unknown[] = [];
+    const h = await boot({ onTransportError: (e: unknown) => reports.push(e) });
+    const res = await h.post({ note: 'ada@example.test hunter2' }, { authorization: `Bearer ${h.key()}`, 'mcp-protocol-version': '2025-06-18' });
+    expect(res.status).toBe(400);
+    expect(reports).toEqual([{ errorClass: 'Error' }]);
   });
 
   it('never shows an unexpected failure to the model', async () => {

@@ -88,18 +88,34 @@ function stripMarkdownLinks(text: string): string {
 }
 
 /**
+ * Tags and markdown stripped until nothing changes. One pass can uncover a
+ * new image or link: in `[![x](a)](https://evil.example/p)` the inner image
+ * goes and leaves `![x](https://evil.example/p)` behind. Every pass that
+ * changes the text makes it shorter, so the loop ends.
+ */
+function stripMarkup(text: string): string {
+  let previous: string;
+  do {
+    previous = text;
+    text = stripMarkdownLinks(stripTags(text));
+  } while (text !== previous);
+  return text;
+}
+
+/**
  * Text written by a respondent (an answer, or a question with their answer
  * filled in). Cleaned and capped so it reads as data: control and invisible
- * characters go, HTML tags go, markdown images vanish, a markdown link keeps
- * its visible text, whitespace collapses, and the result is length-capped.
- * Every pass is linear, and the input is cut before the passes run, so a
- * hostile answer cannot make this slow.
+ * characters go, HTML tags go, markdown images vanish (nested ones too), a
+ * markdown link keeps its visible text, whitespace collapses, and the result
+ * is length-capped. Cleaning a cleaned text changes nothing. Every pass is
+ * linear, and the input is cut before the passes run, so a hostile answer
+ * cannot make this slow.
  */
 export function untrusted(value: unknown, max = 500): string {
   if (value === null || value === undefined) return '';
   let text = typeof value === 'string' ? value : JSON.stringify(value);
   text = text.slice(0, max * 4);
-  text = stripMarkdownLinks(stripTags(text.replace(INVISIBLE, '').replace(CONTROL, ' ')))
+  text = stripMarkup(text.replace(INVISIBLE, '').replace(CONTROL, ' '))
     .replace(/\s+/g, ' ')
     .trim();
   return text.length > max ? `${text.slice(0, max - 1)}\u2026` : text;
@@ -129,6 +145,32 @@ export function argsHash(args: unknown): string {
 }
 
 // --- Errors ---------------------------------------------------------------
+
+/** What a log may say about an unexpected failure: its class and its code, nothing it carried. */
+export interface ErrorDescriptor {
+  /** The constructor name of an `Error`, else the `typeof` of what was thrown. */
+  errorClass: string;
+  /** A short machine code (`SQLITE_BUSY`, `ECONNREFUSED`, `23505`) when the error had one. */
+  code?: string;
+}
+
+const SAFE_CLASS = /^[A-Za-z_$][\w$]{0,63}$/;
+const SAFE_CODE = /^[\w.:-]{1,40}$/;
+
+/**
+ * An unexpected failure reduced to what is safe to log. The message and the
+ * stack are dropped: a database or validation error can quote a config, an
+ * answer or an address from the request that caused it.
+ */
+export function describeError(error: unknown): ErrorDescriptor {
+  if (!(error instanceof Error)) return { errorClass: error === null ? 'null' : typeof error };
+  const name = error.constructor?.name;
+  const descriptor: ErrorDescriptor = { errorClass: name && SAFE_CLASS.test(name) ? name : 'Error' };
+  const code = (error as { code?: unknown }).code;
+  if ((typeof code === 'string' || typeof code === 'number') && SAFE_CODE.test(String(code))) descriptor.code = String(code);
+  return descriptor;
+}
+
 
 /** What to do about each issue code the form validator reports. */
 const ISSUE_HINTS: Record<string, string> = {

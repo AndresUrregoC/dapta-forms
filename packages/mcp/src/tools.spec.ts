@@ -65,6 +65,34 @@ describe('catalog', () => {
   });
 });
 
+describe('results', () => {
+  it('carry the data as a JSON text block after the summary, for clients that only read text', async () => {
+    const { c } = await client();
+    const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [
+      { name: 'whoami', arguments: {} },
+      { name: 'list_forms', arguments: {} },
+      { name: 'get_form', arguments: { form_id: 'form-1' } },
+      { name: 'create_form', arguments: { name: 'New', config: { version: 1, steps: [] } } },
+      { name: 'get_form_analytics', arguments: { form_id: 'form-1' } },
+      { name: 'get_form_guide', arguments: { part: 'rules' } },
+    ];
+    for (const call of calls) {
+      const result = (await c.callTool(call)) as { content: Array<{ type: string; text: string }>; structuredContent: unknown };
+      expect(result.content, call.name).toHaveLength(2);
+      expect(result.content.every((block) => block.type === 'text'), call.name).toBe(true);
+      expect(result.content[0]!.text, call.name).not.toBe(result.content[1]!.text);
+      expect(JSON.parse(result.content[1]!.text), call.name).toEqual(result.structuredContent);
+    }
+  });
+
+  it('keep an error to its one text block', async () => {
+    const { c } = await client();
+    const result = (await c.callTool({ name: 'get_form', arguments: { form_id: 'missing' } })) as { isError: boolean; content: unknown[] };
+    expect(result.isError).toBe(true);
+    expect(result.content).toHaveLength(1);
+  });
+});
+
 describe('whoami', () => {
   it('names the workspace, the member, the role and the key prefix, never the key', async () => {
     const { h, c } = await client({}, 'member');
