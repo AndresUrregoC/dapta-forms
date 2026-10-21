@@ -20,6 +20,8 @@
  * call names the one it acts in.
  */
 
+import type { ApiParityBackend } from './parity-backend';
+
 /** One member in one workspace: who a tool call acts as. */
 export interface McpCaller {
   /** The workspace every call acts in. Always from the credential, never from an argument. */
@@ -239,8 +241,9 @@ export interface FormAnalytics {
 /**
  * Everything the tools need. Every method acts as `caller` and is scoped to
  * `caller.accountId`; a form outside it is a `BackendError` 404, never a leak.
+ * The routes of the API reference beyond these are in `ApiParityBackend`.
  */
-export interface FormsBackend {
+export interface FormsBackend extends ApiParityBackend {
   whoami(caller: McpCaller): Promise<WhoAmI>;
   listForms(caller: McpCaller): Promise<FormListItem[]>;
   getForm(caller: McpCaller, formId: string): Promise<FormDetail>;
@@ -251,3 +254,6 @@ export interface FormsBackend {
   listResponses(caller: McpCaller, formId: string, query: ResponsesQuery): Promise<ResponsesPage>;
   formAnalytics(caller: McpCaller, formId: string, query: AnalyticsQuery): Promise<FormAnalytics>;
 }
+
+/** The methods of `FormsBackend` declared here, without the rest of the API reference. */
+export type CoreFormsBackend = Omit<FormsBackend, keyof ApiParityBackend>;

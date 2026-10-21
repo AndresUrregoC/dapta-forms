@@ -43,6 +43,14 @@ const INVISIBLE = new RegExp('[\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u20
 // eslint-disable-next-line no-control-regex
 const CONTROL = new RegExp('[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F]', 'g');
 
+/**
+ * Text that must keep its shape (a CSV) without the characters a person cannot
+ * see. `untrusted` would collapse its lines and strip its markup.
+ */
+export function withoutInvisible(text: string): string {
+  return text.replace(INVISIBLE, '');
+}
+
 /** Drop every `<...>` span, in one pass. An unclosed `<` and what follows it stay as text. */
 function stripTags(text: string): string {
   let out = '';
@@ -125,7 +133,23 @@ export function untrusted(value: unknown, max = 500): string {
 // --- Audit ----------------------------------------------------------------
 
 /** Argument names whose values never reach a log, even as part of a hash input shape. */
-const REDACT_KEYS = new Set(['config', 'name', 'slug', 'from', 'to', 'query']);
+const REDACT_KEYS = new Set([
+  'config',
+  'name',
+  'slug',
+  'from',
+  'to',
+  'query',
+  // The tools of the rest of the API reference.
+  'q',
+  'search',
+  'answers',
+  'destinations',
+  'kit',
+  'subject',
+  'body',
+  'recipients',
+]);
 
 /** The arguments with every content-bearing value replaced by a marker. */
 export function redactArgs(value: unknown, key = ''): unknown {
