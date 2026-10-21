@@ -418,6 +418,18 @@ export const API_REFERENCE = {
       updatedAt: STAMP + 120_000,
     },
   },
+  'POST /v1/forms/:id/discard-draft': {
+    area: 'forms',
+    params: [FORM_PATH, { name: 'expectedUpdatedAt', in: 'body', type: 'epoch ms', doc: 'expectedUpdatedAt' }],
+    status: 200,
+    response: {
+      ...FORM_VIEW,
+      config: SAVED_EDITED,
+      publishedAt: STAMP + 120_000,
+      previousPublishedAt: STAMP,
+      updatedAt: STAMP + 120_000,
+    },
+  },
   'POST /v1/forms/:id/revert': {
     area: 'forms',
     params: [FORM_PATH],
