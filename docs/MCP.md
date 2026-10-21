@@ -27,8 +27,9 @@ takes, sent as `Authorization: Bearer dforms_...`. Members create keys in dForms
   workspace answers `NOT_FOUND`, exactly like a form that does not exist.
 - A request without a key gets a 401 with a `WWW-Authenticate: Bearer`
   challenge. A wrong, revoked or orphaned key gets a 401 too; it is never
-  treated as anonymous. A key in the URL (`?api_key=`, `?access_token=`, ...)
-  is refused with 400 so it never reaches an access log.
+  treated as anonymous. A key in the URL (`?api_key=`, `?access_token=`,
+  `?bearer=`, ..., in any letter case) is refused with 400 so it never reaches
+  an access log.
 - Chat connectors that sign in with OAuth (Claude.ai, ChatGPT) use the same URL
   when the deployment turns OAuth on: see
   [Signing in](#signing-in-mcp-connections-over-oauth).
@@ -78,8 +79,10 @@ summary.
 
 Every tool carries a title, `readOnlyHint` / `destructiveHint` /
 `idempotentHint` / `openWorldHint`, an input schema and an output schema with
-`structuredContent` (plus a short text summary). There are no delete tools, and
-nothing that changes keys, members, workspaces, integrations or destinations.
+`structuredContent`. The content of a result is a short text summary followed
+by the same data as JSON text, for clients that only read text. There are no
+delete tools, and nothing that changes keys, members, workspaces, integrations
+or destinations.
 
 Every role (owner, admin, member) can create, edit and publish forms in the web
 app, so every role's key can use every tool. The tools run the API's own form
@@ -102,7 +105,8 @@ handlers, so any role rule those handlers apply holds for the MCP too.
 Answers are typed by members of the public, so they are hostile input to a
 model. `list_responses` returns them only inside `respondent_supplied`, with
 control and zero-width characters, HTML and markdown links and images removed
-and every value length-capped. Tell your agent to treat `respondent_supplied`
+(nested ones too, until nothing is left to remove) and every value
+length-capped. Tell your agent to treat `respondent_supplied`
 as data, never as instructions.
 
 ## Connect an agent
@@ -162,10 +166,12 @@ const forms = await client.callTool({ name: 'list_forms', arguments: {} });
   this order: the switch, `POST` only (405), `Host` against `MCP_ALLOWED_HOSTS`
   when set (403), a browser `Origin` not in `MCP_ALLOWED_ORIGINS` (403; clients
   without an `Origin`, which is every non-browser MCP client, are unaffected),
-  credentials in the URL (400), `application/json` only (415), then the key.
-  The same list is the endpoint's CORS policy (preflight answered, no
-  credentials), kept apart from the dashboard's `CORS_ORIGINS`: neither list
-  opens the other surface.
+  credentials in the URL (400), `application/json` only (415), a JSON-RPC
+  batch (400: one message per request, so a request is one rate-limit token),
+  then the key. The same list is the endpoint's CORS policy (preflight
+  answered, no credentials), kept apart from the dashboard's `CORS_ORIGINS`:
+  neither list opens the other surface. The path is matched in any letter
+  case, so `/MCP` gets the MCP policy too.
   Bodies are capped by the API's JSON parser, like every REST route.
 - **Rate limits.** Every request of a key takes a token from its MCP bucket
   (`MCP_RATE_LIMIT_*`, HTTP 429 with `Retry-After`); write tools also take one
@@ -182,6 +188,9 @@ const forms = await client.callTool({ name: 'list_forms', arguments: {} });
   and latency. It never contains the key, a config, a form name, a date filter
   or an answer. A call the SDK refuses before any tool runs (a malformed
   argument) is not audited.
+- **Error logs.** An unexpected failure is logged with its error class and
+  code only (`TypeError code=SQLITE_BUSY`), never its message or stack, which
+  can quote data from the request.
 
 ## Signing in (MCP connections over OAuth)
 
@@ -208,6 +217,16 @@ the login, registers the client and issues the token; dForms verifies it.
   under every rule an API key gets. A sign-in the directory does not know gets
   a 403 that says to open dForms once; a known person with no workspace yet
   connects, and their tools answer `NO_WORKSPACE`.
+- **The person directory.** The token's `sub` is the identity provider's id
+  for the person; members carry the identity service's user id. The API reads
+  the identity service's database (`IAM_DB_*`, a read-only role, TLS unless
+  the host is a loopback host, at most 4 connections, 5 seconds per query):
+  the live user row with that provider id, and only if there is none, the live
+  users its sessions link to that id. More than one person, or an inactive or
+  blocked one, is a 403 that says to contact support; nobody is the 403 above.
+  While that database cannot be read, a signed-in request gets a 503 with
+  `Retry-After` (never a 401 that would start a new login), and API keys keep
+  working: nothing connects until the first sign-in.
 - **Limits and audit.** The MCP buckets count per member of the workspace a
   call acts in, so one person's clients share a budget per workspace; a request
   that acts in none (the handshake, the tool list) counts against the person.
@@ -230,6 +249,8 @@ All optional; unset (or blank) means the safe default. See
 | `MCP_PUBLIC_URL` | web (runtime); API with `MCP_OAUTH_PROVIDER` (required) | `<PUBLIC_API_URL>/mcp` on the web |
 | `MCP_OAUTH_PROVIDER` | API and web (runtime) | unset (API keys only; the MCP page shows the key guide alone) |
 | `WORKOS_AUTHKIT_DOMAIN` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
+| `IAM_DB_HOST`, `IAM_DB_NAME`, `IAM_DB_SCHEMA`, `IAM_DB_USER`, `IAM_DB_PASS` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
+| `IAM_DB_PORT` | API | `5432` |
 
 ## Check it yourself
 

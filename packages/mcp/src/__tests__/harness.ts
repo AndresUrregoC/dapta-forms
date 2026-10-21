@@ -11,7 +11,7 @@ import {
 } from '../backend';
 import { McpDoor, type McpDoorOptions } from '../door';
 import { unlimited, type RateLimiter } from '../rate-limit';
-import { FormsMcpServer } from '../server';
+import { FormsMcpServer, type FormsMcpServerOptions } from '../server';
 
 /**
  * The package on a real HTTP socket, with an in-memory backend: the door, the
@@ -143,6 +143,8 @@ export interface HarnessOptions {
   door?: Partial<Omit<McpDoorOptions, 'server' | 'authenticate'>>;
   toolTimeoutMs?: number;
   writeLimiter?: RateLimiter;
+  onInternalError?: FormsMcpServerOptions['onInternalError'];
+  onTransportError?: FormsMcpServerOptions['onTransportError'];
 }
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
@@ -164,6 +166,8 @@ export async function bootHarness(opts: HarnessOptions = {}): Promise<Harness> {
     backend,
     toolTimeoutMs: opts.toolTimeoutMs ?? 5_000,
     writeLimiter: opts.writeLimiter ?? unlimited,
+    onInternalError: opts.onInternalError,
+    onTransportError: opts.onTransportError,
   });
   const audit: string[] = [];
   server.auditSink = (line) => audit.push(line);

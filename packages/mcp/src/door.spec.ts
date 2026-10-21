@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { bootHarness, capped, errorText, initialize, structured, type Harness, type HarnessOptions } from './__tests__/harness';
 import type { McpCaller, McpConnection } from './backend';
-import { DoorRefusal, hostnameOf, mcpCorsPolicy, normalizeOrigin, type McpDoorOAuth } from './door';
+import { DoorRefusal, DoorUnavailable, hostnameOf, mcpCorsPolicy, normalizeOrigin, type McpDoorOAuth } from './door';
 
 const open: Harness[] = [];
 async function boot(opts: HarnessOptions = {}) {
@@ -57,6 +57,33 @@ describe('transport guards', () => {
       expect(res.status).toBe(400);
       expect(((await res.json()) as { error: { message: string } }).error.message).toContain('Authorization header');
     }
+  });
+
+  it('refuses credentials in the URL whatever their case, bearer and access_key included', async () => {
+    const h = await boot();
+    for (const p of ['API_KEY', 'Token', 'bearer', 'Bearer', 'access_key', 'ACCESS_TOKEN', 'Authorization']) {
+      const res = await h.post(initialize('2025-06-18'), { authorization: `Bearer ${h.key()}` }, `/mcp?${p}=dforms_abc`);
+      expect(res.status, p).toBe(400);
+    }
+    // A query that carries no credential still passes.
+    expect((await h.post(initialize('2025-06-18'), { authorization: `Bearer ${h.key()}` }, '/mcp?tokens_used=1')).status).toBe(200);
+  });
+
+  it('refuses a JSON-RPC batch at the door, so one request cannot run a hundred tool calls', async () => {
+    const h = await boot();
+    const auth = { authorization: `Bearer ${h.key()}`, 'mcp-protocol-version': '2025-06-18' };
+    const batch = Array.from({ length: 100 }, (_, i) => ({
+      jsonrpc: '2.0',
+      id: i + 1,
+      method: 'tools/call',
+      params: { name: 'get_form_guide', arguments: {} },
+    }));
+    const res = await h.post(batch, auth);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: number; message: string } }).error).toMatchObject({ code: -32600 });
+    expect(h.audit).toHaveLength(0);
+    // Even a batch of one is refused: a single message is sent as an object.
+    expect((await h.post([initialize('2025-06-18')], auth)).status).toBe(400);
   });
 
   it('answers 405 to GET and DELETE and 415 to a body that is not JSON', async () => {
@@ -175,7 +202,7 @@ function connection(workspaces: McpCaller[] = [workspaceCaller()]): McpConnectio
 }
 
 /** The door's OAuth side over a fixed table of access tokens, recording what it was asked. */
-function oauthSide(tokens: Record<string, McpConnection | DoorRefusal> = {}) {
+function oauthSide(tokens: Record<string, McpConnection | DoorRefusal | DoorUnavailable> = {}) {
   const asked: string[] = [];
   const oauth: McpDoorOAuth = {
     isApiKey: (t) => t.startsWith('dforms_'),
@@ -183,7 +210,7 @@ function oauthSide(tokens: Record<string, McpConnection | DoorRefusal> = {}) {
     async authenticate(t) {
       asked.push(t);
       const found = tokens[t];
-      if (found instanceof DoorRefusal) throw found;
+      if (found instanceof DoorRefusal || found instanceof DoorUnavailable) throw found;
       return found ?? null;
     },
   };
@@ -236,6 +263,17 @@ describe('MCP connections (the OAuth side of the door)', () => {
     expect(res.status).toBe(403);
     expect(((await res.json()) as { error: { message: string } }).error.message).toBe(refusal.message);
     expect((await h.post(initialize('2025-06-18'), { authorization: 'Bearer no-workspace' })).status).toBe(429);
+  });
+
+  it('answers a sign-in that cannot be checked right now with 503 and a retry, never a login loop', async () => {
+    const outage = new DoorUnavailable('dForms cannot check this sign-in right now. Try again in a minute.');
+    const h = await boot({ door: { oauth: oauthSide({ 'directory-down': outage }).oauth, ipLimiter: capped(1) } });
+    const res = await h.post(initialize('2025-06-18'), { authorization: 'Bearer directory-down' });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('30');
+    expect(res.headers.get('www-authenticate')).toBeNull();
+    expect(((await res.json()) as { error: { message: string } }).error.message).toBe(outage.message);
+    expect((await h.post(initialize('2025-06-18'), { authorization: 'Bearer directory-down' })).status).toBe(429);
   });
 
   it('writes the person and the member to the audit line, never the token', async () => {
@@ -341,6 +379,31 @@ describe('timeout and failures', () => {
     const text = errorText(await c.callTool({ name: 'create_form', arguments: { name: 'Slow', config: { version: 1, steps: [] } } }));
     expect(text).toContain('TIMEOUT');
     expect(text).toContain('list_forms');
+  });
+
+  it('reports an unexpected failure to the host by class and code only, never its message or stack', async () => {
+    const reports: unknown[][] = [];
+    const leaky = Object.assign(new TypeError('row for ada@example.test: config {"secret":"hunter2"}'), { code: 'SQLITE_BUSY' });
+    const h = await boot({
+      backend: { listForms: () => Promise.reject(leaky), getForm: () => Promise.reject('a bare string with hunter2') },
+      onInternalError: (...args: unknown[]) => reports.push(args),
+    });
+    const c = await h.connect(h.key());
+    errorText(await c.callTool({ name: 'list_forms', arguments: {} }));
+    errorText(await c.callTool({ name: 'get_form', arguments: { form_id: 'form-1' } }));
+    expect(reports).toEqual([
+      ['list_forms', expect.stringMatching(/^req-\d+$/), { errorClass: 'TypeError', code: 'SQLITE_BUSY' }],
+      ['get_form', expect.stringMatching(/^req-\d+$/), { errorClass: 'string' }],
+    ]);
+    expect(JSON.stringify(reports)).not.toMatch(/hunter2|ada@|at .*\.ts/);
+  });
+
+  it('reports a transport problem by class only, never the body that caused it', async () => {
+    const reports: unknown[] = [];
+    const h = await boot({ onTransportError: (e: unknown) => reports.push(e) });
+    const res = await h.post({ note: 'ada@example.test hunter2' }, { authorization: `Bearer ${h.key()}`, 'mcp-protocol-version': '2025-06-18' });
+    expect(res.status).toBe(400);
+    expect(reports).toEqual([{ errorClass: 'Error' }]);
   });
 
   it('never shows an unexpected failure to the model', async () => {

@@ -80,6 +80,12 @@ const ENV_KEYS = [
   'MCP_OAUTH_PROVIDER',
   'WORKOS_AUTHKIT_DOMAIN',
   'MCP_PUBLIC_URL',
+  'IAM_DB_HOST',
+  'IAM_DB_PORT',
+  'IAM_DB_NAME',
+  'IAM_DB_SCHEMA',
+  'IAM_DB_USER',
+  'IAM_DB_PASS',
 ] as const;
 
 export const APP_URL = 'https://forms.example.test';
