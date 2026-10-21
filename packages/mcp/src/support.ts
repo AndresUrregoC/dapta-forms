@@ -209,7 +209,14 @@ export function renderIssues(issues: BackendIssue[]): string {
   return lines.join('\n');
 }
 
-/** What each backend code means for the model that triggered it. */
+/** Which kind of credential a call came with: the copy a model reads speaks of it. */
+export type CredentialKind = 'key' | 'connection';
+
+/**
+ * What each backend code means for the model that triggered it. An entry in
+ * `CONNECTION` replaces the one here for a person signed in through OAuth,
+ * who has no key to replace and no key owner to blame.
+ */
 const ACTIONABLE: Record<string, { message?: string; hint: string }> = {
   STALE: {
     message: 'The form was saved elsewhere since you read it.',
@@ -234,8 +241,18 @@ const ACTIONABLE: Record<string, { message?: string; hint: string }> = {
   },
 };
 
-/** Map anything a tool can throw to a `ToolFailure` the model can act on. */
-export function toFailure(error: unknown): ToolFailure {
+const CONNECTION: Record<string, { message?: string; hint: string }> = {
+  FORBIDDEN: {
+    hint: 'You lack the role for this in this workspace. Tell the user; an owner or admin of the workspace can do it.',
+  },
+  INVALID_API_KEY: {
+    message: 'This sign-in can no longer act here.',
+    hint: 'Call list_my_workspaces to see where you can act. If the problem stays, ask the user to connect dForms again.',
+  },
+};
+
+/** Map anything a tool can throw to a `ToolFailure` the model can act on, in the terms of the call's credential. */
+export function toFailure(error: unknown, credential: CredentialKind = 'key'): ToolFailure {
   if (error instanceof ToolFailure) return error;
   if (error instanceof BackendError) {
     if (error.status === 400 && error.issues.length > 0) {
@@ -251,13 +268,13 @@ export function toFailure(error: unknown): ToolFailure {
       const after = Number(error.details['retryAfterSec']);
       return new ToolFailure(
         'RATE_LIMITED',
-        'Too many calls with this API key.',
+        credential === 'connection' ? 'Too many calls by this member.' : 'Too many calls with this API key.',
         'Wait, then continue.',
         Number.isFinite(after) && after > 0 ? Math.ceil(after) : 5,
       );
     }
     if (error.status >= 500) return internalError();
-    const known = ACTIONABLE[error.code];
+    const known = (credential === 'connection' ? CONNECTION[error.code] : undefined) ?? ACTIONABLE[error.code];
     let message = known?.message ?? error.message;
     if (error.code === 'STALE' && typeof error.details['updatedAt'] === 'number')
       message = `${message} Its updated_at is now ${error.details['updatedAt']}.`;

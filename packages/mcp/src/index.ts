@@ -11,7 +11,7 @@
  *   examples), shared with the web app's API skill.
  */
 export * from './backend';
-export { LIST_WORKSPACES_HINT, bucketOf, resolveWorkspace } from './workspace';
+export { LIST_WORKSPACES_HINT, bucketOf, openDFormsOnce, resolveWorkspace } from './workspace';
 export {
   DoorRefusal,
   DoorThrottled,
@@ -43,6 +43,7 @@ export {
   renderIssues,
   toFailure,
   untrusted,
+  type CredentialKind,
   type ErrorDescriptor,
 } from './support';
 export { METRIC_DEFINITIONS, TOOLS, type ToolContext, type ToolDef, type ToolResult } from './tools';

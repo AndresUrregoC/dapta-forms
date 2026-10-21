@@ -12,6 +12,7 @@ import {
 import { GUIDE_PARTS, formGuide, type GuidePart } from './guide/guide';
 import { LEAD_CONFIG } from './guide/examples';
 import { ToolFailure, untrusted } from './support';
+import { openDFormsOnce } from './workspace';
 
 /**
  * The tool catalog. Small and task-shaped on purpose: what an agent needs to
@@ -110,8 +111,6 @@ function workspacesOf(credential: McpCredential) {
 const listed = (workspaces: Array<{ name: string; role: string }>): string =>
   workspaces.map((w) => `${w.name} (${w.role})`).join(', ');
 
-const openOnce = (appUrl?: string): string =>
-  `Ask the user to open dForms once with this account${appUrl ? ` (${appUrl})` : ''}, then try again.`;
 
 const configObject = z
   .record(z.string(), z.unknown())
@@ -238,7 +237,7 @@ const whoami: ToolDef = {
         data: { workspace: null, member: null, key, person, workspaces },
         summary:
           workspaces.length === 0
-            ? `Signed in as ${who}, who is not an active member of any dForms workspace yet. ${openOnce(appUrl)}`
+            ? `Signed in as ${who}, who is not an active member of any dForms workspace yet. Ask the user to ${openDFormsOnce(appUrl)}`
             : `Signed in as ${who}, a member of ${workspaces.length} workspaces: ${listed(workspaces)}. Ask the user which one to use, by name, and pass its id as workspace_id on every call.`,
       };
     }
@@ -278,7 +277,7 @@ const listMyWorkspaces: ToolDef = {
     const nextStep = !isConnection(credential)
       ? 'This API key acts in this workspace only: leave workspace_id out.'
       : workspaces.length === 0
-        ? openOnce(appUrl)
+        ? `Ask the user to ${openDFormsOnce(appUrl)}`
         : workspaces.length === 1
           ? 'Use this workspace without asking: workspace_id is optional while it is the only one.'
           : 'Ask the user which workspace to use, by name, then pass its id as workspace_id on every call. If the user switches, use the new id from then on and say so.';

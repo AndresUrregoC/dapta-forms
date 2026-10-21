@@ -122,7 +122,7 @@ export class FormsMcpServer {
         };
       }
     } catch (error) {
-      failure = toFailure(error);
+      failure = toFailure(error, call && isConnection(call.credential) ? 'connection' : 'key');
       if (failure.code === 'INTERNAL_ERROR') this.options.onInternalError?.(def.name, call?.requestId ?? 'unknown', describeError(error));
     }
     this.audit(def, args, call, caller, started, result, failure);

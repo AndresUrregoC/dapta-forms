@@ -92,3 +92,27 @@ describe('toFailure', () => {
     expect(toFailure(own)).toBe(own);
   });
 });
+
+describe('toFailure, by credential', () => {
+  it('speaks of the key to an API key and of the member to a signed-in person', () => {
+    // What the model is told, past the stable code.
+    const said = (f: ToolFailure) => `${f.message} ${f.hint ?? ''}`;
+    const key = 'key' as const;
+    const person = 'connection' as const;
+    const forbidden = new BackendError(403, 'FORBIDDEN', 'You need the admin role.');
+    expect(toFailure(forbidden, key).render()).toMatch(/key's owner/);
+    const forbiddenPerson = said(toFailure(forbidden, person));
+    expect(forbiddenPerson).not.toMatch(/key/i);
+    expect(forbiddenPerson).toMatch(/owner or admin/);
+
+    const dead = new BackendError(401, 'INVALID_API_KEY', 'This API key is not valid.');
+    expect(toFailure(dead, key).render()).toContain('new key');
+    const deadPerson = said(toFailure(dead, person));
+    expect(deadPerson).not.toMatch(/key/i);
+    expect(deadPerson).toMatch(/connect/i);
+
+    const limited = new BackendError(429, 'RATE_LIMITED', 'Slow down.', [], { retryAfterSec: 3 });
+    expect(toFailure(limited, key).render()).toMatch(/API key/);
+    expect(said(toFailure(limited, person))).not.toMatch(/key/i);
+  });
+});

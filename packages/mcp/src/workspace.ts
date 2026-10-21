@@ -18,13 +18,19 @@ import { ToolFailure } from './support';
 export const LIST_WORKSPACES_HINT =
   'Call list_my_workspaces, ask the user which workspace by its name (never pick one yourself), then repeat this call with that workspace_id.';
 
+/**
+ * What a person with no dForms workspace (or no dForms account) yet does
+ * about it, as one clause: open dForms once, then `then`. `appUrl` is the
+ * address they open, when the host knows it. The one wording every surface
+ * uses (the tools, whoami and the host's refusal at the door).
+ */
+export function openDFormsOnce(appUrl?: string, then = 'try again'): string {
+  return `open dForms once with this account${appUrl ? ` (${appUrl})` : ''}, then ${then}.`;
+}
+
 /** The message for a person with no workspace yet. `appUrl` is the dForms address they open, when the host knows it. */
 export function noWorkspace(appUrl?: string): ToolFailure {
-  return new ToolFailure(
-    'NO_WORKSPACE',
-    'You are not an active member of any dForms workspace yet.',
-    `Ask the user to open dForms once with this account${appUrl ? ` (${appUrl})` : ''}, then try again.`,
-  );
+  return new ToolFailure('NO_WORKSPACE', 'You are not an active member of any dForms workspace yet.', `Ask the user to ${openDFormsOnce(appUrl)}`);
 }
 
 /**

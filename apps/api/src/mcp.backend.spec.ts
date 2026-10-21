@@ -11,7 +11,7 @@ import { createdVia, generateApiKey } from './api-keys';
 import { AuthService } from './auth.service';
 import { LocalAuthProvider, type ReqLike } from './auth.provider';
 import { inProcessPrincipalOf, inProcessRequest } from './in-process-principal';
-import { authenticateMcpKey, toBackendError } from './mcp.backend';
+import { ApiFormsBackend, authenticateMcpKey, toBackendError, type McpHandlers } from './mcp.backend';
 
 let db: Db;
 let accountId: string;
@@ -121,5 +121,29 @@ describe('toBackendError', () => {
   it('leaves anything that is not an HTTP error untouched', () => {
     const err = new Error('db down');
     expect(toBackendError(err)).toBe(err);
+  });
+});
+
+describe('ApiFormsBackend.whoami', () => {
+  const caller = (personId?: string) => ({
+    accountId,
+    workspaceName: 'Acme',
+    memberId: ownerId,
+    role: 'owner',
+    credentialId: 'c',
+    label: 'l',
+    ...(personId ? { personId } : {}),
+    context: { req: inProcessRequest({ accountId, memberId: ownerId }) },
+  });
+  const nobody = () => ({ forms: { me: async () => null }, analytics: {} }) as unknown as McpHandlers;
+
+  it('names the credential that stopped working: the key for a key, the member for a signed-in person', async () => {
+    const backend = new ApiFormsBackend(db, nobody);
+    const forKey = await backend.whoami(caller()).catch((e: unknown) => e);
+    expect(forKey).toBeInstanceOf(BackendError);
+    expect((forKey as BackendError).code).toBe('INVALID_API_KEY');
+    const forPerson = await backend.whoami(caller('person-1')).catch((e: unknown) => e);
+    expect((forPerson as BackendError).code).toBe('MEMBER_NOT_ACTIVE');
+    expect((forPerson as BackendError).message).not.toMatch(/key/i);
   });
 });

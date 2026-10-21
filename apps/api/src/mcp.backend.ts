@@ -5,6 +5,7 @@ import {
   BackendError,
   DoorRefusal,
   DoorUnavailable,
+  openDFormsOnce,
   type AnalyticsQuery,
   type CreateFormInput,
   type FormAnalytics,
@@ -165,9 +166,7 @@ export async function authenticateMcpConnection(
   if (!access) return null;
   const person = await lookUpPerson(directory, access.subject);
   if (!person) {
-    throw new DoorRefusal(
-      `This sign-in has no dForms account yet. Open dForms once with this account${appUrl ? ` (${appUrl})` : ''}, then connect again.`,
-    );
+    throw new DoorRefusal(`This sign-in has no dForms account yet: ${openDFormsOnce(appUrl, 'connect again')}`);
   }
   const label = `oauth:${person.id}`;
   // An email match counts only on a member nobody holds yet, or this person:
@@ -276,7 +275,11 @@ export class ApiFormsBackend implements FormsBackend {
   whoami(caller: McpCaller): Promise<WhoAmI> {
     return run(async () => {
       const me = await this.handlers().forms.me(reqOf(caller));
-      if (!me) throw new BackendError(401, 'INVALID_API_KEY', 'This API key is not valid.');
+      if (!me) {
+        // In the terms of the credential: a signed-in person has no key to replace.
+        if (caller.personId) throw new BackendError(401, 'MEMBER_NOT_ACTIVE', 'You are no longer an active member of this workspace.');
+        throw new BackendError(401, 'INVALID_API_KEY', 'This API key is not valid.');
+      }
       return {
         accountId: me.accountId,
         accountName: me.accountName,
