@@ -143,6 +143,62 @@ describe('tools over the real handlers', () => {
     expect(text).toContain('get_form');
   });
 
+  it('an edit of a form that already had a repeated option value and a rule to a deleted step says exactly what the save changes', async () => {
+    const h = await boot();
+    const c = await h.connect((await h.key()).key);
+    const created = structured<FormOut>(await c.callTool({ name: 'create_form', arguments: { name: 'Canal', config: LEAD } }));
+    // Saved the way a session stores a config (as sent, never normalized):
+    // two options share the value "otro", and a rule jumps to a step deleted since.
+    const stored = {
+      version: 1,
+      steps: [
+        {
+          key: 'canal',
+          type: 'multiple_choice',
+          question: 'How did you hear about us?',
+          options: [
+            { label: 'LinkedIn', value: 'linkedin' },
+            { label: 'Otro', value: 'otro' },
+            { label: 'Otro (evento)', value: 'otro' },
+          ],
+          goto: [{ values: ['linkedin'], target: 'borrado' }],
+        },
+        { key: 'email', type: 'email', question: 'What is your work email?', required: true },
+        { key: 'cerca', type: 'text', question: 'Anything else?', hideWhen: { field: 'gone', values: ['x'] } },
+      ],
+    };
+    await h.db.run(sql`UPDATE form SET config = ${JSON.stringify(stored)} WHERE id = ${created.form.id}`);
+
+    const read = structured<{ config: { steps: unknown[] }; updated_at: number }>(
+      await c.callTool({ name: 'get_form', arguments: { form_id: created.form.id } }),
+    );
+    const edited = { ...read.config, steps: [...read.config.steps, { key: 'msg', type: 'textarea', question: 'One more thing?' }] };
+    const result = await c.callTool({
+      name: 'update_form',
+      arguments: { form_id: created.form.id, config: edited, expected_updated_at: read.updated_at },
+    });
+    const warnings = structured<{ warnings: string[] }>(result).warnings;
+
+    const row = await h.db.get<{ draft_config: string }>(sql`SELECT draft_config FROM form WHERE id = ${created.form.id}`);
+    const draft = JSON.parse(row!.draft_config) as {
+      steps: Array<{ key: string; options?: Array<{ value: string }>; goto?: unknown; hideWhen?: { field: string } }>;
+    };
+    // What the API really saved.
+    expect(draft.steps[0]!.options!.map((o) => o.value)).toEqual(['linkedin', 'otro', 'otro_2']);
+    expect(draft.steps[0]!.goto).toBeUndefined();
+    expect(draft.steps[2]!.hideWhen!.field).toBe('gone');
+
+    // And each warning says exactly that, never "saved as it was" for what changed.
+    const value = warnings.find((w) => w.startsWith('config.steps.0.options.2.value'))!;
+    expect(value).toContain('"otro_2"');
+    expect(value).not.toContain('saved as it was');
+    const rule = warnings.find((w) => w.startsWith('config.steps.0.goto.0.target'))!;
+    expect(rule).toContain('removed from the draft');
+    expect(rule).not.toContain('saved as it was');
+    const field = warnings.find((w) => w.startsWith('config.steps.2.hideWhen.field'))!;
+    expect(field).toContain('saved as it was');
+  });
+
   it('reads responses with the answers inside respondent_supplied, labelled and cleaned', async () => {
     const h = await boot();
     const c = await h.connect((await h.key()).key);

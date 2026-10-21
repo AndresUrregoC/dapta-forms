@@ -1,4 +1,5 @@
 import * as z from 'zod4';
+import { localDayIndex, resolveTimeZone } from '@quill/shared';
 import {
   BackendError,
   isConnection,
@@ -1186,14 +1187,25 @@ const getFormAnalytics: ToolDef = {
       null,
     );
     const warnings: string[] = [];
-    if (a.submissions > a.starts || a.starts > a.views) {
+    const counts = `${a.views} views, ${a.starts} starts, ${a.submissions} submissions`;
+    if (a.submissions > a.starts) {
       warnings.push(
-        `The funnel does not add up (${a.views} views, ${a.starts} starts, ${a.submissions} submissions): some responses never opened the form in a browser, for example responses created through the API. Views, starts, completion_rate and the drop-off undercount them. Report submissions as the number of responses and tell the user the funnel rates are not reliable for this form.`,
+        `The funnel does not add up (${counts}): there are more submissions than starts, so some responses never opened the form in a browser, for example responses created through the API. Views, starts, completion_rate and the drop-off undercount them. Report submissions as the number of responses and tell the user the funnel rates are not reliable for this form.`,
+      );
+    }
+    if (a.starts > a.views) {
+      warnings.push(
+        `The funnel does not add up (${counts}): there are more starts than views, so some sessions started without their page view reaching dForms (a lost view beacon). Views undercount visits; starts, submissions and completion_rate are not affected. Tell the user the view count is low for this form.`,
       );
     }
     let truncated: boolean | undefined;
     if (args.include_daily) {
-      const span = a.range.from != null && a.range.to != null ? Math.floor((a.range.to - a.range.from) / DAY_MS) + 1 : null;
+      // Days as the API counts them (local days in range.time_zone), so the span
+      // matches the series it built: an epoch-ms window can cover one more
+      // local day than its length in UTC days.
+      const zone = resolveTimeZone(a.range.timeZone);
+      const span =
+        a.range.from != null && a.range.to != null ? localDayIndex(a.range.to, zone) - localDayIndex(a.range.from, zone) + 1 : null;
       truncated = a.trends.length >= MAX_DAILY_POINTS && (span === null || span > MAX_DAILY_POINTS);
       if (truncated) {
         warnings.push(

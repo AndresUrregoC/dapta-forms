@@ -77,6 +77,7 @@ describe('buildSkillFiles', () => {
       '/v1/me',
       '/v1/forms/{id}/revert',
       '/v1/forms/{id}/publish',
+      '/v1/forms/{id}/discard-draft',
       '/v1/forms/{id}/submissions',
       '/v1/forms/{id}/analytics',
       '/v1/forms/{id}/submissions.csv',
@@ -146,6 +147,12 @@ describe('buildSkillFiles', () => {
   it('says PUT /v1/forms/{id} ignores destinations', () => {
     expect(files.get(`${SKILL_DIR}/SKILL.md`)).toContain('`PUT /v1/forms/{id}` ignores `destinations`');
     expect(files.get(`${SKILL_DIR}/reference/endpoints.md`)).toContain('ignores `destinations`');
+  });
+
+  it('teaches discard-draft, not revert, to throw away a draft', () => {
+    for (const path of ['SKILL.md', 'reference/endpoints.md', 'recipes/publish-and-revert.md']) {
+      expect(files.get(`${SKILL_DIR}/${path}`)!, path).toContain('/v1/forms/{id}/discard-draft'.replace('{id}', path.startsWith('recipes') ? '$FORM_ID' : '{id}'));
+    }
   });
 
   it('documents previousPublishedAt and a revert with no body that answers 200 with the form', () => {
