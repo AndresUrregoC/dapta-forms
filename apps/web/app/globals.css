@@ -300,8 +300,9 @@ body {
 }
 
 /* The rail's MCP icon (components/mcp-logos.tsx): three stacked logos that
-   take turns. Each is a mask filled with currentColor, so it takes the row's
-   ink in both themes; Claude overrides it inline with its brand orange. The
+   take turns. Each is an inline SVG filled with currentColor, so it takes the
+   row's ink in both themes; Claude overrides `color` inline with its brand
+   orange. Inline on purpose: a session replay cannot fetch a mask file. The
    one leaving shrinks and turns away while the next one fades in on the same
    spot. */
 .mcp-logos {
@@ -311,13 +312,9 @@ body {
 .mcp-logos__logo {
   position: absolute;
   inset: 0;
-  background-color: currentColor;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  -webkit-mask-size: contain;
-  mask-size: contain;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
   opacity: 0;
   transform: scale(0.7) rotate(-20deg);
   transition:

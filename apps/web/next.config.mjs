@@ -47,6 +47,20 @@ const nextConfig = {
   async redirects() {
     return [{ source: '/admin/developers', destination: '/admin/developers/keys', permanent: false }];
   },
+  // A session replay (PostHog) rebuilds the page on the replay tool's origin
+  // and loads our stylesheet's fonts from here, as absolute URLs. Fonts are
+  // always fetched in CORS mode, so without this header every recording falls
+  // back to a system face and stops looking like the app. Only the static
+  // media (next/font's self-hosted files, hashed and public by design) gets
+  // it: no page, API route or server action is opened to other origins.
+  async headers() {
+    return [
+      {
+        source: '/_next/static/media/:path*',
+        headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

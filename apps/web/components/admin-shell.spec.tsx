@@ -72,8 +72,10 @@ describe('AdminShell: MCP group', () => {
       expect(icon.match(/is-active/g)).toHaveLength(1);
       expect(icon).toMatch(/data-logo="claude" data-active="true"/);
       // Claude in its own orange, in every rail; the others take the row's ink.
-      expect(icon).toMatch(/data-logo="claude"[^>]*background-color:#d97757/);
-      expect(icon).not.toMatch(/data-logo="(openai|cursor)"[^>]*background-color/);
+      expect(icon).toMatch(/<svg [^>]*data-logo="claude"[^>]*style="color:#d97757"/);
+      expect(icon).not.toMatch(/data-logo="(openai|cursor)"[^>]*style=/);
+      // Drawn inline: a session replay cannot fetch a mask file, so nothing here loads one.
+      expect(icon).not.toMatch(/url\(/);
       // Same 20px box as every other rail icon.
       expect(icon).toContain('width:20px;height:20px');
     }
