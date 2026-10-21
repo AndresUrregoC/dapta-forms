@@ -17,25 +17,28 @@ import {
 } from '@quill/mcp';
 import type { AdminCrudController } from './admin-crud.controller';
 import type { AnalyticsController } from './analytics.controller';
-import { API_KEY_PREFIX, hashApiKey, markMcpRequest } from './api-keys';
+import { API_KEY_PREFIX, hashApiKey } from './api-keys';
 import { isKeyAllowedRoute, routeOf } from './api-key-routes';
 import type { ReqLike } from './auth.provider';
+import { inProcessRequest } from './in-process-principal';
 
 /**
  * forms-api's side of the MCP port (`FormsBackend` in `@quill/mcp`).
  *
  * Every tool call runs the SAME handler the REST route runs, in process, with
- * a request that carries the caller's own API key. So nothing here re-states
- * a rule: the handler resolves the key on every call (a key revoked, or a
- * member removed, mid-session stops working at once), counts it against the
- * key's 120 calls a minute, scopes every read and write to the key's
- * workspace, applies the member's role, the strict API-key validation, the
- * config normalization and the brand kit, emits the product events, and adds
+ * a request that carries the caller's in-process principal (see
+ * `in-process-principal.ts`): the member and workspace it acts as, and for an
+ * API key the key's hash. So nothing here re-states a rule: the handler
+ * resolves the principal on every call (a key revoked, or a member disabled or
+ * removed, mid-session stops working at once), counts a key against its 120
+ * calls a minute, scopes every read and write to the principal's workspace,
+ * applies the member's live role, the strict agent validation, the config
+ * normalization and the brand kit, emits the product events, and adds
  * `publicUrl` and `editorUrl`. There is no second implementation to drift.
  *
- * The request is marked as coming from the MCP (`markMcpRequest`), so a form it
- * creates records `created_via = 'mcp'`. It never carries an
- * `x-quill-workspace` header: the workspace is always the key's.
+ * The principal also makes a form it creates record `created_via = 'mcp'`. The
+ * request carries no credential and no `x-quill-workspace` header: the
+ * workspace is always the principal's.
  */
 
 /** What the authenticator hands the backend for one caller. Never logged, never returned. */
@@ -75,6 +78,10 @@ export interface McpHandlers {
  * route metadata, or whose route is not on `API_KEY_ALLOWED_ROUTES`, throws,
  * and the API refuses to start rather than let a tool reach a route a key may
  * not call over HTTP.
+ *
+ * It covers every in-process principal, with or without a key: the backend is
+ * the only code that builds one for a handler, and it reaches handlers only
+ * through `McpHandlers`, whose names are the ones checked here.
  */
 export function keyAllowedRoutes(controller: abstract new (...args: never[]) => object, names: readonly string[]): string[] {
   return names.map((name) => {
@@ -95,10 +102,11 @@ export function keyAllowedRoutes(controller: abstract new (...args: never[]) => 
  */
 export async function authenticateMcpKey(db: Db, token: string): Promise<McpCaller | null> {
   if (!token.startsWith(API_KEY_PREFIX)) return null;
-  const row = await findApiKeyPrincipal(db, hashApiKey(token));
+  const keyHash = hashApiKey(token);
+  const row = await findApiKeyPrincipal(db, keyHash);
   if (!row || row.memberStatus !== 'active') return null;
   const context: ApiCallerContext = {
-    req: markMcpRequest({ headers: { authorization: `Bearer ${token}` } }),
+    req: inProcessRequest({ accountId: row.accountId, memberId: row.memberId, apiKeyHash: keyHash }),
   };
   return {
     accountId: row.accountId,

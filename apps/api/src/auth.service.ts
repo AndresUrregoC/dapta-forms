@@ -1,8 +1,9 @@
-import { ForbiddenException, Inject, Injectable, Optional } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Optional, UnauthorizedException } from '@nestjs/common';
 import type { Db } from '@quill/db';
 import {
   activateInvitedMember,
   findMembership,
+  getAccountMember,
   getMemberIdentity,
   getMemberRole,
   listWorkspacesForIdentity,
@@ -15,9 +16,10 @@ import { ApiKeyAuthenticator, createApiKeyRateLimiter } from './api-key-auth';
 import type { RateLimiter } from './rate-limit';
 import { API_KEY_RATE_LIMITER, AUTH_PROVIDER, DB } from './tokens';
 import { header, type AuthProvider, type HostPrincipal, type ReqLike } from './auth.provider';
+import { inProcessPrincipalOf, type InProcessPrincipal } from './in-process-principal';
 
 export type { HostPrincipal, PrincipalVia, ReqLike } from './auth.provider';
-export { isApiKeyPrincipal } from './auth.provider';
+export { isAgentPrincipal, isApiKeyPrincipal } from './auth.provider';
 
 /** The header the web app uses to ask for a workspace other than the home one. */
 export const WORKSPACE_HEADER = 'x-quill-workspace';
@@ -69,9 +71,18 @@ export class AuthService {
    * principal came in through the provider's session, so it carries
    * `via: 'session'` and no `apiKeyId`.
    *
+   * A request the MCP adapter built in process carries an in-process
+   * principal (see `in-process-principal.ts`) and is resolved from it alone,
+   * before anything on the request is read: with an API key, through the key
+   * path above; without one, as an MCP connection (`resolveConnection`). Both
+   * carry `channel: 'mcp'`.
+   *
    * Throws 401 if the provider cannot resolve the host.
    */
   async resolveHost(req: ReqLike): Promise<HostPrincipal> {
+    const inProcess = inProcessPrincipalOf(req);
+    if (inProcess) return this.resolveInProcess(req, inProcess);
+
     const key = apiKeyFromRequest(req);
     if (key !== null) return this.apiKeys.resolve(req, key);
 
@@ -120,6 +131,37 @@ export class AuthService {
       memberId: membership.memberId,
       role: membership.role,
       via: 'session',
+    };
+  }
+
+  private async resolveInProcess(req: ReqLike, principal: InProcessPrincipal): Promise<HostPrincipal> {
+    if (principal.apiKeyHash !== undefined) {
+      const p = await this.apiKeys.resolveHash(req, principal.apiKeyHash, principal);
+      return { ...p, channel: 'mcp' };
+    }
+    return this.resolveConnection(principal);
+  }
+
+  /**
+   * An MCP connection acting as a member: re-read on every call, so a member
+   * disabled, removed or demoted since the last call is seen on this one. The
+   * workspace is the one the principal names, never a header; a member that
+   * is not active there is a 401, exactly like a dead API key.
+   */
+  private async resolveConnection(principal: InProcessPrincipal): Promise<HostPrincipal> {
+    const member = await getAccountMember(this.db, principal.accountId, principal.memberId);
+    if (!member || member.status !== 'active') {
+      throw new UnauthorizedException({
+        error: 'MEMBER_NOT_ACTIVE',
+        message: 'You are no longer an active member of this workspace.',
+      });
+    }
+    return {
+      accountId: principal.accountId,
+      memberId: principal.memberId,
+      role: member.role,
+      via: 'mcp_connection',
+      channel: 'mcp',
     };
   }
 

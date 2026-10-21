@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createDb, insertApiKey, migrate, seed, sql, type Db } from '@quill/db';
@@ -21,6 +22,8 @@ import { McpController } from './mcp.controller';
  * client.
  */
 export interface Harness {
+  /** The running app, for specs that reach a provider directly. */
+  app: INestApplication;
   base: string;
   url: string;
   db: Db;
@@ -124,6 +127,7 @@ export async function bootHarness(env: Partial<Record<(typeof ENV_KEYS)[number],
 
   const clients: Client[] = [];
   return {
+    app,
     base,
     url: `${base}/mcp`,
     db,
