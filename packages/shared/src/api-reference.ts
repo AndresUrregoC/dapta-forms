@@ -427,7 +427,8 @@ export const API_REFERENCE = {
       config: SAVED_EDITED,
       publishedAt: STAMP + 120_000,
       previousPublishedAt: STAMP,
-      updatedAt: STAMP + 120_000,
+      // A discard is a write: it stamps updatedAt, so it lands after the publish.
+      updatedAt: STAMP + 180_000,
     },
   },
   'POST /v1/forms/:id/revert': {
