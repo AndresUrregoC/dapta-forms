@@ -34,6 +34,7 @@ export function upstreamWorkspaceIdOf(externalId: string | null | undefined): st
  * anywhere. Anything else (`evil@x.com@example.com`, `@example.com`, a line
  * break) is not an address this rule judges, so it is never staff.
  */
+// eslint-disable-next-line no-control-regex
 const EMAIL_SHAPE = /^[^@\s\x00-\x1f\x7f]+@([^@\s\x00-\x1f\x7f]+)$/;
 
 /**

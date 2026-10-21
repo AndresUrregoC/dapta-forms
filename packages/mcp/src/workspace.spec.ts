@@ -3,7 +3,6 @@ import { SEARCH_FOLD_FROM, SEARCH_FOLD_TO, foldSearchText, normalizeWorkspaceSea
 
 /** What a database does with the fold table: `translate(lower_ascii(x), FROM, TO)`, then marks and ASCII punctuation dropped. */
 function foldLikeSql(text: string): string {
-  // eslint-disable-next-line no-control-regex
   const lowerAscii = text.replace(/[A-Z]/g, (c) => c.toLowerCase());
   let out = '';
   for (const ch of lowerAscii) {
@@ -11,7 +10,7 @@ function foldLikeSql(text: string): string {
     out += at >= 0 ? SEARCH_FOLD_TO[at] : ch;
   }
   // eslint-disable-next-line no-control-regex
-  return out.replace(/[\x01-\x2f\x3a-\x60\x7b-\x7f̀-ͯ]/g, '');
+  return out.replace(/[\x01-\x2f\x3a-\x60\x7b-\x7f]/g, '').replace(/[\u0300-\u036f]/g, '');
 }
 
 describe('normalizeWorkspaceSearch', () => {
@@ -22,7 +21,7 @@ describe('normalizeWorkspaceSearch', () => {
   });
 
   it('folds accents, so "jose" finds "José" and "JOSÉ", and "penalosa" finds "Peñalosa"', () => {
-    for (const name of ['José', 'JOSÉ', 'José', 'jose']) expect(normalizeWorkspaceSearch(name)).toBe('jose');
+    for (const name of ['José', 'JOSÉ', 'Jose\u0301', 'jose']) expect(normalizeWorkspaceSearch(name)).toBe('jose');
     expect(normalizeWorkspaceSearch('Peñalosa & Hijos')).toBe('penalosahijos');
     expect(normalizeWorkspaceSearch('ÅNGSTRÖM Ødegaard Łódź')).toBe('angstromodegaardlodz');
   });

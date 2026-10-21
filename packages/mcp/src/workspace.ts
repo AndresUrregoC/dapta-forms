@@ -37,7 +37,7 @@ const FOLD_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0x0400, 0x052f],
   [0x1e00, 0x1fff],
 ];
-const COMBINING_MARKS = /[̀-ͯ]/g;
+const COMBINING_MARKS = /[\u0300-\u036f]/g;
 
 function buildFoldTable(): { from: string; to: string } {
   let from = '';
