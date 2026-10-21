@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { normalizeConfig, uniqueKey } from '@quill/engine';
 import { formConfigSchema } from '@quill/types';
 import type { ZodTypeAny } from 'zod';
 import type { BackendIssue } from './backend';
@@ -13,7 +14,9 @@ import type { BackendIssue } from './backend';
  * not exist is deleted, and a condition on a step that does not exist simply
  * never holds. An agent cannot see any of that happen and believes its config
  * was saved as sent. Through the MCP each one is a refusal that names the
- * path and what to do, so nothing changes silently.
+ * path and what to do, so nothing changes silently. A problem the form
+ * already had is let through instead, with a warning that names what saving
+ * does to it (see `splitInherited`).
  *
  * Everything is read duck-typed from the raw config: a config the schema
  * refuses still gets every problem reported in the same answer.
@@ -421,12 +424,94 @@ const MCP_ONLY_CODES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The config an API key's save stores, computed the way the API computes it:
+ * the schema parse (which drops unknown fields), then the engine's
+ * `normalizeConfig` (which the editor runs on every save too). Null when the
+ * schema refuses it: the API then refuses the whole write anyway.
+ */
+interface Saved {
+  steps: Array<Record<string, unknown>>;
+  /** Each outcome's id by its index in the config SENT (the saved list is sorted by score). */
+  outcomeIds: string[];
+}
+
+function savedConfig(sent: unknown): Saved | null {
+  const parsed = formConfigSchema.safeParse(sent);
+  if (!parsed.success) return null;
+  try {
+    const normalized = normalizeConfig(parsed.data as unknown as Parameters<typeof normalizeConfig>[0]);
+    const taken = new Set<string>();
+    const outcomeIds = (parsed.data.outcomes ?? []).map((o, i) => {
+      const id = uniqueKey((o.id && o.id.trim()) || `outcome_${i + 1}`, taken);
+      taken.add(id);
+      return id;
+    });
+    return { steps: normalized.steps as unknown as Array<Record<string, unknown>>, outcomeIds };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What saving does to a problem the form already had, in words, or null when
+ * the API stores it exactly as sent. Checked against the API's own path
+ * (schema parse, then `normalizeConfig`): an unknown field is dropped, a
+ * repeated key, value or id is renamed, a jump to a missing step or to the
+ * step itself is deleted. A condition on a missing field, an "@score"
+ * condition without a numeric op, min above max and a jump backwards are
+ * stored untouched (they only never fire).
+ */
+function savedChange(issue: BackendIssue, sent: unknown, saved: Saved | null): string | null {
+  const [, list, index, ...rest] = issue.path.split('.');
+  const i = Number(index);
+  const sentStep = list === 'steps' && isObj(sent) && Array.isArray(sent.steps) ? sent.steps[i] : undefined;
+  const savedStep = list === 'steps' ? saved?.steps[i] : undefined;
+  switch (issue.code) {
+    case 'unrecognized_keys':
+      return `the draft does not keep "${issue.path.split('.').pop()}", because dForms drops fields it does not know`;
+    case 'DUPLICATE_KEY': {
+      const key = savedStep?.key;
+      return typeof key === 'string' ? `the draft stores this step with the key "${key}"` : 'the draft stores this step under a new key';
+    }
+    case 'DUPLICATE_VALUE': {
+      const options = savedStep?.options;
+      const value = Array.isArray(options) && isObj(options[Number(rest[1])]) ? (options[Number(rest[1])] as Obj).value : undefined;
+      return typeof value === 'string'
+        ? `the draft stores this option with the value "${value}", so answers to it are recorded as "${value}"`
+        : 'the draft stores this option under a new value';
+    }
+    case 'DUPLICATE_ID': {
+      const id = list === 'outcomes' ? saved?.outcomeIds[i] : undefined;
+      return typeof id === 'string' ? `the draft stores this outcome with the id "${id}"` : 'the draft stores this outcome under a new id';
+    }
+    case 'UNKNOWN_STEP':
+      return 'this rule is removed from the draft';
+    case 'INVALID_TARGET': {
+      // A jump to the step itself is deleted; a jump backwards is stored and never fires.
+      const rule = isObj(sentStep) && Array.isArray(sentStep.goto) ? sentStep.goto[Number(rest[1])] : undefined;
+      const self = isObj(sentStep) && isObj(rule) && rule.target === sentStep.key;
+      return self ? 'this rule is removed from the draft' : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
  * Split an update's own refusals into what the agent added (refused) and what
  * the form already had (let through, with a warning each). A form built in the
  * editor can carry a condition on a step deleted since; refusing it would
  * block every edit of that form until the agent rewrote logic nobody asked it
  * to touch. Only the MCP's own codes split: what the API refuses anyway stays
  * a refusal, marked as inherited.
+ *
+ * Each warning says what the save really does to that problem. Some are
+ * stored untouched; the others the API changes on the way in (the same change
+ * the editor makes on its next save), and the warning names the change, never
+ * "saved as it was". It is still let through rather than refused: the change
+ * lands in the unpublished draft, which the user can review or discard, and
+ * refusing would leave a form the editor already saves this way uneditable by
+ * an agent.
  */
 export function splitInherited(
   issues: BackendIssue[],
@@ -436,9 +521,16 @@ export function splitInherited(
   const flags = inheritedFlags(issues, sent, stored);
   const refuse: BackendIssue[] = [];
   const carried: string[] = [];
+  let saved: Saved | null | undefined;
   issues.forEach((issue, i) => {
     if (flags[i] && MCP_ONLY_CODES.has(issue.code)) {
-      carried.push(`${issue.path}: ${issue.message} It was already in the form before this edit and is saved as it was; fix it when the user agrees.`);
+      if (saved === undefined) saved = savedConfig(sent);
+      const change = savedChange(issue, sent, saved);
+      carried.push(
+        change === null
+          ? `${issue.path}: ${issue.message} It was already in the form before this edit and is saved as it was; fix it when the user agrees.`
+          : `${issue.path}: ${issue.message} It was already in the form before this edit, and saving changes it: ${change}. The live form keeps the old version until publish_form; tell the user, and call discard_draft if they do not want this change.`,
+      );
     } else refuse.push(flags[i] ? { ...issue, message: `${issue.message}${INHERITED_NOTE}` } : issue);
   });
   // Only schema issues left (they joined because of the MCP's own): the API reports those itself.
