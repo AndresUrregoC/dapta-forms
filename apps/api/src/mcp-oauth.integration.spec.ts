@@ -139,6 +139,35 @@ describe('signing in', () => {
   });
 });
 
+describe('discovery for clients that look at the root', () => {
+  it('serves the protected-resource metadata at the root too, and forwards the authorization server metadata', async () => {
+    const h = await boot();
+    const scoped = (await (await fetch(`${h.base}${metadataPath}`)).json()) as Record<string, unknown>;
+    const root = await fetch(`${h.base}/.well-known/oauth-protected-resource`);
+    expect(root.status).toBe(200);
+    expect(await root.json()).toEqual(scoped);
+
+    const as = await fetch(`${h.base}/.well-known/oauth-authorization-server`);
+    expect(as.status).toBe(200);
+    const upstream = (await (await fetch(`${idp.issuer}/.well-known/oauth-authorization-server`)).json()) as Record<string, unknown>;
+    expect(await as.json()).toEqual(upstream);
+  });
+
+  it('answers 503 for the authorization server metadata while the identity provider cannot be reached', async () => {
+    const down = await bootHarness({}, { oauth: { issuer: 'http://127.0.0.1:9' } });
+    open.push(down);
+    const res = await fetch(`${down.base}/.well-known/oauth-authorization-server`);
+    expect(res.status).toBe(503);
+  });
+
+  it('is not found with the MCP endpoint switched off', async () => {
+    const h = await boot({ MCP_ENABLED: 'false' });
+    for (const path of [metadataPath, '/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server']) {
+      expect((await fetch(`${h.base}${path}`)).status, path).toBe(404);
+    }
+  });
+});
+
 describe('a flood', () => {
   it('with one valid token asks the person directory once, not per request', async () => {
     const h = await boot();
@@ -227,7 +256,9 @@ describe('with the adapter off', () => {
   it('behaves as before: no metadata, a key-only challenge, and any other bearer is a bad key', async () => {
     const h = await bootHarness();
     open.push(h);
-    expect((await fetch(`${h.base}${metadataPath}`)).status).toBe(404);
+    for (const path of [metadataPath, '/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server']) {
+      expect((await fetch(`${h.base}${path}`)).status, path).toBe(404);
+    }
     const anonymous = await h.post(initialize('2025-06-18'));
     expect(anonymous.status).toBe(401);
     expect(anonymous.headers.get('www-authenticate')).toBe('Bearer realm="dforms"');

@@ -35,6 +35,12 @@ export interface McpOAuth {
   readonly resourceMetadataUrl: string;
   metadata(): ProtectedResourceMetadata;
   /**
+   * The identity provider's authorization server metadata (RFC 8414), as it
+   * publishes it, for older clients that look for it on the MCP host itself.
+   * Throws `IssuerUnavailable` when it cannot be read and none is cached.
+   */
+  authorizationServerMetadata(): Promise<Record<string, unknown>>;
+  /**
    * The token's subject when it verifies, else null. Throws only
    * `IssuerUnavailable`, when the identity provider's keys cannot be read and
    * none are cached: an outage, not a bad token.

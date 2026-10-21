@@ -199,14 +199,28 @@ Chat apps (Claude.ai, ChatGPT) cannot send a header, so with
 deployment's WorkOS AuthKit. dForms is only the resource server: AuthKit runs
 the login, registers the client and issues the token; dForms verifies it.
 
-- **Discovery.** A request without a credential gets a 401 with
+- **Discovery.** A request without a credential, or with anything that is
+  not an API key and does not verify (a header that is not a plain
+  `Bearer <token>` included), gets a 401 with
   `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`.
   That document (RFC 9728) names `MCP_PUBLIC_URL` as the resource and AuthKit
-  as the authorization server.
+  as the authorization server. The same document is served at the root,
+  `/.well-known/oauth-protected-resource`, for clients that look there, and
+  `/.well-known/oauth-authorization-server` forwards AuthKit's own
+  authorization server metadata (RFC 8414) for older clients that look for it
+  on the MCP host. All three answer 404 with the provider unset or the
+  endpoint disabled, and the last one 503 while AuthKit cannot be read.
+- **Routing.** The MCP host (the host of `MCP_PUBLIC_URL`) must send
+  `/.well-known/*` to the API, not only `/mcp`, or a client cannot find the
+  login.
 - **The token.** RS256, signed by a key AuthKit publishes at
   `<WORKOS_AUTHKIT_DOMAIN>/oauth2/jwks`; `iss` must be `WORKOS_AUTHKIT_DOMAIN`,
-  `aud` must be `MCP_PUBLIC_URL`, and `sub` and `exp` are required. Anything
-  else is a 401 that points at the login again.
+  `aud` must be `MCP_PUBLIC_URL`, `sub` and `exp` are required, and a `crit`
+  header is refused. Anything else is a 401 that points at the login again.
+  The keys are cached: fetched once on a cold start, again when a token names
+  a key id the set lacks (at most once every 30 seconds), so a rotated key is
+  picked up within that. While AuthKit's keys cannot be read and none are
+  cached, a signed-in request gets a 503 with `Retry-After`, not a 401.
 - **Both credentials, one URL.** A bearer that starts with `dforms_` is an API
   key and takes the key path, unchanged; any other is an access token. A
   revoked key gets the key's 401, which never points at the login.

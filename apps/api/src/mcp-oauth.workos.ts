@@ -11,11 +11,34 @@
  * environment; no host or id of the hosted deployment is written here.
  */
 import type { McpOAuthConfig } from '@quill/config/env';
-import { RemoteJwks, verifyRs256 } from './jwt-rs256';
+import { IssuerUnavailable, RemoteJwks, verifyRs256 } from './jwt-rs256';
 import type { McpOAuth, McpOAuthDeps } from './mcp-oauth';
+
+/** How long the authorization server metadata is reused before it is read again. */
+const AS_METADATA_MAX_AGE_MS = 10 * 60_000;
 
 export function createWorkosAuthKit(config: McpOAuthConfig, deps: McpOAuthDeps = {}): McpOAuth {
   const jwks = new RemoteJwks(`${config.issuer}/oauth2/jwks`, { fetch: deps.fetch });
+  let asMetadata: { at: number; body: Record<string, unknown> } | null = null;
+  let asInFlight: Promise<Record<string, unknown>> | null = null;
+
+  /** AuthKit's own metadata document, read once and reused; a stale copy is served while AuthKit cannot be read. */
+  async function readAsMetadata(): Promise<Record<string, unknown>> {
+    try {
+      const res = await (deps.fetch ?? fetch)(`${config.issuer}/.well-known/oauth-authorization-server`, {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(5_000),
+      });
+      const body: unknown = res.ok ? await res.json() : null;
+      if (!body || typeof body !== 'object' || Array.isArray(body)) throw new IssuerUnavailable();
+      asMetadata = { at: Date.now(), body: body as Record<string, unknown> };
+      return asMetadata.body;
+    } catch {
+      if (asMetadata) return asMetadata.body;
+      throw new IssuerUnavailable();
+    }
+  }
+
   return {
     resource: config.resource,
     resourceMetadataUrl: config.resourceMetadataUrl,
@@ -25,6 +48,13 @@ export function createWorkosAuthKit(config: McpOAuthConfig, deps: McpOAuthDeps =
       bearer_methods_supported: ['header'],
       resource_name: 'dForms',
     }),
+    authorizationServerMetadata() {
+      if (asMetadata && Date.now() - asMetadata.at < AS_METADATA_MAX_AGE_MS) return Promise.resolve(asMetadata.body);
+      asInFlight ??= readAsMetadata().finally(() => {
+        asInFlight = null;
+      });
+      return asInFlight;
+    },
     async verify(token) {
       const claims = await verifyRs256(token, {
         issuer: config.issuer,
