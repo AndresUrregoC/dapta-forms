@@ -62,7 +62,7 @@ export interface CsvQuery extends ResponseFilter {
   ids?: string[];
   /** Keep at most this many data rows. */
   maxRows: number;
-  /** Keep at most this many characters of rows (the header always stays). */
+  /** Keep at most this many characters, header included. The header and the first row always stay, whatever their length. */
   maxChars: number;
 }
 

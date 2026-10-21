@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Client } from '@modelcontextprotocol/client';
 import { sql, upsertSubmission } from '@quill/db';
 import { WEBHOOK_SECRET_MASK } from '@quill/types';
+import { AnalyticsService } from './analytics.service';
 import { APP_URL, bootHarness, errorText, structured, type Harness } from './mcp-harness';
 import type { RateLimiter } from './rate-limit';
 import { API_KEY_RATE_LIMITER } from './tokens';
@@ -269,6 +270,44 @@ describe('responses', () => {
     expect(completed.respondent_supplied.csv).toContain('ana@example.com');
     notFound(errorText(await c.callTool({ name: 'export_responses_csv', arguments: { form_id: h.other.formId } })));
     expect((await c.callTool({ name: 'export_responses_csv', arguments: { form_id: formId, max_rows: 5000 } })).isError).toBe(true);
+  });
+
+  it('export_responses_csv is the download byte for byte, reading only the rows it returns', async () => {
+    const key = (await h.key('admin')).key;
+    const k = await h.connect(key);
+    const id = await newForm(k, 'Injection');
+    // Formula triggers and a phone number: the cells csvField rewrites.
+    await respond(id, { firstname: '=HYPERLINK("https://evil.example")', email: '+57 318 000 0000', notes: '@SUM(A1), "quoted"\nline' });
+    await respond(id, { firstname: 'Bo', email: '-1+1', interest: 'pricing' });
+    await respond(id, { firstname: 'Cy', email: 'cy@example.com' });
+    const rest = await fetch(`${h.base}/v1/forms/${id}/submissions.csv`, { headers: { Authorization: `Bearer ${key}` } });
+    expect(rest.status).toBe(200);
+    const download = (await rest.text()).replace(/^\uFEFF/, '').replace(/\r\n$/, '');
+    expect(download).toContain(`'=HYPERLINK`);
+    expect(download).toContain('"=""+57 318 000 0000"""');
+
+    const service = h.app.get(AnalyticsService, { strict: false });
+    const all = vi.spyOn(service, 'exportSubmissions');
+    const first = vi.spyOn(service, 'firstExportSubmissions');
+    try {
+      const whole = structured<{ rows: number; total_rows: number; respondent_supplied: { csv: string } }>(
+        await k.callTool({ name: 'export_responses_csv', arguments: { form_id: id } }),
+      );
+      expect(whole).toMatchObject({ rows: 3, total_rows: 3 });
+      expect(whole.respondent_supplied.csv).toBe(download);
+
+      const one = structured<{ rows: number; total_rows: number; truncated: boolean; respondent_supplied: { csv: string } }>(
+        await k.callTool({ name: 'export_responses_csv', arguments: { form_id: id, max_rows: 1 } }),
+      );
+      expect(one).toMatchObject({ rows: 1, total_rows: 3, truncated: true });
+      expect(download.startsWith(one.respondent_supplied.csv)).toBe(true);
+      // Never the unbounded export query: the first max_rows rows only.
+      expect(all).not.toHaveBeenCalled();
+      expect(first.mock.calls.map((c) => c[2])).toEqual([200, 1]);
+    } finally {
+      all.mockRestore();
+      first.mockRestore();
+    }
   });
 
   it('get_form_summary, get_response_facets and search_answers read the answers as the Summary tab does', async () => {
