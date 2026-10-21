@@ -67,14 +67,15 @@ summary.
 |---|---|---|
 | `whoami` | read | Who is connected (the key prefix, or the person signed in), every workspace it can act in with the role there, and, when a workspace applies, that workspace and the member it acts as. |
 | `list_my_workspaces` | read | The workspaces this connection can act in: name, role and id, plus what to do next. With a key, the key's one workspace. |
-| `list_forms` | read | Forms, most recently updated first, with id, `public_url` and whether edits are unpublished. Filter by name, page with `limit`/`offset`. |
-| `get_form` | read | One form: `public_url`, publish state and the config to edit (the pending draft when there is one). |
-| `create_form` | write | Creates a form from a full config. It is live at once; the result carries its `public_url`. Not idempotent. |
+| `list_forms` | read | Forms, most recently updated first, with id, `public_url`, whether edits are unpublished and `is_live` (false when the live version has no steps, so the link opens an empty form). Filter by name, ignoring case and accents; page with `limit`/`offset`. |
+| `get_form` | read | One form: `public_url`, publish state, `is_live` and the config to edit (the pending draft when there is one). `destinations` are left out of the config and only counted. |
+| `create_form` | write | Creates a form from a full config. It is live at once; the result carries its `public_url`, and a warning when dForms filled `branding` in. Not idempotent. |
 | `update_form` | write | Saves a new config as an unpublished draft (and can rename). Requires `expected_updated_at`; a form saved elsewhere since answers `STALE`. |
-| `publish_form` | **destructive** | Makes the draft live, replacing what respondents see. The replaced version is kept for `revert_form`. |
-| `revert_form` | **destructive** | Puts the previously published version back live; a second revert undoes the first. |
-| `list_responses` | read | A page of responses: status, score, times, and the answers under `respondent_supplied`. |
-| `get_form_analytics` | read | The funnel the Results screen shows (views, starts, submissions, completion rate, median time, partials, bookings, drop-off per question), each metric with its definition. |
+| `publish_form` | **destructive** | Makes the draft live, replacing what respondents see. The replaced version is kept for `revert_form`. A retry after the publish went through answers `nothing_published`, not `STALE`. |
+| `revert_form` | **destructive** | Puts the previously published version back live; a second revert undoes the first. It rolls back a publish, never unpublished edits. |
+| `discard_draft` | **destructive** | Throws away the unpublished draft, so the form goes back to its live version. What respondents see does not change. |
+| `list_responses` | read | A page of responses: status, score, outcome, times, and the answers under `respondent_supplied`, each with its `step_key` and `type`. Answers to steps the form no longer has stay, marked `step_removed`. |
+| `get_form_analytics` | read | The funnel the Results screen shows (views, starts, submissions, completion rate, median time, partials, bookings, drop-off per question), each metric with its definition, and `warnings` when the numbers do not add up as a funnel (responses created through the API). |
 | `get_form_guide` | read | The rules, how to choose a workspace, step types, logic, the config JSON Schema and worked examples. |
 
 Every tool carries a title, `readOnlyHint` / `destructiveHint` /
@@ -96,8 +97,30 @@ handlers, so any role rule those handlers apply holds for the MCP too.
   config without `steps` on an update (`STEPS_REQUIRED`). A refusal answers
   `VALIDATION_FAILED` with every problem on its own line, path first
   (`config.steps.2.question`), so a model fixes them all in one retry.
+- On top of that, the MCP refuses what the API would otherwise change without
+  a word, each with its path and what to do: a field outside the config schema
+  (`unrecognized_keys`), a repeated step key, option value or outcome id
+  (`DUPLICATE_KEY`, `DUPLICATE_VALUE`, `DUPLICATE_ID`), a `goto` to a step that
+  does not exist or does not come later (`UNKNOWN_STEP`, `INVALID_TARGET`), a
+  condition on a step that does not exist (`UNKNOWN_FIELD`), `@score` with op
+  `in` (`SCORE_OP`) and a min above its max (`MIN_ABOVE_MAX`). An
+  `update_form` that leaves `branding` out of a form that has one answers
+  `BRANDING_MISSING` (send it back as read, or `null` to remove it). A problem
+  the form already had in the config the agent read says so, so the model
+  knows it did not add it. The REST API keeps its v1 behaviour for all of
+  these.
+- `update_form` ignores `destinations` and says so in `warnings`.
 - What is saved is the engine's normalized config, the same shape the editor
   saves, so everything an agent writes opens and edits in the dForms editor.
+
+### Dates
+
+`list_responses` and `get_form_analytics` take `from`/`to` as a day
+(`YYYY-MM-DD`) or epoch milliseconds (an ISO instant works too).
+A value dForms cannot read (`2026-13-45`, `yesterday`, epoch seconds), a
+`from` after `to` or an unknown `time_zone` answers `VALIDATION_FAILED`
+instead of reading everything. With `include_daily`, `daily_truncated` says
+when the range was longer than the 366 days `daily` holds.
 - Forms created through the MCP record `created_via = 'mcp'`.
 
 ### Untrusted text

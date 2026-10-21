@@ -1,6 +1,16 @@
 import { HttpException } from '@nestjs/common';
-import { findApiKeyPrincipal, getFormById, listWorkspacesForIdentity, type Db } from '@quill/db';
-import { summarizeAnswers, type Answers, type FormConfig as EngineConfig } from '@quill/engine';
+import { findApiKeyPrincipal, getFormById, listLiveStepCounts, listWorkspacesForIdentity, type Db } from '@quill/db';
+import {
+  formatAnswerValue,
+  isInputlessStep,
+  nameAnswer,
+  nameFields,
+  resolveOutcome,
+  resolveQuestion,
+  type Answers,
+  type FormConfig as EngineConfig,
+  type FormStep,
+} from '@quill/engine';
 import {
   BackendError,
   DoorRefusal,
@@ -14,6 +24,7 @@ import {
   type FormsBackend,
   type McpCaller,
   type McpConnection,
+  type ResponseAnswer,
   type ResponsesPage,
   type ResponsesQuery,
   type UpdateFormInput,
@@ -66,6 +77,7 @@ export const MCP_FORM_HANDLERS = [
   'updateForm',
   'publishForm',
   'revertForm',
+  'discardDraft',
   'formSubmissions',
 ] as const;
 export const MCP_ANALYTICS_HANDLERS = ['formAnalytics'] as const;
@@ -191,6 +203,55 @@ export async function authenticateMcpConnection(
   return { personId: person.id, email: person.email, label, workspaces };
 }
 
+/** Longest answer a row carries (the email rows' cap); the tool cuts again for the model. */
+const ANSWER_MAX = 2000;
+
+const blank = (value: unknown): boolean =>
+  value == null || (typeof value === 'string' && value.trim() === '') || (Array.isArray(value) && value.length === 0);
+
+/**
+ * A response's answers as the owner reads them, each with the step it
+ * answers: the question as the respondent saw it and the answer with option
+ * labels, by the engine functions the notification emails use, in step
+ * order. Answers stored under a key the live form no longer has (a step
+ * deleted or renamed since) follow, marked `stepRemoved`, so an agent never
+ * reads a response as having fewer answers than it does.
+ */
+export function answerRows(config: EngineConfig, data: Answers): ResponseAnswer[] {
+  const rows: ResponseAnswer[] = [];
+  const known = new Set<string>();
+  for (const step of config.steps ?? []) {
+    known.add(step.key);
+    for (const field of nameFields(step)) known.add(field);
+    if (isInputlessStep(step)) continue;
+    const value = step.type === 'name' ? nameAnswer(step, data) : blank(data[step.key]) ? '' : formatAnswerValue(step, data[step.key], { separator: ', ' });
+    if (!value) continue;
+    rows.push({
+      question: resolveQuestion(step, data).trim() || step.key,
+      answer: value.slice(0, ANSWER_MAX),
+      stepKey: step.key,
+      type: step.type,
+    });
+  }
+  for (const [key, raw] of Object.entries(data)) {
+    if (known.has(key) || blank(raw)) continue;
+    const value = formatAnswerValue({ key, type: 'text' } as FormStep, raw, { separator: ', ' });
+    if (!value) continue;
+    rows.push({ question: key, answer: value.slice(0, ANSWER_MAX), stepKey: key, type: null, stepRemoved: true });
+  }
+  return rows;
+}
+
+/** The outcome a completed response lands in, by the live config; null when none applies. */
+function outcomeOf(config: EngineConfig, score: number | null, data: Answers): { id: string; label: string } | null {
+  try {
+    const outcome = resolveOutcome(config, score ?? 0, data);
+    return outcome ? { id: outcome.id, label: outcome.label } : null;
+  } catch {
+    return null; // A stored config the engine cannot read resolves to no outcome, never a failed page.
+  }
+}
+
 function reqOf(caller: McpCaller): ReqLike {
   const ctx = caller.context as ApiCallerContext | undefined;
   if (!ctx?.req) throw new Error('MCP caller without a request context');
@@ -294,7 +355,12 @@ export class ApiFormsBackend implements FormsBackend {
   }
 
   listForms(caller: McpCaller): Promise<FormListItem[]> {
-    return run(async () => (await this.handlers().forms.listForms(reqOf(caller))).map(listItemOf));
+    return run(async () => {
+      const forms = await this.handlers().forms.listForms(reqOf(caller));
+      // The route above resolved the caller; the counts read the same workspace.
+      const live = await listLiveStepCounts(this.db, caller.accountId);
+      return forms.map((f) => ({ ...listItemOf(f), liveStepCount: live.get(f.id) ?? null }));
+    });
   }
 
   getForm(caller: McpCaller, formId: string): Promise<FormDetail> {
@@ -325,12 +391,23 @@ export class ApiFormsBackend implements FormsBackend {
     return run(async () => detailOf(await this.handlers().forms.revertForm(reqOf(caller), formId)));
   }
 
+  discardDraft(caller: McpCaller, formId: string, expectedUpdatedAt?: number): Promise<FormDetail> {
+    return run(async () =>
+      detailOf(
+        await this.handlers().forms.discardDraft(
+          reqOf(caller),
+          formId,
+          expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt },
+        ),
+      ),
+    );
+  }
+
   /**
    * A page through the submissions route (key resolution, account scope and
    * filters exactly as the table), then each response's answers rendered as
-   * the owner reads them: the question as the respondent saw it and the
-   * answer with option labels, by the same engine function the notification
-   * emails use. Steps the live form no longer has are left out, as in the table.
+   * the owner reads them (`answerRows`), and a completed response's outcome
+   * by the live config.
    */
   listResponses(caller: McpCaller, formId: string, query: ResponsesQuery): Promise<ResponsesPage> {
     return run(async () => {
@@ -351,10 +428,8 @@ export class ApiFormsBackend implements FormsBackend {
           startedAt: s.startedAt ?? null,
           partialAt: s.partialAt ?? null,
           score: s.score ?? null,
-          answers: summarizeAnswers(config, (s.data ?? {}) as Answers).map((row) => ({
-            question: row.label,
-            answer: row.value,
-          })),
+          outcome: s.completedAt != null ? outcomeOf(config, s.score ?? null, (s.data ?? {}) as Answers) : null,
+          answers: answerRows(config, (s.data ?? {}) as Answers),
         })),
         total: page.total,
         limit: page.limit,

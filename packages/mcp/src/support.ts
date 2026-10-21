@@ -177,13 +177,27 @@ export function describeError(error: unknown): ErrorDescriptor {
 const ISSUE_HINTS: Record<string, string> = {
   UNSUPPORTED_FIELD:
     'Remove it, or send back exactly the value you read. Only the fields in the config_schema of get_form_guide are accepted.',
-  EMPTY_QUESTION: 'Only message, reveal and scheduler steps may go without one.',
-  STEPS_REQUIRED: 'Send the full steps array: the config replaces the whole draft.',
+  EMPTY_QUESTION: 'Write a question for it. Only message, reveal and scheduler steps may go without one.',
+  STEPS_REQUIRED: "Start from get_form's config and send it back whole, steps included.",
+  DUPLICATE_KEY: 'Give every step its own key: conditions, goto rules and [placeholders] name a step by its key.',
+  DUPLICATE_VALUE: 'Give every option of this step its own value: answers, conditions and scores name an option by its value.',
+  DUPLICATE_ID: 'Give every outcome its own id.',
+  UNKNOWN_STEP: 'Use the key of a step that comes later, or null to skip to the end.',
+  INVALID_TARGET: 'Use the key of a step that comes later, or null to skip to the end.',
+  UNKNOWN_FIELD: 'Use the key of an earlier step, or "@score" in showWhen or hideWhen.',
+  SCORE_OP: 'With "@score" use op gt, lt or eq with `value`, or between with `min` and `max`.',
+  MIN_ABOVE_MAX: 'The lower bound must not be above the upper one: swap them, or fix the wrong one.',
+  BRANDING_MISSING:
+    "Send `branding` back exactly as get_form returned it to keep the form's look, or send `branding: null` to remove it on purpose.",
+  INVALID_DATE: 'Send a day as YYYY-MM-DD (read in the time zone of the range) or epoch milliseconds.',
+  INVALID_RANGE: 'Swap from and to, or fix the wrong one.',
+  INVALID_TIME_ZONE: 'Use an IANA zone name such as America/Bogota or Europe/Madrid, or leave time_zone out for the workspace zone.',
   invalid_type: 'Wrong type or missing value.',
   invalid_enum_value: 'Use one of the allowed values.',
   invalid_literal: 'Use the exact value shown (for example version must be 1).',
   invalid_union_discriminator: 'Unknown type: check the allowed values.',
-  unrecognized_keys: 'Remove the unknown keys.',
+  unrecognized_keys:
+    'Remove it. Only the fields in the config_schema of get_form_guide are accepted; nothing outside it is saved.',
   too_small: 'Too short, too few items or too low.',
   too_big: 'Too long, too many items or too high.',
 };
@@ -207,6 +221,21 @@ export function renderIssues(issues: BackendIssue[]): string {
   });
   if (issues.length > MAX_LISTED_ISSUES) lines.push(`- ...and ${issues.length - MAX_LISTED_ISSUES} more.`);
   return lines.join('\n');
+}
+
+const CONFIG_HELP = 'The config schema, the step types and worked examples are in get_form_guide.';
+
+/**
+ * A refusal that lists every problem, path first, so a model fixes them all in
+ * one retry. `help` is the line after the list (the guide, by default).
+ */
+export function validationFailure(issues: BackendIssue[], help: string = CONFIG_HELP): ToolFailure {
+  const count = issues.length;
+  return new ToolFailure(
+    'VALIDATION_FAILED',
+    `${count} problem${count === 1 ? '' : 's'} in the arguments. Fix every one, then retry the same call:\n${renderIssues(issues)}`,
+    help,
+  );
 }
 
 /** Which kind of credential a call came with: the copy a model reads speaks of it. */
@@ -255,14 +284,7 @@ const CONNECTION: Record<string, { message?: string; hint: string }> = {
 export function toFailure(error: unknown, credential: CredentialKind = 'key'): ToolFailure {
   if (error instanceof ToolFailure) return error;
   if (error instanceof BackendError) {
-    if (error.status === 400 && error.issues.length > 0) {
-      const count = error.issues.length;
-      return new ToolFailure(
-        'VALIDATION_FAILED',
-        `${count} problem${count === 1 ? '' : 's'} in the arguments. Fix every one, then retry the same call:\n${renderIssues(error.issues)}`,
-        'The config schema, the step types and worked examples are in get_form_guide.',
-      );
-    }
+    if (error.status === 400 && error.issues.length > 0) return validationFailure(error.issues);
     if (error.status === 404) return notFound('Form');
     if (error.status === 429) {
       const after = Number(error.details['retryAfterSec']);

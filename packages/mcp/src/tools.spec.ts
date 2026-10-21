@@ -19,7 +19,7 @@ async function client(opts: HarnessOptions = {}, role = 'owner') {
 }
 
 describe('catalog', () => {
-  it('lists eleven task-shaped tools, every one with a title and all four behaviour hints, and no delete tool', async () => {
+  it('lists twelve task-shaped tools, every one with a title and all four behaviour hints, and no delete tool', async () => {
     const { c } = await client();
     const { tools } = await c.listTools();
     expect(tools.map((t) => t.name)).toEqual([
@@ -31,6 +31,7 @@ describe('catalog', () => {
       'update_form',
       'publish_form',
       'revert_form',
+      'discard_draft',
       'list_responses',
       'get_form_analytics',
       'get_form_guide',
@@ -50,8 +51,9 @@ describe('catalog', () => {
     for (const name of ['whoami', 'list_my_workspaces', 'list_forms', 'get_form', 'list_responses', 'get_form_analytics', 'get_form_guide'])
       expect(byName[name]!.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
     for (const name of ['create_form', 'update_form']) expect(byName[name]!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
-    for (const name of ['publish_form', 'revert_form']) expect(byName[name]!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
-    expect(TOOLS.filter((t) => t.write).map((t) => t.name)).toEqual(['create_form', 'update_form', 'publish_form', 'revert_form']);
+    for (const name of ['publish_form', 'revert_form', 'discard_draft'])
+      expect(byName[name]!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+    expect(TOOLS.filter((t) => t.write).map((t) => t.name)).toEqual(['create_form', 'update_form', 'publish_form', 'revert_form', 'discard_draft']);
     for (const t of TOOLS) {
       const keys = Object.keys(t.input.shape);
       expect(keys.filter((k) => /account|workspace|member/.test(k)), t.name).toEqual(t.workspace === 'none' ? [] : ['workspace_id']);

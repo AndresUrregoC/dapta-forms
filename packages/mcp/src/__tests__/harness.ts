@@ -91,6 +91,7 @@ export function fakeBackend(over: Partial<FormsBackend> = {}) {
     updateForm: async (_c, id) => form({ id, hasDraft: true, updatedAt: NOW + 1 }),
     publishForm: async (_c, id) => form({ id, publishedAt: NOW + 2, previousPublishedAt: NOW - 5 }),
     revertForm: async (_c, id) => form({ id }),
+    discardDraft: async (_c, id) => form({ id, updatedAt: NOW + 3 }),
     listResponses: async () => page,
     formAnalytics: async () => analytics(),
   };
@@ -103,6 +104,7 @@ export function fakeBackend(over: Partial<FormsBackend> = {}) {
     updateForm: record('updateForm', merged.updateForm),
     publishForm: record('publishForm', merged.publishForm),
     revertForm: record('revertForm', merged.revertForm),
+    discardDraft: record('discardDraft', merged.discardDraft),
     listResponses: record('listResponses', merged.listResponses),
     formAnalytics: record('formAnalytics', merged.formAnalytics),
   };

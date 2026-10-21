@@ -12,7 +12,8 @@ connect one, is in [`docs/MCP.md`](../../docs/MCP.md).
 | Module | What it is |
 |---|---|
 | `backend.ts` | `FormsBackend`, the port the host implements. The tools never touch a database or an HTTP route; forms-api implements the port over its own form handlers (`apps/api/src/mcp.backend.ts`), so every rule a write is held to on the web applies to an agent too. |
-| `tools.ts` | The catalog: eleven tools, each with a title, the four behaviour hints, a zod input and output schema, and a `run` over the backend. No delete tools. Every tool that acts in a workspace takes an optional `workspace_id`. |
+| `tools.ts` | The catalog: twelve tools, each with a title, the four behaviour hints, a zod input and output schema, and a `run` over the backend. No delete tools. Every tool that acts in a workspace takes an optional `workspace_id`. |
+| `config-check.ts` | What the MCP refuses on top of the API's agent rules, so nothing an agent sends is changed silently: unknown fields, repeated step keys, option values and outcome ids, references to steps that do not exist, `@score` with op `in`, a min above its max. Also marks the problems a form already had in the config the agent read. The REST API keeps its v1 behaviour. |
 | `workspace.ts` | Which workspace a call acts in: an API key keeps its own (another `workspace_id` is refused), an MCP connection acts in the one the call names, or its only one. Also the door's rate-limit bucket per member. |
 | `server.ts` | `FormsMcpServer`: the SDK's stateless handler (2026-07-28 and 2025-era clients), a fresh `McpServer` per request, and the one wrapper every tool call runs through: write rate limit, timeout, error mapping, one audit line. |
 | `door.ts` | `McpDoor`: the HTTP guard. Switch, `POST` only, `Host`, `Origin`, credentials in the URL, JSON content type, then the bearer token, with rate limits per credential and per client address. No anonymous door. |
