@@ -472,6 +472,13 @@ describe('staff of the deployment', () => {
     );
     expect(who).toMatchObject({ workspace: { id: h.other.accountId }, member: { id: grant!.id, role: 'admin' }, staff: true });
 
+    // A tool result echoes the id the agent sent, so it never looks like the
+    // call landed in another workspace.
+    const byUpstream = structured<{ workspace: { id: string; name: string } }>(
+      await c.callTool({ name: 'list_forms', arguments: { workspace_id: globexUpstream } }),
+    );
+    expect(byUpstream.workspace).toEqual({ id: globexUpstream, name: 'Globex', access: 'staff' });
+
     type Form = { form: { id: string; updated_at: number } };
     const created = structured<Form>(
       await c.callTool({ name: 'create_form', arguments: { name: 'Staff built', config: LEAD, workspace_id: h.other.accountId } }),
@@ -496,7 +503,7 @@ describe('staff of the deployment', () => {
     const audit = JSON.parse(h.audit.at(-1)!) as Record<string, unknown>;
     expect(audit).toMatchObject({ tool: 'publish_form', accountId: h.other.accountId, memberId: grant!.id, personId: p.personId, via: 'staff_grant' });
     const lines = h.staffLog.map((l) => JSON.parse(l) as Record<string, unknown>);
-    expect(lines).toHaveLength(5);
+    expect(lines).toHaveLength(6);
     expect(lines[0]).toMatchObject({ msg: 'mcp.staff_access', channel: 'mcp', via: 'staff_grant', personId: p.personId, accountId: h.other.accountId, workspaceId: globexUpstream, granted: true });
     expect(lines.slice(1).every((l) => l.granted === false)).toBe(true);
     // Never on the customer's roster.
@@ -554,7 +561,7 @@ describe('staff of the deployment', () => {
       sql`SELECT id, name, onboarding_completed_at FROM account WHERE external_id = ${initrode}`,
     );
     expect(account).toMatchObject({ name: 'Initrode', onboarding_completed_at: null });
-    expect(created.workspace).toMatchObject({ id: account!.id, name: 'Initrode' });
+    expect(created.workspace).toMatchObject({ id: initrode, name: 'Initrode' });
     expect((await h.db.get<{ account_id: string }>(sql`SELECT account_id FROM form WHERE id = ${created.form.id}`))!.account_id).toBe(account!.id);
   });
 
