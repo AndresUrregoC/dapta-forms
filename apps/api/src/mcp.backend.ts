@@ -8,6 +8,7 @@ import {
   listWorkspacesForIdentity,
   searchProjectedAccounts,
   sql,
+  StaffGrantRefused,
   type Db,
 } from '@quill/db';
 import {
@@ -50,7 +51,7 @@ import type { ReqLike } from './auth.provider';
 import { inProcessRequest } from './in-process-principal';
 import { IssuerUnavailable, type McpOAuth } from './mcp-oauth';
 import { lookUpPerson, type Person, type PersonDirectory } from './person-directory';
-import { isStaffEmail, upstreamWorkspaceIdOf } from './staff';
+import { isStaffEmail, MEMBERSHIP_NOT_ACTIVE_MESSAGE, upstreamWorkspaceIdOf } from './staff';
 
 /**
  * forms-api's side of the MCP port (`FormsBackend` in `@quill/mcp`).
@@ -293,6 +294,15 @@ function memberCaller(
 
 const UUID_SHAPED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Staff named a workspace where their own membership is not active: never turned into a grant. */
+function membershipNotActive(): ToolFailure {
+  return new ToolFailure(
+    'MEMBERSHIP_NOT_ACTIVE',
+    MEMBERSHIP_NOT_ACTIVE_MESSAGE,
+    'Tell the user. Only the workspace owner can restore the membership (or the user can accept the invitation in dForms); do not retry.',
+  );
+}
+
 /** A directory call made for staff, as a tool failure the agent can act on when the directory cannot be read. */
 async function fromDirectory<T>(read: () => Promise<T>): Promise<T> {
   try {
@@ -385,6 +395,11 @@ function staffAccessFor(
         // A real membership is never turned into a grant.
         return memberCaller(person, label, { accountId: local.id, accountName: ws.name, memberId: held.id, role: held.role });
       }
+      if (held && held.access_grant === null) {
+        // Nor is one that is not active: a member the owner disabled stays
+        // disabled, and an invitation stays an invitation.
+        throw membershipNotActive();
+      }
       let accountId: string;
       let memberId: string;
       let granted = false;
@@ -399,11 +414,17 @@ function staffAccessFor(
             'Ask the user to open this workspace once in dForms (the workspace switcher), then retry: the call then acts as the member they are, not through staff access.',
           );
         }
-        ({ accountId, memberId } = await grantStaffAccess(
-          db,
-          { externalId: person.id, email: person.email, displayName: null },
-          { workspaceId: ws.id, workspaceName: ws.name, iamAccountId: ws.accountId },
-        ));
+        try {
+          ({ accountId, memberId } = await grantStaffAccess(
+            db,
+            { externalId: person.id, email: person.email, displayName: null },
+            { workspaceId: ws.id, workspaceName: ws.name, iamAccountId: ws.accountId },
+          ));
+        } catch (error) {
+          // A membership appeared between the read above and the grant.
+          if (error instanceof StaffGrantRefused) throw membershipNotActive();
+          throw error;
+        }
         granted = true;
       }
       log(

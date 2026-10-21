@@ -22,6 +22,7 @@ import {
   ConflictException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   Inject,
@@ -100,6 +101,16 @@ export class ApiKeysController {
   @HttpCode(201)
   async create(@Req() req: ReqLike, @Body() body: unknown) {
     const p = await this.session(req);
+    // Staff in a workspace through an access grant act there only while they
+    // are staff, judged on each request. A key would outlive that (it carries
+    // no person to judge), so a grant never mints one; such keys never
+    // authenticate either (`ApiKeyAuthenticator`).
+    if (p.accessGrant === 'staff') {
+      throw new ForbiddenException({
+        error: 'STAFF_ACCESS_NO_KEYS',
+        message: 'Staff access cannot create API keys in this workspace. Ask a member of the workspace for a key, or connect over MCP with your sign-in.',
+      });
+    }
     const parsed = createApiKeySchema.safeParse(body ?? {});
     if (!parsed.success) {
       throw new BadRequestException({

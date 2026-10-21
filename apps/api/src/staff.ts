@@ -11,6 +11,14 @@
  */
 
 /**
+ * Why staff access refuses a workspace where the person holds a membership
+ * that is not active (`StaffGrantRefused`): the web app's switcher and the
+ * MCP door say the same.
+ */
+export const MEMBERSHIP_NOT_ACTIVE_MESSAGE =
+  'You have a membership in this workspace that is not active: its owner disabled or removed it, or it is still an invitation. Staff access never replaces a membership.';
+
+/**
  * The identity service's workspace id behind a local account's
  * `external_id`, or null for an account the identity service does not own
  * (none, or a local-only `local:`/`dev:`/`legacy:` id). Only such a

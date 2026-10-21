@@ -471,6 +471,8 @@ export interface FormsMessages {
       manageErrorLastOwner: string;
       manageErrorForbidden: string;
       manageErrorFailed: string;
+      /** Staff opening a workspace where their own membership is disabled or pending: never replaced by staff access. */
+      manageErrorMembershipNotActive: string;
       /** The identity service could not apply the change (role missing, member unmanaged, refused). */
       manageErrorUpstream: string;
       /** Ownership is a membership type upstream; only the Dapta app transfers it. */
@@ -2013,6 +2015,12 @@ export interface FormsMessages {
         errorLimit: string;
         errorForbidden: string;
         errorFailed: string;
+        /**
+         * The viewer is in this workspace through a staff access grant, which
+         * never holds an API key: the note beside the disabled create button,
+         * and the dialog's error if a create is tried anyway.
+         */
+        staffAccess: string;
         /** The reveal step, after the key exists. Shown once. */
         createdTitle: string;
         keyLabel: string;
@@ -2778,6 +2786,8 @@ export const en: FormsMessages = {
       manageErrorLastOwner: 'A workspace must keep at least one owner.',
       manageErrorForbidden: 'You do not have permission to do that.',
       manageErrorFailed: 'Something went wrong. Please try again.',
+      manageErrorMembershipNotActive:
+        'Your own membership in this workspace is not active (its owner disabled it, or it is still an invitation), so staff access cannot open it.',
       manageErrorUpstream: 'The identity service could not apply this change.',
       manageErrorOwnership: 'Ownership is transferred from the Dapta app.',
     },
@@ -4118,6 +4128,8 @@ export const en: FormsMessages = {
           'You already have 10 active keys, the most allowed. Revoke one you no longer use to create another.',
         errorForbidden: 'You cannot create keys in this workspace.',
         errorFailed: 'Could not create the key. Try again.',
+        staffAccess:
+          'You are in this workspace through staff access, which cannot create API keys. Ask someone on the team for a key, or connect over MCP with your sign-in.',
         createdTitle: 'Copy your new key',
         keyLabel: 'Your API key',
         createdWarning:
@@ -5029,6 +5041,8 @@ export const es: FormsMessages = {
       manageErrorLastOwner: 'Un espacio de trabajo debe conservar al menos un propietario.',
       manageErrorForbidden: 'No tienes permiso para hacer eso.',
       manageErrorFailed: 'Algo salió mal. Inténtalo de nuevo.',
+      manageErrorMembershipNotActive:
+        'Tu membresía en este espacio de trabajo no está activa (su propietario la desactivó, o sigue siendo una invitación), así que el acceso de staff no puede abrirlo.',
       manageErrorUpstream: 'El servicio de identidad no pudo aplicar este cambio.',
       manageErrorOwnership: 'La propiedad se transfiere desde la app de Dapta.',
     },
@@ -6379,6 +6393,8 @@ export const es: FormsMessages = {
           'Ya tienes 10 llaves activas, el máximo permitido. Revoca una que ya no uses para crear otra.',
         errorForbidden: 'No puedes crear llaves en este workspace.',
         errorFailed: 'No se pudo crear la llave. Inténtalo de nuevo.',
+        staffAccess:
+          'Estás en este workspace con acceso de staff, que no puede crear llaves de API. Pídele una llave a alguien del equipo, o conéctate por MCP con tu inicio de sesión.',
         createdTitle: 'Copia tu nueva llave',
         keyLabel: 'Tu llave de API',
         createdWarning:

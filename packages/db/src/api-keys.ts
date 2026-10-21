@@ -65,6 +65,12 @@ export interface ApiKeyPrincipalRow {
   memberId: string;
   role: AccountRole;
   memberStatus: string;
+  /**
+   * `'staff'` when the key's member is a staff access grant row. Such a key
+   * never authenticates: a grant lives only while its person is staff, and a
+   * key carries no person to judge that by.
+   */
+  accessGrant: "staff" | null;
   lastUsedAt: number | null;
 }
 
@@ -152,10 +158,11 @@ export async function getApiKeyById(
  * `memberId` narrows to that member's own keys (what a plain member sees);
  * omitted, every active key of the workspace (owner and admin).
  *
- * Only keys of members who are active there: those are the only ones that
- * authenticate. Taking a member out revokes their keys anyway; this also hides
- * a key whose member was disabled some other way (by hand, or before keys
- * followed their member).
+ * Only keys of members who are active there and hold a real membership:
+ * those are the only ones that authenticate. Taking a member out revokes
+ * their keys anyway; this also hides a key whose member was disabled some
+ * other way (by hand, or before keys followed their member), and a key a
+ * staff access grant held before grants stopped holding keys.
  */
 export async function listApiKeys(
   db: Db,
@@ -168,6 +175,7 @@ export async function listApiKeys(
                m.display_name, m.email
         FROM api_key k
         JOIN member m ON m.id = k.member_id AND m.account_id = k.account_id AND m.status = 'active'
+          AND m.access_grant IS NULL
         WHERE k.account_id = ${accountId} AND k.revoked_at_ms IS NULL${mine}
         ORDER BY k.created_at DESC, k.id ASC`,
   );
@@ -227,7 +235,7 @@ export async function findApiKeyPrincipal(
   keyHash: string,
 ): Promise<ApiKeyPrincipalRow | null> {
   const r = await db.get<Record<string, unknown>>(
-    sql`SELECT k.id, k.account_id, k.member_id, k.last_used_at_ms, m.role, m.status, a.name AS account_name
+    sql`SELECT k.id, k.account_id, k.member_id, k.last_used_at_ms, m.role, m.status, m.access_grant, a.name AS account_name
         FROM api_key k
         JOIN member m ON m.id = k.member_id AND m.account_id = k.account_id
         JOIN account a ON a.id = k.account_id
@@ -242,6 +250,7 @@ export async function findApiKeyPrincipal(
     memberId: String(r.member_id),
     role: ((r.role as AccountRole | null) ?? "member") as AccountRole,
     memberStatus: String(r.status ?? "active"),
+    accessGrant: r.access_grant == null ? null : "staff",
     lastUsedAt: numOrNull(r.last_used_at_ms),
   };
 }

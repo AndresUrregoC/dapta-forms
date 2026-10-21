@@ -243,10 +243,12 @@ export class WorkspaceProjection {
   /**
    * Where this person lands: the workspace they opened last (in either app),
    * if they are still a member of it; else their most recently seen local
-   * membership; else null (nothing upstream, nothing local).
+   * membership; else null (nothing upstream, nothing local). A staff access
+   * grant counts only while the person is staff now: someone who stopped
+   * being staff never lands in a workspace they reached through a grant.
    */
   async home(id: UpstreamIdentity, state: ProjectionState): Promise<{ accountId: string; memberId: string } | null> {
-    return pickHomeAccount(this.db, id.sub, state.lastWorkspace);
+    return pickHomeAccount(this.db, id.sub, state.lastWorkspace, { includeGrants: this.isStaff(id.email) });
   }
 
   /**
