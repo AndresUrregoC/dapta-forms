@@ -108,7 +108,8 @@ function stripMarkup(text: string): string {
  * characters go, HTML tags go, markdown images vanish (nested ones too), a
  * markdown link keeps its visible text, whitespace collapses, and the result
  * is length-capped. Cleaning a cleaned text changes nothing. Every pass is
- * linear, and the input is cut before the passes run, so a hostile answer
+ * linear, and the input is cut to `max * 4` characters before the passes
+ * run, which also bounds how many passes there can be, so a hostile answer
  * cannot make this slow.
  */
 export function untrusted(value: unknown, max = 500): string {
