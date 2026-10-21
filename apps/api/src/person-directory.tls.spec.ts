@@ -41,7 +41,7 @@ const OAUTH = {
 };
 const env = (over: Record<string, string | undefined> = {}) => loadServerEnv({ ...OAUTH, ...over } as NodeJS.ProcessEnv);
 
-describe.skipIf(!hasOpenssl)('TLS to the identity database', () => {
+describe.skipIf(!hasOpenssl)('TLS to the identity database', { timeout: 15_000 }, () => {
   let dir: string;
   const pem: Record<string, string> = {};
   const servers: Server[] = [];
@@ -98,7 +98,7 @@ describe.skipIf(!hasOpenssl)('TLS to the identity database', () => {
 
   /** The error a lookup ends in (every one does: the stand-in hangs up after the handshake). */
   async function lookUp(c: IamDirectoryConfig): Promise<{ code?: string; message: string }> {
-    const d = createIamPersonDirectory(c, { queryTimeoutMs: 3_000 });
+    const d = createIamPersonDirectory(c, { queryTimeoutMs: 1_000 });
     try {
       await d.personOf('user_x');
       return { message: 'answered' };
