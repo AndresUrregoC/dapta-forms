@@ -11,6 +11,7 @@ import {
   type FormListItem,
   type FormsBackend,
   type McpCaller,
+  type McpConnection,
   type ResponsesPage,
   type ResponsesQuery,
   type UpdateFormInput,
@@ -113,6 +114,7 @@ export async function authenticateMcpKey(db: Db, token: string): Promise<McpCall
   };
   return {
     accountId: row.accountId,
+    workspaceName: row.accountName,
     memberId: row.memberId,
     role: row.role,
     credentialId: row.keyId,
@@ -123,21 +125,24 @@ export async function authenticateMcpKey(db: Db, token: string): Promise<McpCall
 }
 
 /**
- * Resolve an access token to the MCP caller of an MCP connection: a person,
- * acting as their member in their only workspace. Null when the token does
+ * Resolve an access token to an MCP connection: the person it signs in, with
+ * one caller per workspace where they hold an active member (each acting as
+ * that member through its own in-process principal). Null when the token does
  * not verify (a 401 that points at the login again).
  *
- * A token that verifies but cannot act is a `DoorRefusal` (403) with a
- * message the person can act on, because signing in again would not change
- * it: the directory knows nobody by the token's subject, or the person has no
- * active member in any workspace yet, or (until a call can name its
- * workspace) more than one.
+ * A token that verifies but names nobody the directory knows is a
+ * `DoorRefusal` (403) with a message the person can act on, because signing
+ * in again would not change it. A person with no workspace yet is let in with
+ * none: their tools answer NO_WORKSPACE, which the agent can explain.
  *
  * The workspaces are dForms' own active members, matched by the person's
  * identity-service id or email exactly as the web's workspace switcher does,
- * never the identity provider's view. Like a key, this is a lookup only: every
- * tool call re-reads the member through `AuthService.resolveHost`, so a member
- * disabled, removed or demoted after this point is seen on the call itself.
+ * never the identity provider's view. Rows held by a staff access grant are
+ * left out: a connection reaches the workspaces the person belongs to, never
+ * a customer's through staff access. Like a key, this is a lookup only, done
+ * again on every request: every tool call re-reads its member through
+ * `AuthService.resolveHost`, so a member disabled, removed or demoted after
+ * this point is seen on the call itself.
  */
 export async function authenticateMcpConnection(
   db: Db,
@@ -145,33 +150,33 @@ export async function authenticateMcpConnection(
   directory: PersonDirectory,
   token: string,
   appUrl = '',
-): Promise<McpCaller | null> {
+): Promise<McpConnection | null> {
   const access = await oauth.verify(token);
   if (!access) return null;
-  const openOnce = `Open dForms once with this account${appUrl ? ` (${appUrl})` : ''}, then connect again.`;
   const person = await lookUpPerson(directory, access.subject);
-  if (!person) throw new DoorRefusal(`This sign-in has no dForms account yet. ${openOnce}`);
-  const workspaces = (await listWorkspacesForIdentity(db, { externalId: person.id, email: person.email })).filter(
-    (w) => w.status === 'active',
-  );
-  if (workspaces.length === 0) throw new DoorRefusal(`You are not an active member of any dForms workspace yet. ${openOnce}`);
-  if (workspaces.length > 1) {
+  if (!person) {
     throw new DoorRefusal(
-      'You are a member of several dForms workspaces, and choosing one when you sign in is not available yet. For now, connect with an API key of the workspace you want.',
+      `This sign-in has no dForms account yet. Open dForms once with this account${appUrl ? ` (${appUrl})` : ''}, then connect again.`,
     );
   }
-  const [workspace] = workspaces as [(typeof workspaces)[number]];
-  const context: ApiCallerContext = { req: inProcessRequest({ accountId: workspace.accountId, memberId: workspace.memberId }) };
-  return {
-    accountId: workspace.accountId,
-    memberId: workspace.memberId,
-    role: workspace.role,
-    // One bucket per member: the same person on several clients shares it.
-    credentialId: `member:${workspace.memberId}`,
-    label: `oauth:${person.id}`,
-    personId: person.id,
-    context,
-  };
+  const label = `oauth:${person.id}`;
+  const rows = await listWorkspacesForIdentity(db, { externalId: person.id, email: person.email });
+  const workspaces = rows
+    .filter((w) => w.status === 'active' && w.accessGrant === null)
+    .map(
+      (w): McpCaller => ({
+        accountId: w.accountId,
+        workspaceName: w.accountName,
+        memberId: w.memberId,
+        role: w.role,
+        // One bucket per member: the same person on several clients shares it.
+        credentialId: `member:${w.memberId}`,
+        label,
+        personId: person.id,
+        context: { req: inProcessRequest({ accountId: w.accountId, memberId: w.memberId }) } satisfies ApiCallerContext,
+      }),
+    );
+  return { personId: person.id, email: person.email, label, workspaces };
 }
 
 function reqOf(caller: McpCaller): ReqLike {

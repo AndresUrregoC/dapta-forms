@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { sql } from '@quill/db';
-import { bootHarness, initialize, structured, type Harness } from './mcp-harness';
+import { bootHarness, errorText, initialize, structured, type Harness } from './mcp-harness';
 import { startFakeIdentityProvider, type FakeIdentityProvider } from './fake-identity-provider';
 
 let idp: FakeIdentityProvider;
@@ -56,7 +56,7 @@ async function person(h: Harness, role: 'owner' | 'admin' | 'member' = 'admin', 
 const metadataPath = '/.well-known/oauth-protected-resource/mcp';
 
 describe('signing in', () => {
-  it('discovers the login from a 401, signs in, and runs all ten tools as a person with one workspace', async () => {
+  it('discovers the login from a 401, signs in, and runs all eleven tools as a person with one workspace', async () => {
     const h = await boot();
     const p = await person(h, 'admin');
 
@@ -69,7 +69,10 @@ describe('signing in', () => {
 
     const c = await h.signIn(idp.client(p.subject));
     const tools = (await c.listTools()).tools.map((t) => t.name);
-    expect(tools).toHaveLength(10);
+    expect(tools).toHaveLength(11);
+    expect(structured<{ workspaces: Array<{ id: string }> }>(await c.callTool({ name: 'list_my_workspaces', arguments: {} })).workspaces).toEqual([
+      { id: h.accountId, name: 'Acme Inc.', role: 'admin' },
+    ]);
 
     const who = structured<{ workspace: { id: string }; member: { id: string; role: string }; key: unknown }>(
       await c.callTool({ name: 'whoami', arguments: {} }),
@@ -127,29 +130,12 @@ describe('signing in', () => {
     expect((await h.post(initialize('2025-06-18'), { authorization: `Bearer ${forged}` })).status).toBe(401);
   });
 
-  it('refuses with a message to act on, never a login loop, when the person has no workspace or the directory does not know them', async () => {
+  it('refuses with a message to act on, never a login loop, when the directory does not know the person', async () => {
     const h = await boot();
-    const nowhere = `user_${randomUUID().slice(0, 8)}`;
-    h.people.set(nowhere, { id: randomUUID(), email: `${nowhere}@example.com` });
-    const res = await h.post(initialize('2025-06-18'), { authorization: `Bearer ${idp.token(nowhere, `${h.base}/mcp`)}` });
-    expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: { message: string } }).error.message).toMatch(/Open dForms once/);
     const unknown = await h.post(initialize('2025-06-18'), { authorization: `Bearer ${idp.token('user_unknown', `${h.base}/mcp`)}` });
     expect(unknown.status).toBe(403);
+    expect(((await unknown.json()) as { error: { message: string } }).error.message).toMatch(/Open dForms once/);
     expect(unknown.headers.get('www-authenticate')).toBeNull();
-  });
-
-  it('refuses, for now, a person with an active member in more than one workspace', async () => {
-    const h = await boot();
-    const p = await person(h);
-    await h.db.run(
-      sql`INSERT INTO member (id, account_id, handle, display_name, email, role, status, external_id, created_at)
-          VALUES (${randomUUID()}, ${h.other.accountId}, ${'second'}, ${'Spec Person'}, ${p.email}, ${'member'}, ${'active'},
-            ${p.personId}, ${Date.now()})`,
-    );
-    const res = await h.post(initialize('2025-06-18'), { authorization: `Bearer ${idp.token(p.subject, `${h.base}/mcp`)}` });
-    expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: { message: string } }).error.message).toMatch(/several dForms workspaces/);
   });
 });
 
@@ -176,7 +162,7 @@ describe('a signed-in member, mid-session', () => {
     await h.db.run(sql`UPDATE member SET role = 'owner' WHERE id = ${p.memberId}`);
     expect(structured<{ member: { role: string } }>(await c.callTool({ name: 'whoami', arguments: {} })).member.role).toBe('owner');
     await h.db.run(sql`UPDATE member SET status = 'disabled' WHERE id = ${p.memberId}`);
-    await expect(c.callTool({ name: 'list_forms', arguments: {} })).rejects.toThrow();
+    expect(errorText(await c.callTool({ name: 'list_forms', arguments: {} }))).toMatch(/^NO_WORKSPACE/);
   });
 });
 

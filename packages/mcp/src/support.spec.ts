@@ -83,6 +83,9 @@ describe('toFailure', () => {
     expect(limited.render()).toContain('Retry after 7s.');
     expect(toFailure(new BackendError(401, 'INVALID_API_KEY', 'This API key is not valid.')).render()).toContain('new key');
     expect(toFailure(new BackendError(409, 'SLUG_TAKEN', 'Taken.')).render()).toContain('another slug');
+    const gone = toFailure(new BackendError(401, 'MEMBER_NOT_ACTIVE', 'You are no longer an active member of this workspace.')).render();
+    expect(gone).toMatch(/^MEMBER_NOT_ACTIVE: You are no longer an active member of this workspace\. /);
+    expect(gone).toContain('list_my_workspaces');
     expect(toFailure(new BackendError(503, 'UNAVAILABLE', 'Storage down, host db-7')).render()).not.toContain('db-7');
     expect(toFailure(new Error('boom')).code).toBe('INTERNAL_ERROR');
     const own = new ToolFailure('X', 'y');

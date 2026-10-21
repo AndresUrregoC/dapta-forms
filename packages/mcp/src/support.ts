@@ -225,6 +225,9 @@ const ACTIONABLE: Record<string, { message?: string; hint: string }> = {
     hint: "The key's owner lacks the role for this. Tell the user; an owner or admin of the workspace can do it.",
   },
   KEY_NOT_ALLOWED: { hint: 'This can only be done in the dForms dashboard. Tell the user.' },
+  MEMBER_NOT_ACTIVE: {
+    hint: 'You were removed from this workspace, or your access there was turned off. Call list_my_workspaces to see where you can act, and tell the user.',
+  },
   INVALID_API_KEY: {
     message: 'The API key stopped working: it was revoked, or its owner left the workspace.',
     hint: 'Ask the user for a new key (dForms, MCP, API keys).',

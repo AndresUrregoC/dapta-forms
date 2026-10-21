@@ -6,6 +6,7 @@ import type { ServerEnv } from '@quill/config/env';
 import {
   FormsMcpServer,
   McpDoor,
+  isConnection,
   unlimited,
   type DoorRequest,
   type DoorResponse,
@@ -84,6 +85,8 @@ export class McpController implements OnModuleInit {
       backend: new ApiFormsBackend(db, () => this.resolveHandlers()),
       toolTimeoutMs: env.MCP_TOOL_TIMEOUT_MS,
       writeLimiter: bucket(env.MCP_WRITE_RATE_LIMIT_CAPACITY, env.MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC),
+      // Named to a signed-in person with no workspace yet: open dForms once there.
+      appUrl: env.PUBLIC_APP_URL,
       // Class and code only: a stack or a message can quote the request's data.
       onInternalError: (tool, requestId, error) => this.logger.error(`tool ${tool} failed (${requestId}): ${errorLabel(error)}`),
       onTransportError: (error) => this.logger.warn(`mcp transport: ${errorLabel(error)}`),
@@ -105,8 +108,8 @@ export class McpController implements OnModuleInit {
             }
           : undefined,
       // A key call on a deprecated API host is logged by key id, like REST.
-      onAuthenticated: (req, caller) => {
-        if (!caller.personId) noteApiKeyCall(req, caller.credentialId, caller.accountId);
+      onAuthenticated: (req, credential) => {
+        if (!isConnection(credential)) noteApiKeyCall(req, credential.credentialId, credential.accountId);
       },
       keyLimiter: bucket(env.MCP_RATE_LIMIT_CAPACITY, env.MCP_RATE_LIMIT_REFILL_PER_SEC),
       ipLimiter,

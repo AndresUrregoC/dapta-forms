@@ -1,14 +1,17 @@
 import { McpServer, createMcpHandler, type McpHttpHandler } from '@modelcontextprotocol/server';
-import type { FormsBackend, McpCaller } from './backend';
+import { isConnection, type FormsBackend, type McpCaller, type McpCredential } from './backend';
 import type { RateLimiter } from './rate-limit';
 import { ToolFailure, argsHash, describeError, toFailure, type ErrorDescriptor } from './support';
-import { TOOLS, type ToolDef, type ToolResult } from './tools';
+import { TOOLS, actedIn, type ToolDef, type ToolResult } from './tools';
+import { resolveWorkspace } from './workspace';
 
 export const MCP_SERVER_NAME = 'dforms';
 export const MCP_SERVER_VERSION = '1.0.0';
 
 export const MCP_INSTRUCTIONS = [
-  'Tools to build, publish and read dForms forms in one workspace: the one the API key belongs to, or the signed-in person\'s workspace.',
+  'Tools to build, publish and read dForms forms.',
+  'Which workspace: an API key acts in its own workspace only, so leave workspace_id out. A person signed in may be a member of several workspaces: call list_my_workspaces first; with one, it is used without asking; with several, ask the user which one by name (never pick one yourself, never ask for an id) and send its id as workspace_id on every call. If the user switches workspace, use the new id from then on and say so.',
+  'Every result names the workspace it acted in (workspace.name); if it is not the one the user means, stop and ask.',
   'Start with whoami. Read get_form_guide once before your first create_form or update_form.',
   'To edit: get_form, change a copy of its config, update_form with the whole config and expected_updated_at, then publish_form.',
   'Give users the public_url exactly as a tool returns it; never build a link.',
@@ -20,7 +23,8 @@ export const MCP_INSTRUCTIONS = [
 export interface McpCall {
   requestId: string;
   protocolVersion: string;
-  caller: McpCaller;
+  /** An API key (one workspace) or an MCP connection (a person, a workspace per call). */
+  credential: McpCredential;
 }
 
 /** Per-request context the door hands the SDK handler through `authInfo.extra`. */
@@ -32,6 +36,11 @@ export interface FormsMcpServerOptions {
   toolTimeoutMs: number;
   /** The tighter per-credential bucket every write tool takes a token from. */
   writeLimiter: RateLimiter;
+  /**
+   * The dForms address a person opens to get their first workspace, named in
+   * the error a signed-in person with no workspace sees. Optional.
+   */
+  appUrl?: string;
   /**
    * Where internal failures are reported (never shown to the model). Only the
    * class and code reach it: the message and stack of a failure can carry
@@ -76,7 +85,8 @@ export class FormsMcpServer {
           title: def.title,
           description: def.description,
           inputSchema: def.input,
-          outputSchema: def.output,
+          // A tool that acts in a workspace always says which one.
+          outputSchema: def.workspace === 'required' ? def.output.extend({ workspace: actedIn }) : def.output,
           annotations: { title: def.title, ...def.annotations },
         },
         // The SDK has already validated `args` against `def.input`.
@@ -91,17 +101,31 @@ export class FormsMcpServer {
     const started = process.hrtime.bigint();
     let result: ToolResult | undefined;
     let failure: ToolFailure | undefined;
+    let caller: McpCaller | null = null;
     try {
       // The door refuses every request without a caller, so this is a wiring
       // fault, not a user error. Refuse rather than run a tool as nobody.
       if (!call) throw new ToolFailure('AUTH_REQUIRED', 'This call carries no credential.', 'Send Authorization: Bearer <your dForms API key>.');
-      if (def.write) this.takeWriteToken(call);
-      result = await this.withTimeout(def.run(args as never, { caller: call.caller, backend: this.options.backend }));
+      if (def.workspace !== 'none') {
+        const named = (args as { workspace_id?: string } | undefined)?.workspace_id;
+        caller = resolveWorkspace(call.credential, named, { required: def.workspace === 'required', appUrl: this.options.appUrl });
+      }
+      if (def.write) this.takeWriteToken(caller!);
+      result = await this.withTimeout(
+        def.run(args as never, { credential: call.credential, caller, backend: this.options.backend, appUrl: this.options.appUrl }),
+      );
+      if (def.workspace === 'required' && caller) {
+        result = {
+          ...result,
+          data: { ...result.data, workspace: { id: caller.accountId, name: caller.workspaceName } },
+          summary: `In workspace "${caller.workspaceName}": ${result.summary}`,
+        };
+      }
     } catch (error) {
       failure = toFailure(error);
       if (failure.code === 'INTERNAL_ERROR') this.options.onInternalError?.(def.name, call?.requestId ?? 'unknown', describeError(error));
     }
-    this.audit(def, args, call, started, result, failure);
+    this.audit(def, args, call, caller, started, result, failure);
     if (failure || !result) {
       return {
         isError: true,
@@ -119,11 +143,11 @@ export class FormsMcpServer {
     };
   }
 
-  private takeWriteToken(call: McpCall): void {
-    const { allowed, retryAfterMs } = this.options.writeLimiter.take(`mcp-write:${call.caller.credentialId}`);
+  private takeWriteToken(caller: McpCaller): void {
+    const { allowed, retryAfterMs } = this.options.writeLimiter.take(`mcp-write:${caller.credentialId}`);
     if (!allowed) {
       const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
-      const whose = call.caller.personId ? 'by this member' : 'with this API key';
+      const whose = caller.personId ? 'by this member' : 'with this API key';
       throw new ToolFailure('RATE_LIMITED', `Too many writes ${whose}.`, 'Slow down, then retry.', seconds);
     }
   }
@@ -153,26 +177,30 @@ export class FormsMcpServer {
    * One structured line per tool call. The arguments are reduced to a hash of
    * their redacted shape: no config, no names, no dates, no answers. The
    * caller is the key's public prefix or the connection's person, never a
-   * token.
+   * token; the workspace and member are the ones the call acted as (null when
+   * it acted in none).
    */
   private audit(
     def: ToolDef,
     args: unknown,
     call: McpCall | undefined,
+    caller: McpCaller | null,
     started: bigint,
     result: ToolResult | undefined,
     failure: ToolFailure | undefined,
   ): void {
+    // An API key always acts in its own workspace, even for a tool that needs none.
+    const actedAs = caller ?? (call && !isConnection(call.credential) ? call.credential : null);
     const line = {
       ts: new Date().toISOString(),
       level: failure ? 'warn' : 'info',
       msg: 'mcp.tool_call',
       requestId: call?.requestId ?? 'unknown',
       protocolVersion: call?.protocolVersion ?? 'unknown',
-      caller: call?.caller.label ?? 'anonymous',
-      accountId: call?.caller.accountId ?? null,
-      memberId: call?.caller.memberId ?? null,
-      personId: call?.caller.personId ?? null,
+      caller: call?.credential.label ?? 'anonymous',
+      accountId: actedAs?.accountId ?? null,
+      memberId: actedAs?.memberId ?? null,
+      personId: call && isConnection(call.credential) ? call.credential.personId : null,
       tool: def.name,
       argsHash: argsHash(args),
       affected: result?.affected ?? [],
