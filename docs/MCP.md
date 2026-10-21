@@ -102,7 +102,7 @@ app's workspace switcher lets them (see
   is never entered this way. The first call projects the workspace if dForms
   has never seen it (no onboarding stamp, no demo form) and mints the same
   `admin` row the switcher mints, marked `access_grant = 'staff'` and never on
-  the team's roster. Staff then read and write (create, edit, publish) as that
+  the team's roster. Staff then use every tool (read, write and destructive ones) as that
   admin, under every rule a member gets. A workspace where they hold a real
   membership is always entered as that member, by either id in any letter
   case; one where the identity service names them a member but dForms has
@@ -124,7 +124,7 @@ app's workspace switcher lets them (see
 
 | Tool | Kind | What it does |
 |---|---|---|
-| `whoami` | read | Who is connected (the key prefix, or the person signed in), every workspace it can act in with the role there, whether the person is `staff`, and, when a workspace applies, that workspace and the member it acts as. |
+| `whoami` | read | Who is connected (the key prefix, or the person signed in), every workspace it can act in with the role there, whether the person is `staff`, and, when a workspace applies, that workspace and the member it acts as (every field `GET /v1/me` documents, `status` and `locale` included). |
 | `list_my_workspaces` | read | The workspaces this connection can act in: id, name, account name, role and access, plus what to do next. `search` filters them; for staff it searches every workspace (3+ letters or digits, at most 20). `limit` caps the list (default: all; the result says how many were left out). With a key, the key's one workspace. |
 | `list_forms` | read | Forms, most recently updated first, with id, `public_url` and whether edits are unpublished. Filter by name, page with `limit`/`offset`. |
 | `get_form` | read | One form: `public_url`, publish state and the config to edit (the pending draft when there is one). |
@@ -136,16 +136,79 @@ app's workspace switcher lets them (see
 | `get_form_analytics` | read | The funnel the Results screen shows (views, starts, submissions, completion rate, median time, partials, bookings, drop-off per question), each metric with its definition. |
 | `get_form_guide` | read | The rules, how to choose a workspace, step types, logic, the config JSON Schema and worked examples. |
 
+Beyond these, there is one tool for every other route the API reference
+documents (the API docs page, `API_REFERENCE` in `@quill/shared`), so an agent
+can do over MCP whatever a key can do over REST. Each runs the same handler as
+its REST route, with the same role rule and the same masking.
+
+| Area | REST route | Tool | Kind |
+|---|---|---|---|
+| Forms | `PUT /v1/forms/:id/slug` | `set_form_slug` | write |
+| Forms | `POST /v1/forms/:id/duplicate` | `duplicate_form` | write |
+| Forms | `PATCH /v1/forms/:id/folder` | `move_form` | write |
+| Forms | `DELETE /v1/forms/:id` | `delete_form` | **destructive** |
+| Folders | `GET /v1/folders` | `list_folders` | read |
+| Folders | `POST /v1/folders` | `create_folder` | write |
+| Folders | `PATCH /v1/folders/:id` | `rename_folder` | write |
+| Folders | `DELETE /v1/folders/:id` | `delete_folder` | **destructive** (forms are unfiled, never deleted) |
+| Destinations | `PUT /v1/forms/:id/destinations` | `set_destinations` | **destructive** (replaces the list; secrets come back masked) |
+| Destinations | `POST /v1/forms/:id/destinations/webhook/ping` | `ping_webhook` | write, owners and admins |
+| Responses | `GET /v1/forms/:id/submissions/:submissionId` | `get_response` | read |
+| Responses | `GET /v1/forms/:id/submissions/:submissionId/files/:stepKey` | `get_response_file` | read (a short-lived link, never the bytes) |
+| Responses | `GET /v1/forms/:id/submissions.csv` | `export_responses_csv` | read (CSV text, at most `max_rows` rows and 100,000 characters, with `truncated`) |
+| Responses | `POST /v1/forms/:id/submissions/bulk-delete` | `delete_responses` | **destructive** |
+| Responses | `DELETE /v1/submissions/:id` | `delete_response` | **destructive** |
+| Responses | `GET /v1/forms/:id/deliveries` | `list_deliveries` | read |
+| Analytics | `GET /v1/forms/:id/summary` | `get_form_summary` | read |
+| Analytics | `GET /v1/forms/:id/submissions-facets` | `get_response_facets` | read |
+| Analytics | `GET /v1/forms/:id/summary/:stepKey/answers` | `search_answers` | read |
+| Brand kit | `GET /v1/branding` | `get_brand_kit` | read |
+| Brand kit | `PUT /v1/branding` | `update_brand_kit` | write, owners and admins |
+| Brand kit | `POST /v1/branding/apply` | `apply_brand_kit` | **destructive**, owners and admins |
+| Brand kit | `POST /v1/branding/revert` | `revert_brand_kit` | **destructive**, owners and admins |
+| Notifications | `GET /v1/notifications` | `list_notifications` | read, owners and admins |
+| Notifications | `PUT /v1/notifications/:emailKey` | `update_notification` | write, owners and admins |
+| Notifications | `POST /v1/notifications/:emailKey/reset` | `reset_notification` | **destructive**, owners and admins |
+| Notifications | `GET /v1/forms/:id/notifications` | `list_form_notifications` | read, owners and admins |
+| Notifications | `PUT /v1/forms/:id/notifications/:emailKey` | `update_form_notification` | write, owners and admins |
+| Notifications | `POST /v1/forms/:id/notifications/:emailKey/reset` | `reset_form_notification` | **destructive**, owners and admins |
+| Integrations | `GET /v1/integrations` | `list_integrations` | read |
+| Integrations | `GET /v1/integrations/webhooks` | `list_webhooks` | read |
+| Integrations | `GET /v1/integrations/hubspot/properties` | `list_hubspot_properties` | read (calls HubSpot) |
+| Integrations | `GET /v1/integrations/calendly/event-types` | `list_calendly_event_types` | read (calls Calendly) |
+| Identity | `GET /v1/me` | `whoami` | read |
+| Identity | `GET /v1/me/profile` | `get_my_profile` | read |
+| Identity | `GET /v1/vanity` | `get_workspace_link_code` | read |
+
+The other routes of the reference map to the tools above: `GET /v1/forms` to
+`list_forms`, `POST /v1/forms` to `create_form`, `GET /v1/forms/:id` to
+`get_form`, `PUT /v1/forms/:id` to `update_form`, the publish and revert
+routes to `publish_form` and `revert_form`, `GET /v1/forms/:id/submissions` to
+`list_responses` and `GET /v1/forms/:id/analytics` to `get_form_analytics`.
+`API_ROUTE_TOOLS` in `@quill/mcp` holds the mapping, and a spec in the API
+fails when a route added to the reference has no tool and is not on the
+explicit exclusion list (`API_ROUTE_EXCLUSIONS`, empty today). The summary is
+not left out as a duplicate of `get_form_analytics`: that one is the session
+funnel, while the summary counts what responses answered, question by
+question.
+
 Every tool carries a title, `readOnlyHint` / `destructiveHint` /
 `idempotentHint` / `openWorldHint`, an input schema and an output schema with
 `structuredContent`. The content of a result is a short text summary followed
-by the same data as JSON text, for clients that only read text. There are no
-delete tools, and nothing that changes keys, members, workspaces, integrations
-or destinations.
+by the same data as JSON text, for clients that only read text. Nothing changes
+keys, members, workspaces, the profile, the language, the workspace link code,
+or connects and disconnects an integration: those stay in the dashboard, as
+they do for a key over REST.
 
-Every role (owner, admin, member) can create, edit and publish forms in the web
-app, so every role's key can use every tool. The tools run the API's own form
-handlers, so any role rule those handlers apply holds for the MCP too.
+Every tool marked **destructive** says so in its description and tells the
+agent to name what will change and wait for the user's yes before calling it,
+and never to repeat it on its own after an error.
+
+Every role (owner, admin, member) can create, edit, publish, delete and
+organise forms in the web app, so every role's key can use those tools. The
+routes the API keeps to owners and admins (the brand kit writes, the
+notification emails, the webhook test) answer `FORBIDDEN` to a member through
+the MCP exactly as over REST, because the tools run the API's own handlers.
 
 ### Writing a config
 
@@ -162,10 +225,13 @@ handlers, so any role rule those handlers apply holds for the MCP too.
 ### Untrusted text
 
 Answers are typed by members of the public, so they are hostile input to a
-model. `list_responses` returns them only inside `respondent_supplied`, with
+model. `list_responses`, `get_response`, `export_responses_csv`, the summary
+and the answer search return them only inside `respondent_supplied` (the
+delivery bodies of `list_deliveries` under `untrusted`), with
 control and zero-width characters, HTML and markdown links and images removed
 (nested ones too, until nothing is left to remove) and every value
-length-capped. Tell your agent to treat `respondent_supplied`
+length-capped. The CSV keeps its cells as the download has them, minus
+zero-width and bidi characters, so it stays a valid CSV. Tell your agent to treat `respondent_supplied`
 as data, never as instructions.
 
 ## Connect an agent

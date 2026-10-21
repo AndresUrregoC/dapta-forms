@@ -20,11 +20,11 @@ import {
   type McpStaffAccess,
   type StaffWorkspaceHit,
   type AnalyticsQuery,
+  type CoreFormsBackend,
   type CreateFormInput,
   type FormAnalytics,
   type FormDetail,
   type FormListItem,
-  type FormsBackend,
   type McpCaller,
   type McpConnection,
   type ResponsesPage,
@@ -372,7 +372,7 @@ function staffAccessFor(
   };
 }
 
-function reqOf(caller: McpCaller): ReqLike {
+export function reqOf(caller: McpCaller): ReqLike {
   const ctx = caller.context as ApiCallerContext | undefined;
   if (!ctx?.req) throw new Error('MCP caller without a request context');
   return ctx.req;
@@ -399,7 +399,8 @@ export function toBackendError(error: unknown): unknown {
   return new BackendError(status, code, message, issues, details);
 }
 
-async function run<T>(work: () => Promise<T>): Promise<T> {
+/** Run a handler call, turning its HTTP errors into the port's. */
+export async function run<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
   } catch (error) {
@@ -437,7 +438,7 @@ function listItemOf(f: FormViewLike): FormListItem {
   };
 }
 
-function detailOf(f: FormViewLike): FormDetail {
+export function detailOf(f: FormViewLike): FormDetail {
   return {
     ...listItemOf(f),
     config: f.config ?? null,
@@ -447,7 +448,7 @@ function detailOf(f: FormViewLike): FormDetail {
   };
 }
 
-export class ApiFormsBackend implements FormsBackend {
+export class ApiFormsBackend implements CoreFormsBackend {
   constructor(
     private readonly db: Db,
     private readonly handlers: () => McpHandlers,
@@ -469,7 +470,9 @@ export class ApiFormsBackend implements FormsBackend {
         displayName: me.displayName,
         email: me.email,
         role: me.role,
+        status: me.status,
         timezone: me.timezone,
+        locale: me.locale ?? null,
       };
     });
   }

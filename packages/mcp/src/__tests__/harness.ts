@@ -10,6 +10,8 @@ import {
   type ResponsesPage,
 } from '../backend';
 import { McpDoor, type McpDoorOptions } from '../door';
+import type { ApiParityBackend } from '../parity-backend';
+import { parityFakes } from './parity-fakes';
 import { unlimited, type RateLimiter } from '../rate-limit';
 import { FormsMcpServer, type FormsMcpServerOptions } from '../server';
 
@@ -80,7 +82,9 @@ export function fakeBackend(over: Partial<FormsBackend> = {}) {
       displayName: 'Ada',
       email: 'ada@example.test',
       role: c.role,
+      status: 'active',
       timezone: 'UTC',
+      locale: 'en',
     }),
     listForms: async () => [form(), form({ id: 'form-2', name: 'Quiz', slug: 'quiz', hasDraft: true })],
     getForm: async (_c, id) => {
@@ -93,9 +97,17 @@ export function fakeBackend(over: Partial<FormsBackend> = {}) {
     revertForm: async (_c, id) => form({ id }),
     listResponses: async () => page,
     formAnalytics: async () => analytics(),
+    ...parityFakes(),
   };
   const merged = { ...base, ...over };
+  const parity = Object.fromEntries(
+    (Object.keys(parityFakes()) as Array<keyof ApiParityBackend>).map((method) => [
+      method,
+      record(method, merged[method] as (caller: McpCaller, ...args: unknown[]) => Promise<unknown>),
+    ]),
+  ) as unknown as ApiParityBackend;
   const backend: FormsBackend = {
+    ...parity,
     whoami: record('whoami', merged.whoami),
     listForms: record('listForms', merged.listForms),
     getForm: record('getForm', merged.getForm),

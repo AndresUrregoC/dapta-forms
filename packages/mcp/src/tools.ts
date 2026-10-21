@@ -40,7 +40,7 @@ export interface ToolContext {
 }
 
 /** The caller of a tool that acts in a workspace. The server resolved it before the tool ran. */
-function actingAs(ctx: ToolContext): McpCaller {
+export function actingAs(ctx: ToolContext): McpCaller {
   if (!ctx.caller) throw new Error('A workspace tool ran without a resolved workspace.');
   return ctx.caller;
 }
@@ -77,13 +77,13 @@ export interface ToolDef {
   run(args: never, ctx: ToolContext): Promise<ToolResult>;
 }
 
-const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
+export const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 
 // --- Shared shapes ------------------------------------------------------------
 
 const formId = z.string().min(1).max(64).describe('The form id, from list_forms or get_form.');
 
-const workspaceId = z
+export const workspaceId = z
   .string()
   .min(1)
   .max(64)
@@ -150,7 +150,7 @@ const expectedUpdatedAt = z
   .nonnegative()
   .describe('The updated_at you last read for this form (get_form, or the result of your last write).');
 
-const iso = (ms: number | null | undefined): string | null =>
+export const iso = (ms: number | null | undefined): string | null =>
   ms == null || !Number.isFinite(ms) ? null : new Date(ms).toISOString();
 
 const formSummaryShape = {
@@ -171,9 +171,9 @@ const formSummaryShape = {
     .number()
     .describe('Version stamp (epoch ms). Pass it back unchanged as expected_updated_at on update_form and publish_form.'),
 };
-const formSummary = z.object(formSummaryShape);
+export const formSummary = z.object(formSummaryShape);
 
-function summaryOf(f: FormListItem) {
+export function summaryOf(f: FormListItem) {
   return {
     id: f.id,
     name: f.name,
@@ -239,6 +239,8 @@ const whoami: ToolDef = {
         name: z.string().nullable(),
         email: z.string().nullable(),
         role: z.string().describe('owner, admin or member. Every role can create, edit and publish forms, as in the web app.'),
+        status: z.string().describe('The member\'s status in this workspace: active for every call that gets an answer.'),
+        locale: z.string().nullable().describe('The language the member chose for the dForms admin (en or es), or null when they never chose one.'),
       })
       .nullable(),
     key: z
@@ -284,7 +286,7 @@ const whoami: ToolDef = {
     return {
       data: {
         workspace: { id: me.accountId, name: me.accountName, code: me.accountCode, time_zone: me.timezone },
-        member: { id: me.memberId, name: me.displayName, email: me.email, role: me.role },
+        member: { id: me.memberId, name: me.displayName, email: me.email, role: me.role, status: me.status, locale: me.locale },
         key,
         person,
         workspaces,
@@ -643,7 +645,7 @@ const MAX_ANSWERS_PER_RESPONSE = 40;
 const MAX_ANSWER_CHARS = 500;
 const MAX_QUESTION_CHARS = 200;
 
-const dateBound = z
+export const dateBound = z
   .string()
   .max(40)
   .optional()

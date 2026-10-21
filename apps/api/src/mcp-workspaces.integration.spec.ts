@@ -152,7 +152,11 @@ describe('a person with two workspaces and a different role in each', () => {
 
     type Who = { workspace: { id: string; name: string }; member: { id: string; role: string } };
     const inAcme = structured<Who>(await c.callTool({ name: 'whoami', arguments: { workspace_id: h.accountId } }));
-    expect(inAcme).toMatchObject({ workspace: { id: h.accountId }, member: { id: p.acmeMember, role: 'admin' } });
+    expect(inAcme).toMatchObject({ workspace: { id: h.accountId }, member: { id: p.acmeMember, role: 'admin', status: 'active', locale: null } });
+    // Every field GET /v1/me documents reaches whoami.
+    await h.db.run(sql`UPDATE member SET locale = 'es' WHERE id = ${p.acmeMember}`);
+    const localized = structured<{ member: { locale: string | null } }>(await c.callTool({ name: 'whoami', arguments: { workspace_id: h.accountId } }));
+    expect(localized.member.locale).toBe('es');
     const inGlobex = structured<Who>(await c.callTool({ name: 'whoami', arguments: { workspace_id: h.other.accountId } }));
     expect(inGlobex).toMatchObject({ workspace: { id: h.other.accountId, name: 'Globex' }, member: { id: p.globexMember, role: 'member' } });
 
@@ -497,6 +501,46 @@ describe('staff of the deployment', () => {
     expect(lines.slice(1).every((l) => l.granted === false)).toBe(true);
     // Never on the customer's roster.
     expect(await h.db.all(sql`SELECT id FROM member WHERE account_id = ${h.other.accountId} AND external_id = ${p.personId}`)).toHaveLength(1);
+  });
+
+  it('runs the parity tools too (a read, a write, a destructive one) in a customer workspace, and a person who is not staff gets NOT_FOUND', async () => {
+    const { h, globexUpstream } = await staffDeployment();
+    const p = await staffPerson(h);
+    const c = await signIn(h, p.subject);
+    const outsider = newPerson(h);
+    h.people.set(outsider.subject, { id: outsider.personId, email: `${outsider.subject}@example.com` });
+    await join(h, outsider, h.accountId, 'owner');
+    const stranger = await signIn(h, outsider.subject);
+
+    type Folder = { folder: { id: string; name: string }; workspace: Record<string, unknown> };
+    const made = structured<Folder>(await c.callTool({ name: 'create_folder', arguments: { name: 'Staff folder', workspace_id: h.other.accountId } }));
+    expect(made.workspace).toEqual({ id: h.other.accountId, name: 'Globex', access: 'staff' });
+    expect(await h.db.get<{ account_id: string }>(sql`SELECT account_id FROM form_folder WHERE id = ${made.folder.id}`)).toEqual({ account_id: h.other.accountId });
+    const listed = structured<{ folders: Array<{ id: string }> }>(
+      await c.callTool({ name: 'list_folders', arguments: { workspace_id: globexUpstream } }),
+    );
+    expect(listed.folders.map((f) => f.id)).toContain(made.folder.id);
+
+    for (const [name, args] of [
+      ['list_folders', {}],
+      ['create_folder', { name: 'Smuggled folder' }],
+      ['delete_form', { form_id: h.other.formId }],
+    ] as const) {
+      for (const id of [h.other.accountId, globexUpstream]) {
+        expect(errorText(await stranger.callTool({ name, arguments: { ...args, workspace_id: id } })), `${name} in ${id}`).toMatch(
+          /^NOT_FOUND: No workspace of yours has this id\./,
+        );
+      }
+    }
+    expect(await h.db.get(sql`SELECT id FROM form_folder WHERE name = 'Smuggled folder'`)).toBeUndefined();
+    expect(await h.db.get(sql`SELECT id FROM form WHERE id = ${h.other.formId}`)).toBeDefined();
+
+    const gone = structured<{ deleted: { id: string } }>(
+      await c.callTool({ name: 'delete_form', arguments: { form_id: h.other.formId, workspace_id: h.other.accountId } }),
+    );
+    expect(gone.deleted.id).toBe(h.other.formId);
+    expect(await h.db.get(sql`SELECT id FROM form WHERE id = ${h.other.formId}`)).toBeUndefined();
+    expect(JSON.parse(h.audit.at(-1)!)).toMatchObject({ tool: 'delete_form', accountId: h.other.accountId, via: 'staff_grant' });
   });
 
   it('projects a workspace dForms has never seen on first use, and creates a form there', async () => {
