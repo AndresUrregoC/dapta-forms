@@ -11,6 +11,7 @@
  *   examples), shared with the web app's API skill.
  */
 export * from './backend';
+export * from './parity-backend';
 export { LIST_WORKSPACES_HINT, bucketOf, openDFormsOnce, resolveWorkspace } from './workspace';
 export {
   DoorRefusal,
@@ -47,3 +48,5 @@ export {
   type ErrorDescriptor,
 } from './support';
 export { METRIC_DEFINITIONS, TOOLS, type ToolContext, type ToolDef, type ToolResult } from './tools';
+export { CATALOG } from './catalog';
+export { API_ROUTE_EXCLUSIONS, API_ROUTE_TOOLS, PARITY_TOOLS } from './parity/index';

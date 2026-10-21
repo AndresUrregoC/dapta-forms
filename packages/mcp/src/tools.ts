@@ -40,7 +40,7 @@ export interface ToolContext {
 }
 
 /** The caller of a tool that acts in a workspace. The server resolved it before the tool ran. */
-function actingAs(ctx: ToolContext): McpCaller {
+export function actingAs(ctx: ToolContext): McpCaller {
   if (!ctx.caller) throw new Error('A workspace tool ran without a resolved workspace.');
   return ctx.caller;
 }
@@ -77,13 +77,13 @@ export interface ToolDef {
   run(args: never, ctx: ToolContext): Promise<ToolResult>;
 }
 
-const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
+export const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 
 // --- Shared shapes ------------------------------------------------------------
 
 const formId = z.string().min(1).max(64).describe('The form id, from list_forms or get_form.');
 
-const workspaceId = z
+export const workspaceId = z
   .string()
   .min(1)
   .max(64)
@@ -124,7 +124,7 @@ const expectedUpdatedAt = z
   .nonnegative()
   .describe('The updated_at you last read for this form (get_form, or the result of your last write).');
 
-const iso = (ms: number | null | undefined): string | null =>
+export const iso = (ms: number | null | undefined): string | null =>
   ms == null || !Number.isFinite(ms) ? null : new Date(ms).toISOString();
 
 const formSummaryShape = {
@@ -145,9 +145,9 @@ const formSummaryShape = {
     .number()
     .describe('Version stamp (epoch ms). Pass it back unchanged as expected_updated_at on update_form and publish_form.'),
 };
-const formSummary = z.object(formSummaryShape);
+export const formSummary = z.object(formSummaryShape);
 
-function summaryOf(f: FormListItem) {
+export function summaryOf(f: FormListItem) {
   return {
     id: f.id,
     name: f.name,
@@ -525,7 +525,7 @@ const MAX_ANSWERS_PER_RESPONSE = 40;
 const MAX_ANSWER_CHARS = 500;
 const MAX_QUESTION_CHARS = 200;
 
-const dateBound = z
+export const dateBound = z
   .string()
   .max(40)
   .optional()

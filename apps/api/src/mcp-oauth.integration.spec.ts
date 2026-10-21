@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { sql } from '@quill/db';
+import { CATALOG } from '@quill/mcp';
 import { bootHarness, errorText, initialize, structured, type Harness } from './mcp-harness';
 import { startFakeIdentityProvider, type FakeIdentityProvider } from './fake-identity-provider';
 
@@ -56,7 +57,7 @@ async function person(h: Harness, role: 'owner' | 'admin' | 'member' = 'admin', 
 const metadataPath = '/.well-known/oauth-protected-resource/mcp';
 
 describe('signing in', () => {
-  it('discovers the login from a 401, signs in, and runs all eleven tools as a person with one workspace', async () => {
+  it('discovers the login from a 401, signs in, sees the same tools as an API key, and runs them as a person with one workspace', async () => {
     const h = await boot();
     const p = await person(h, 'admin');
 
@@ -69,7 +70,9 @@ describe('signing in', () => {
 
     const c = await h.signIn(idp.client(p.subject));
     const tools = (await c.listTools()).tools.map((t) => t.name);
-    expect(tools).toHaveLength(11);
+    expect(tools).toEqual(CATALOG.map((t) => t.name));
+    const byKey = await h.connect((await h.key()).key);
+    expect((await byKey.listTools()).tools.map((t) => t.name)).toEqual(tools);
     expect(structured<{ workspaces: Array<{ id: string }> }>(await c.callTool({ name: 'list_my_workspaces', arguments: {} })).workspaces).toEqual([
       { id: h.accountId, name: 'Acme Inc.', role: 'admin' },
     ]);
@@ -103,6 +106,8 @@ describe('signing in', () => {
     structured(await c.callTool({ name: 'revert_form', arguments: { form_id: created.form.id } }));
     structured(await c.callTool({ name: 'list_responses', arguments: { form_id: created.form.id } }));
     structured(await c.callTool({ name: 'get_form_analytics', arguments: { form_id: created.form.id } }));
+    structured(await c.callTool({ name: 'get_response_facets', arguments: { form_id: created.form.id } }));
+    structured(await c.callTool({ name: 'list_folders', arguments: {} }));
 
     // Never another workspace's form.
     const other = (await c.callTool({ name: 'get_form', arguments: { form_id: h.other.formId } })) as { isError?: boolean; content: Array<{ text: string }> };

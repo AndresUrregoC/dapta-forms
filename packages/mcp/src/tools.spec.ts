@@ -19,10 +19,10 @@ async function client(opts: HarnessOptions = {}, role = 'owner') {
 }
 
 describe('catalog', () => {
-  it('lists eleven task-shaped tools, every one with a title and all four behaviour hints, and no delete tool', async () => {
+  it('lists the task-shaped tools first, every tool with a title and all four behaviour hints, and every delete destructive', async () => {
     const { c } = await client();
     const { tools } = await c.listTools();
-    expect(tools.map((t) => t.name)).toEqual([
+    expect(tools.map((t) => t.name).slice(0, TOOLS.length)).toEqual([
       'whoami',
       'list_my_workspaces',
       'list_forms',
@@ -41,7 +41,7 @@ describe('catalog', () => {
       for (const hint of ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'] as const)
         expect(typeof t.annotations?.[hint], `${t.name}.${hint}`).toBe('boolean');
       expect(t.outputSchema, t.name).toBeTruthy();
-      expect(t.name).not.toMatch(/delete|remove/);
+      if (/delete|remove/.test(t.name)) expect(t.annotations?.destructiveHint, t.name).toBe(true);
     }
   });
 
