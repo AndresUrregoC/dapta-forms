@@ -67,9 +67,11 @@ export interface HostPrincipal extends Omit<ResolvedHost, 'staff'> {
   role: AccountRole;
   via: PrincipalVia;
   /**
-   * `'staff'` when the member acting is a staff access grant row, never
-   * present otherwise. Such a principal exists only while the person is staff
-   * on this request (a session) or this call (MCP); it never holds an API key.
+   * `'staff'` when a session or MCP connection acts as a staff access grant
+   * row, never present otherwise. Such a principal exists only while the
+   * person is staff on this request (a session) or this call (MCP). An API
+   * key a grant created is not this: it carries no person, resolves as the
+   * grant row without the mark, and works until someone revokes it.
    */
   accessGrant?: 'staff';
   /** The `api_key.id` the request authenticated with; set only when `via` is `'api_key'`. */

@@ -404,6 +404,11 @@ export interface ApiKeyCreator {
   memberId: string;
   name: string | null;
   email: string | null;
+  /**
+   * True for a key the deployment's staff created through staff access: the
+   * page marks it so the workspace's owners and admins can tell it apart.
+   */
+  staff?: boolean;
 }
 
 /**

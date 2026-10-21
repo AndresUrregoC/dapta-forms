@@ -4,9 +4,11 @@
  * route guard and again here).
  *
  *   GET    /v1/api-keys      { keys: [{ id, name, last4, createdAt, lastUsedAt,
- *                             createdBy: { memberId, name, email } }] }
+ *                             createdBy: { memberId, name, email, staff } }] }
  *                            A member sees their own keys; owner and admin,
- *                            every active key of the workspace.
+ *                            every active key of the workspace, including the
+ *                            ones the deployment's staff created through a
+ *                            staff access grant (`createdBy.staff`).
  *   POST   /v1/api-keys      { name } (1 to 60 characters) -> 201
  *                            { id, name, last4, createdAt, key }. The only
  *                            response that ever carries the key in clear. The
@@ -15,6 +17,11 @@
  *   DELETE /v1/api-keys/:id  204. Someone else's key without being owner or
  *                            admin: 403. Unknown, already revoked or another
  *                            workspace's: 404.
+ *
+ * Staff in a workspace through a staff access grant (only while they are
+ * staff, judged on each request) act as that grant's `admin` row: they list,
+ * create and revoke keys there like any admin. A key they create keeps
+ * working until someone revokes it, whatever their staff status later.
  */
 import {
   BadRequestException,
@@ -22,7 +29,6 @@ import {
   ConflictException,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   HttpCode,
   Inject,
@@ -100,17 +106,12 @@ export class ApiKeysController {
   @Post()
   @HttpCode(201)
   async create(@Req() req: ReqLike, @Body() body: unknown) {
+    // Staff acting through a staff access grant may create keys here: the
+    // session only resolves to a grant while the person is staff on this
+    // request (`AuthService.resolveHost`). The key is the workspace's, held
+    // by the grant row, and the workspace's owners and admins see it marked
+    // as created by staff and can revoke it.
     const p = await this.session(req);
-    // Staff in a workspace through an access grant act there only while they
-    // are staff, judged on each request. A key would outlive that (it carries
-    // no person to judge), so a grant never mints one; such keys never
-    // authenticate either (`ApiKeyAuthenticator`).
-    if (p.accessGrant === 'staff') {
-      throw new ForbiddenException({
-        error: 'STAFF_ACCESS_NO_KEYS',
-        message: 'Staff access cannot create API keys in this workspace. Ask a member of the workspace for a key, or connect over MCP with your sign-in.',
-      });
-    }
     const parsed = createApiKeySchema.safeParse(body ?? {});
     if (!parsed.success) {
       throw new BadRequestException({
@@ -129,9 +130,12 @@ export class ApiKeysController {
     }
 
     const created = result.value;
+    // A key staff create through a grant is marked, so adoption metrics can
+    // leave the deployment's own staff out of the customer's numbers.
     await this.productAnalytics?.captureForMember('api_key_created', p, {
       api_key_id: created.id,
       role: p.role,
+      ...(p.accessGrant === 'staff' ? { staff_access: true } : {}),
     });
     return {
       id: created.id,

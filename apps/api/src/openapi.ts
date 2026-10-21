@@ -120,14 +120,14 @@ export const openapiSpec = {
       get: {
         summary: 'List API keys (host session only)',
         description:
-          'Body { keys: [{ id, name, last4, createdAt, lastUsedAt, createdBy: { memberId, name, email } }] }. A member sees their own keys; an owner or admin sees every active key of the workspace. Revoked keys, and keys of members who are not active, are never listed, and the key itself never appears. Disabling or removing a member revokes their keys for good: reactivating them does not bring the keys back. 403 `KEY_NOT_ALLOWED` when called with an API key.',
+          'Body { keys: [{ id, name, last4, createdAt, lastUsedAt, createdBy: { memberId, name, email, staff } }] }. A member sees their own keys; an owner or admin sees every active key of the workspace, including keys the deployment\'s staff created there through staff access (`createdBy.staff: true`). Revoked keys, and keys of members who are not active, are never listed, and the key itself never appears. Disabling or removing a member revokes their keys for good: reactivating them does not bring the keys back. 403 `KEY_NOT_ALLOWED` when called with an API key.',
         security: [{ hostSession: [] }],
         responses: { '200': { description: 'Keys' }, '403': { description: 'KEY_NOT_ALLOWED' } },
       },
       post: {
         summary: 'Create an API key (host session only)',
         description:
-          'Body { name } (1 to 60 characters). Answers 201 { id, name, last4, createdAt, key }: the only response that ever carries the full key, so store it then. A person may hold 10 active keys per workspace; the 11th answers 409 `KEY_LIMIT`.',
+          'Body { name } (1 to 60 characters). Answers 201 { id, name, last4, createdAt, key }: the only response that ever carries the full key, so store it then. A person may hold 10 active keys per workspace; the 11th answers 409 `KEY_LIMIT`. The deployment\'s staff, while in the workspace through staff access, may create keys too: such a key acts as an admin of that workspace and keeps working until someone revokes it, even after its creator stops being staff.',
         security: [{ hostSession: [] }],
         responses: {
           '201': { description: 'Created, with the key in clear' },

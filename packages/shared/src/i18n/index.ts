@@ -1988,6 +1988,8 @@ export interface FormsMessages {
         you: string;
         /** Created by: the member is gone from the roster. */
         unknownCreator: string;
+        /** Created by: a tag beside a key the deployment's staff created through staff access. */
+        createdByStaff: string;
         emptyTitle: string;
         /** What a key is and how to start. */
         emptyBody: string;
@@ -2016,9 +2018,8 @@ export interface FormsMessages {
         errorForbidden: string;
         errorFailed: string;
         /**
-         * The viewer is in this workspace through a staff access grant, which
-         * never holds an API key: the note beside the disabled create button,
-         * and the dialog's error if a create is tried anyway.
+         * The viewer is in this workspace through a staff access grant: the
+         * note beside the create button saying what a key they create is.
          */
         staffAccess: string;
         /** The reveal step, after the key exists. Shown once. */
@@ -4103,6 +4104,7 @@ export const en: FormsMessages = {
         neverUsed: 'Never',
         you: 'You',
         unknownCreator: 'Former member',
+        createdByStaff: 'Dapta staff',
         emptyTitle: 'No API keys yet',
         emptyBody:
           'An API key lets an AI agent (Claude Code, Codex, Cursor) or a script create, edit and publish forms in this workspace, and read their responses. It works as you, so treat it like a password.',
@@ -4129,7 +4131,7 @@ export const en: FormsMessages = {
         errorForbidden: 'You cannot create keys in this workspace.',
         errorFailed: 'Could not create the key. Try again.',
         staffAccess:
-          'You are in this workspace through staff access, which cannot create API keys. Ask someone on the team for a key, or connect over MCP with your sign-in.',
+          "You are in this workspace through staff access. A key you create here belongs to the workspace: it acts as an admin and keeps working until someone revokes it, even after your staff access ends. The workspace's owners and admins see it marked as Dapta staff.",
         createdTitle: 'Copy your new key',
         keyLabel: 'Your API key',
         createdWarning:
@@ -6368,6 +6370,7 @@ export const es: FormsMessages = {
         neverUsed: 'Nunca',
         you: 'Tú',
         unknownCreator: 'Exmiembro',
+        createdByStaff: 'Staff de Dapta',
         emptyTitle: 'Aún no tienes llaves de API',
         emptyBody:
           'Una llave de API le permite a un agente de IA (Claude Code, Codex, Cursor) o a un script crear, editar y publicar formularios en este workspace, y leer sus respuestas. Funciona como tú, así que cuídala como una contraseña.',
@@ -6394,7 +6397,7 @@ export const es: FormsMessages = {
         errorForbidden: 'No puedes crear llaves en este workspace.',
         errorFailed: 'No se pudo crear la llave. Inténtalo de nuevo.',
         staffAccess:
-          'Estás en este workspace con acceso de staff, que no puede crear llaves de API. Pídele una llave a alguien del equipo, o conéctate por MCP con tu inicio de sesión.',
+          'Estás en este workspace con acceso de staff. Una llave que crees aquí es del workspace: actúa como admin y sigue funcionando hasta que alguien la revoque, aunque termine tu acceso de staff. Los propietarios y admins del workspace la ven marcada como staff de Dapta.',
         createdTitle: 'Copia tu nueva llave',
         keyLabel: 'Tu llave de API',
         createdWarning:

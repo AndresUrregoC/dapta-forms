@@ -350,8 +350,8 @@ export async function projectMemberships(
           WHERE id = ${account.id}`,
     );
 
-    const existing = await db.get<{ id: string; status: string; access_grant: string | null }>(
-      sql`SELECT id, status, access_grant FROM member WHERE account_id = ${account.id} AND external_id = ${identity.externalId} LIMIT 1`,
+    const existing = await db.get<{ id: string; status: string }>(
+      sql`SELECT id, status FROM member WHERE account_id = ${account.id} AND external_id = ${identity.externalId} LIMIT 1`,
     );
     if (existing && grant) {
       // A grant only ever refreshes a grant row. A membership in any status
@@ -370,24 +370,19 @@ export async function projectMemberships(
       // locally is revived here on purpose: the identity service says this
       // membership is active NOW, and it is the only place a membership can be
       // revoked or restored from. A real membership also clears an earlier
-      // grant (the person was staff-granted, then actually invited); the API
-      // keys that grant row held are revoked with it, since a key minted
-      // through staff access must never outlive it as a member's key.
-      const writes = [
+      // grant (the person was staff-granted, then actually invited). The API
+      // keys that grant row held stay: a key is a credential of the
+      // workspace, revoked only by someone revoking it. From here on they act
+      // as this member with the role upstream gives them, and follow the
+      // member out like any member's keys.
+      await db.run(
         sql`UPDATE member SET role = ${role}, status = 'active',
               iam_workspace_user_id = COALESCE(${m.workspaceUserId}, iam_workspace_user_id),
               access_grant = ${grant},
               email = COALESCE(email, ${identity.email}),
               display_name = COALESCE(display_name, ${identity.displayName})
             WHERE id = ${existing.id} AND account_id = ${account.id}`,
-      ];
-      if (existing.access_grant !== null) {
-        writes.push(
-          sql`UPDATE api_key SET revoked_at_ms = ${now}
-              WHERE account_id = ${account.id} AND member_id = ${existing.id} AND revoked_at_ms IS NULL`,
-        );
-      }
-      await runAtomically(db, writes);
+      );
     } else {
       // Adopt an invite-by-email row before creating a second identity for the
       // same person (mirrors the auth provider's invite adoption). Never for a

@@ -16,7 +16,7 @@ const PAGE = '/admin/developers/keys';
 
 export type CreateApiKeyState =
   | { ok: true; key: CreatedApiKey }
-  | { ok: false; code: 'INVALID' | 'KEY_LIMIT' | 'FORBIDDEN' | 'STAFF_ACCESS' | 'FAILED' };
+  | { ok: false; code: 'INVALID' | 'KEY_LIMIT' | 'FORBIDDEN' | 'FAILED' };
 
 /**
  * Create a key named `name`. The result is the ONLY place the full key ever
@@ -34,7 +34,6 @@ export async function createApiKeyAction(name: string): Promise<CreateApiKeyStat
     unstable_rethrow(e);
     if (e instanceof ApiError) {
       if (e.code === 'KEY_LIMIT') return { ok: false, code: 'KEY_LIMIT' };
-      if (e.code === 'STAFF_ACCESS_NO_KEYS') return { ok: false, code: 'STAFF_ACCESS' };
       if (e.status === 400) return { ok: false, code: 'INVALID' };
       if (e.status === 403) return { ok: false, code: 'FORBIDDEN' };
     }

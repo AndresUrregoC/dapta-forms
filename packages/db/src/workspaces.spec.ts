@@ -24,6 +24,7 @@ import { randomUUID } from 'node:crypto';
 import { createDb, sql, type Db } from './client';
 import { migrate } from './migrate';
 import { listMembers, listWorkspacesForIdentity } from './members';
+import { findApiKeyPrincipal, listApiKeys } from './api-keys';
 import {
   createLocalWorkspace,
   grantStaffAccess,
@@ -462,23 +463,32 @@ describe('grantStaffAccess never overrides a membership (both dialects)', () => 
     expect(adopted).toEqual({ external_id: p.externalId, status: 'active' });
   });
 
-  it('a grant that becomes a real membership loses the API keys it held', async () => {
+  it('a grant\'s API keys are listed marked as staff, work as the grant, and stay when it becomes a real membership', async () => {
     const wsId = `ws-${randomUUID()}`;
     const s = staff();
     const { accountId, memberId } = await grantStaffAccess(db, s, { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c' });
     await ids([wsId]);
     const keyId = randomUUID();
+    const keyHash = `h${keyId}`;
     await db.run(
       sql`INSERT INTO api_key (id, account_id, member_id, name, prefix, last4, key_hash, created_at)
-          VALUES (${keyId}, ${accountId}, ${memberId}, 'k', ${`p${keyId.slice(0, 8)}`}, 'abcd', ${`h${keyId}`}, ${Date.now()})`,
+          VALUES (${keyId}, ${accountId}, ${memberId}, 'k', ${`p${keyId.slice(0, 8)}`}, 'abcd', ${keyHash}, ${Date.now()})`,
     );
+    // Listed to the workspace, marked as created by staff; resolves as the grant row.
+    expect((await listApiKeys(db, accountId)).map((k) => [k.id, k.createdBy.staff])).toEqual([[keyId, true]]);
+    expect(await findApiKeyPrincipal(db, keyHash)).toMatchObject({
+      keyId, accountId, memberId, role: 'admin', memberStatus: 'active', accessGrant: 'staff',
+    });
     await projectMemberships(db, s, [
       { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c', workspaceUserId: 'wu-s', role: 'member', active: true },
     ], { pruneMissing: false });
     const row = await db.get<{ access_grant: string | null }>(sql`SELECT access_grant FROM member WHERE id = ${memberId}`);
     expect(row!.access_grant).toBeNull();
+    // The key stays: now that member's own key, with the member's role.
     const key = await db.get<{ revoked_at_ms: number | string | null }>(sql`SELECT revoked_at_ms FROM api_key WHERE id = ${keyId}`);
-    expect(key!.revoked_at_ms).not.toBeNull();
+    expect(key!.revoked_at_ms).toBeNull();
+    expect(await findApiKeyPrincipal(db, keyHash)).toMatchObject({ memberId, role: 'member', accessGrant: null });
+    expect((await listApiKeys(db, accountId)).map((k) => [k.id, k.createdBy.staff])).toEqual([[keyId, false]]);
     await db.run(sql`DELETE FROM api_key WHERE id = ${keyId}`);
   });
 
