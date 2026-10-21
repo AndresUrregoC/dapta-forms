@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { loadServerEnv, mcpOAuth } from '@quill/config/env';
+import { mcpOAuthSettings } from './mcp-oauth';
 
 const ON = {
   MCP_OAUTH_PROVIDER: 'workos',
@@ -54,8 +55,11 @@ describe('MCP OAuth settings', () => {
     expect(() => loadServerEnv({ ...ON, ...over } as NodeJS.ProcessEnv)).toThrow(message);
   });
 
-  it('refuse to boot when the allowed MCP hosts leave out the public URL', () => {
-    expect(() => loadServerEnv({ ...ON, MCP_ALLOWED_HOSTS: 'api.example.test' })).toThrow(/MCP_ALLOWED_HOSTS does not list mcp\.example\.test/);
-    expect(mcpOAuth(loadServerEnv({ ...ON, MCP_ALLOWED_HOSTS: 'api.example.test, MCP.example.test' }))).not.toBeNull();
+  it('refuse to boot when the allowed MCP hosts leave out the public URL, compared the way the door compares a Host', () => {
+    expect(() => mcpOAuthSettings(loadServerEnv({ ...ON, MCP_ALLOWED_HOSTS: 'api.example.test' }))).toThrow(
+      /Refusing to boot: MCP_ALLOWED_HOSTS does not list mcp\.example\.test/,
+    );
+    expect(mcpOAuthSettings(loadServerEnv({ ...ON, MCP_ALLOWED_HOSTS: 'api.example.test, MCP.example.test:443' }))).not.toBeNull();
+    expect(mcpOAuthSettings(loadServerEnv({}))).toBeNull();
   });
 });

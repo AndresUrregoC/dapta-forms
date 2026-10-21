@@ -34,6 +34,8 @@ export interface PersonDirectory {
    * blocked); any other throw means the directory cannot be read.
    */
   personOf(subject: string): Promise<Person | null>;
+  /** Release what the directory holds (the identity database pool). The API calls it when it shuts down. */
+  close?(): Promise<void>;
 }
 
 /**

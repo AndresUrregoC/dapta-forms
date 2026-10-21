@@ -168,6 +168,15 @@ describe('discovery for clients that look at the root', () => {
   });
 });
 
+describe('shutting down', () => {
+  it('closes the person directory, so the identity database pool does not outlive the API', async () => {
+    const h = await bootHarness({}, { oauth: { issuer: idp.issuer } });
+    expect(h.directoryClosed()).toBe(false);
+    await h.close();
+    expect(h.directoryClosed()).toBe(true);
+  });
+});
+
 describe('a flood', () => {
   it('with one valid token asks the person directory once, not per request', async () => {
     const h = await boot();

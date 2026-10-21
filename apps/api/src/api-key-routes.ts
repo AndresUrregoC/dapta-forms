@@ -28,7 +28,6 @@ import {
 } from '@nestjs/common';
 import { apiKeyFromRequest } from './api-keys';
 import type { ReqLike } from './auth.provider';
-import { inProcessPrincipalOf } from './in-process-principal';
 
 /** Nest's route metadata keys (`@nestjs/common/constants`), named here to avoid a deep CJS import. */
 const PATH_METADATA = 'path';
@@ -138,19 +137,20 @@ export function keyNotAllowed(): never {
 
 /**
  * Applied app-wide. Lets every request through untouched unless it carries an
- * API key or an in-process principal (an MCP tool call, see
- * `in-process-principal.ts`); with either, refuses any admin route outside the
- * allowlist. A handler whose route cannot be read is refused too (fail closed).
+ * API key; with a key, refuses any admin route outside the allowlist. A
+ * handler whose route cannot be read is refused too (fail closed).
  *
- * The MCP calls its handlers in process, so this guard does not run for them;
- * `keyAllowedRoutes` (mcp.backend.ts) makes the same check at boot.
+ * The MCP calls its handlers in process, never through Nest's pipeline, so
+ * this guard never runs for an in-process principal; `keyAllowedRoutes`
+ * (mcp.backend.ts) makes the same check for every handler the MCP can call,
+ * at boot.
  */
 @Injectable()
 export class ApiKeyRouteGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     if (context.getType() !== 'http') return true;
     const req = context.switchToHttp().getRequest<ReqLike>();
-    if (apiKeyFromRequest(req) === null && inProcessPrincipalOf(req) === null) return true;
+    if (apiKeyFromRequest(req) === null) return true;
     const route = routeOf(context.getClass(), context.getHandler());
     if (route === null || !isKeyAllowedRoute(route)) keyNotAllowed();
     return true;

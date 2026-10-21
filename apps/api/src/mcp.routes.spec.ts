@@ -9,11 +9,10 @@ import 'reflect-metadata';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { Controller, ForbiddenException, Get, type ExecutionContext } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { AdminCrudController } from './admin-crud.controller';
 import { AnalyticsController } from './analytics.controller';
-import { ApiKeyRouteGuard, isKeyAllowedRoute, routeOf } from './api-key-routes';
-import { inProcessRequest } from './in-process-principal';
+import { isKeyAllowedRoute, routeOf } from './api-key-routes';
 import { MCP_ANALYTICS_HANDLERS, MCP_FORM_HANDLERS, keyAllowedRoutes } from './mcp.backend';
 
 const cases: Array<[string, new (...args: never[]) => object, readonly string[]]> = [
@@ -73,22 +72,9 @@ describe('keyAllowedRoutes', () => {
 });
 
 describe('the in-process principal', () => {
-  // The MCP's in-process requests never pass through Nest's pipeline today;
-  // should one ever be dispatched through it, the guard holds it to the same
-  // allowlist as a key, whether it carries a key or is an MCP connection.
-  const guard = new ApiKeyRouteGuard();
-  const contextFor = (handler: object, req: object): ExecutionContext =>
-    ({
-      getType: () => 'http',
-      getClass: () => AdminCrudController,
-      getHandler: () => handler,
-      switchToHttp: () => ({ getRequest: () => req, getResponse: () => ({}) }),
-    }) as unknown as ExecutionContext;
-  const principals = [
-    ['an MCP connection', { accountId: 'a', memberId: 'm' }],
-    ['an API key through the MCP', { accountId: 'a', memberId: 'm', apiKeyHash: 'h' }],
-  ] as const;
-
+  // The MCP's in-process requests never pass through Nest's pipeline, so the
+  // app-wide guard never sees them: the boot check above is what holds every
+  // handler the MCP can reach to the API-key allowlist.
   it('is built for a handler only by the MCP backend, so the boot check above covers every one', () => {
     const dir = __dirname;
     const builders = readdirSync(dir, { recursive: true, encoding: 'utf8' })
@@ -96,12 +82,4 @@ describe('the in-process principal', () => {
       .filter((f) => readFileSync(join(dir, f), 'utf8').includes('inProcessRequest('));
     expect(builders).toEqual(['mcp.backend.ts']);
   });
-
-  for (const [label, principal] of principals) {
-    it(`${label} is refused a route outside the allowlist and let through one on it`, () => {
-      const p = AdminCrudController.prototype;
-      expect(() => guard.canActivate(contextFor(p.members, inProcessRequest(principal)))).toThrow(ForbiddenException);
-      expect(guard.canActivate(contextFor(p.createForm, inProcessRequest(principal)))).toBe(true);
-    });
-  }
 });

@@ -132,7 +132,7 @@ export interface IamDirectoryOptions {
 }
 
 export interface IamPersonDirectory extends PersonDirectory {
-  /** Close the pool (specs, shutdown). */
+  /** Close the pool (specs, and the API's shutdown). */
   close(): Promise<void>;
 }
 

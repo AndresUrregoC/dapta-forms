@@ -765,7 +765,7 @@ export interface McpOAuthConfig {
   resourceMetadataUrl: string;
 }
 
-type McpOAuthEnv = Pick<ServerEnv, 'MCP_OAUTH_PROVIDER' | 'WORKOS_AUTHKIT_DOMAIN' | 'MCP_PUBLIC_URL' | 'MCP_ALLOWED_HOSTS'>;
+type McpOAuthEnv = Pick<ServerEnv, 'MCP_OAUTH_PROVIDER' | 'WORKOS_AUTHKIT_DOMAIN' | 'MCP_PUBLIC_URL'>;
 
 const MCP_PATH = '/mcp';
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -797,7 +797,9 @@ function oauthUrl(name: string, raw: string | undefined): URL {
  * (the default, and every fork), in which case the other values are not read.
  * Throws on anything missing or malformed, because a login that cannot work
  * (a wrong issuer or audience fails every token in silence) must not be
- * served. `loadServerEnv` calls it, so that happens at boot.
+ * served. `loadServerEnv` calls it, so that happens at boot. The API also
+ * checks the public URL's host against MCP_ALLOWED_HOSTS when it builds the
+ * adapter (`mcpOAuthSettings`), with the door's own Host comparison.
  */
 export function mcpOAuth(env: McpOAuthEnv): McpOAuthConfig | null {
   const provider = (env.MCP_OAUTH_PROVIDER ?? '').trim().toLowerCase();
@@ -819,18 +821,6 @@ export function mcpOAuth(env: McpOAuthEnv): McpOAuthConfig | null {
   if (`/${trimSlashes(resourceUrl.pathname)}` !== MCP_PATH || resourceUrl.search || resourceUrl.hash) {
     throw new Error(
       `Refusing to boot: MCP_PUBLIC_URL must be the /mcp endpoint customers reach, like https://mcp.example.com/mcp, got ${JSON.stringify(env.MCP_PUBLIC_URL)}.`,
-    );
-  }
-
-  const allowedHosts = (env.MCP_ALLOWED_HOSTS ?? '')
-    .split(',')
-    .map((h) => h.trim().toLowerCase())
-    // The door compares hostnames, port and brackets handled (`hostnameOf` in @quill/mcp).
-    .map((h) => (h.startsWith('[') ? h.slice(0, h.indexOf(']') + 1) : (h.split(':')[0] ?? '')))
-    .filter(Boolean);
-  if (allowedHosts.length > 0 && !allowedHosts.includes(resourceUrl.hostname)) {
-    throw new Error(
-      `Refusing to boot: MCP_ALLOWED_HOSTS does not list ${resourceUrl.hostname}, the host of MCP_PUBLIC_URL, so every signed-in request would be refused.`,
     );
   }
 

@@ -1,8 +1,8 @@
-import { Module, type DynamicModule } from '@nestjs/common';
+import { Inject, Module, type DynamicModule, type OnModuleDestroy } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { createDb } from '@quill/db';
 import { createEmailProvider, SubmissionNotifier, type EmailProvider } from '@quill/notifications';
-import { loadServerEnv, mcpOAuth, type ServerEnv } from '@quill/config/env';
+import { loadServerEnv, type ServerEnv } from '@quill/config/env';
 import {
   API_KEY_RATE_LIMITER,
   AUTH_PROVIDER,
@@ -53,7 +53,7 @@ import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
 import { McpController } from './mcp.controller';
 import { McpOAuthMetadataController } from './mcp-oauth.controller';
-import { createMcpOAuth } from './mcp-oauth';
+import { createMcpOAuth, mcpOAuthSettings } from './mcp-oauth';
 import { createPersonDirectory, type PersonDirectory } from './person-directory';
 import {
   CalendlyEventTypesService,
@@ -248,11 +248,18 @@ function signupObserver(productAnalytics: AnalyticsEffects): SignupObserver {
     // MCP_OAUTH_PROVIDER unset, the default and every fork: /mcp takes API
     // keys only. The adapter verifies the identity provider's tokens; the
     // directory maps the person a token names to the person members know.
-    { provide: MCP_OAUTH, useFactory: (env: ServerEnv) => createMcpOAuth(mcpOAuth(env)), inject: [ENV] },
+    { provide: MCP_OAUTH, useFactory: (env: ServerEnv) => createMcpOAuth(mcpOAuthSettings(env)), inject: [ENV] },
     { provide: PERSON_DIRECTORY, useFactory: (env: ServerEnv) => createPersonDirectory(env), inject: [ENV] },
   ],
 })
-export class AppModule {
+export class AppModule implements OnModuleDestroy {
+  constructor(@Inject(PERSON_DIRECTORY) private readonly directory: PersonDirectory | null) {}
+
+  /** Close the person directory's identity database pool with the app (main.ts turns on the shutdown hooks). */
+  async onModuleDestroy(): Promise<void> {
+    await this.directory?.close?.();
+  }
+
   /** The app with `directory` as its person directory, in place of the configured one (specs). */
   static withPersonDirectory(directory: PersonDirectory): DynamicModule {
     return { module: AppModule, providers: [{ provide: PERSON_DIRECTORY, useValue: directory }] };

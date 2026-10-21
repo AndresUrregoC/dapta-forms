@@ -9,7 +9,8 @@
  * `MCP_OAUTH_PROVIDER`; with it unset there is no adapter and the MCP server
  * takes API keys only. Nothing outside the adapter knows which provider it is.
  */
-import type { McpOAuthConfig } from '@quill/config/env';
+import { mcpOAuth, type McpOAuthConfig, type ServerEnv } from '@quill/config/env';
+import { hostnameOf } from '@quill/mcp';
 import { createWorkosAuthKit } from './mcp-oauth.workos';
 
 export { IssuerUnavailable } from './jwt-rs256';
@@ -50,6 +51,29 @@ export interface McpOAuth {
 
 export interface McpOAuthDeps {
   fetch?: typeof fetch;
+}
+
+/**
+ * The MCP OAuth settings the API boots with (`mcpOAuth`), or null when off,
+ * plus one check that needs the door: with MCP_ALLOWED_HOSTS set, it must
+ * list the host of MCP_PUBLIC_URL, compared exactly as the door compares a
+ * request's `Host` (`hostnameOf`), or every signed-in request would be
+ * refused. Throws "Refusing to boot" when it does not.
+ */
+export function mcpOAuthSettings(env: Pick<ServerEnv, 'MCP_OAUTH_PROVIDER' | 'WORKOS_AUTHKIT_DOMAIN' | 'MCP_PUBLIC_URL' | 'MCP_ALLOWED_HOSTS'>): McpOAuthConfig | null {
+  const config = mcpOAuth(env);
+  if (!config) return null;
+  const allowed = (env.MCP_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((h) => hostnameOf(h))
+    .filter(Boolean);
+  const host = hostnameOf(new URL(config.resource).host);
+  if (allowed.length > 0 && !allowed.includes(host)) {
+    throw new Error(
+      `Refusing to boot: MCP_ALLOWED_HOSTS does not list ${host}, the host of MCP_PUBLIC_URL, so every signed-in request would be refused.`,
+    );
+  }
+  return config;
 }
 
 /** The configured adapter, or null when MCP OAuth is off. */
