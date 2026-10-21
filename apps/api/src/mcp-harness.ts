@@ -15,6 +15,7 @@ import { generateApiKey } from './api-keys';
 import { configureCors } from './cors';
 import { configureDeprecatedHosts } from './deprecated-hosts';
 import { McpController } from './mcp.controller';
+import { normalizeWorkspaceSearch } from '@quill/mcp';
 import type { EstateWorkspace, Person, PersonDirectory } from './person-directory';
 
 /**
@@ -50,8 +51,12 @@ export interface Harness {
   signIn(credentials: { clientId: string; clientSecret: string }): Promise<Client>;
   /** The fake person directory (only with `oauth` on): register who a token's subject is. */
   people: Map<string, Person>;
-  /** The identity service's live workspaces, by id, as the fake directory answers staff lookups. */
-  estate: Map<string, EstateWorkspace>;
+  /**
+   * The identity service's live workspaces, by id, as the fake directory
+   * answers staff lookups; `members` are the people (`Person.id`) holding a
+   * live membership there.
+   */
+  estate: Map<string, EstateWorkspace & { members?: string[] }>;
   /** The lines the API logged for staff calls outside the person's own workspaces. */
   staffLog: string[];
   /** How many times the API asked the person directory. */
@@ -123,16 +128,17 @@ async function boundServer(): Promise<{ server: Server; port: number }> {
  */
 function tableDirectory(
   people: Map<string, Person>,
-  estate: Map<string, EstateWorkspace>,
+  estate: Map<string, EstateWorkspace & { members?: string[] }>,
   counter: { lookups: number; closed: boolean },
 ): PersonDirectory {
-  const squash = (s: string | null) => (s ?? '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const squash = (s: string | null) => normalizeWorkspaceSearch(s ?? '');
   return {
     personOf: async (subject) => {
       counter.lookups += 1;
       return people.get(subject) ?? null;
     },
     workspaceOf: async (id) => estate.get(id.toLowerCase()) ?? null,
+    holdsMembership: async (workspaceId, personId) => estate.get(workspaceId)?.members?.includes(personId) ?? false,
     searchWorkspaces: async (needle, limit) =>
       [...estate.values()].filter((w) => squash(w.name).includes(needle) || squash(w.accountName).includes(needle)).slice(0, limit),
     close: async () => {
@@ -148,7 +154,7 @@ export async function bootHarness(
   const dir = mkdtempSync(join(tmpdir(), 'forms-mcp-spec-'));
   const { server, port } = await boundServer();
   const people = new Map<string, Person>();
-  const estate = new Map<string, EstateWorkspace>();
+  const estate = new Map<string, EstateWorkspace & { members?: string[] }>();
   const counter = { lookups: 0, closed: false };
   const oauthEnv = opts.oauth
     ? {

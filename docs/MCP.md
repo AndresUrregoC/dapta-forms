@@ -82,9 +82,10 @@ app's workspace switcher lets them (see
 - **Finding a workspace.** `list_my_workspaces` without `search` lists only
   their own workspaces. With `search` (at least 3 letters or digits) it also
   searches every workspace: the ones dForms already knows (by workspace name,
-  a member's email or a form name) and the identity service's live
-  workspaces (by workspace or account name, ignoring case and punctuation).
-  At most 20, never the full list. Each result carries `id`, `name`,
+  a member's email or a form name) that are still live upstream, and the
+  identity service's live workspaces (by workspace or account name, ignoring
+  case, spaces and punctuation). At most 20, never the full list, and only
+  workspaces a call could enter. Each result carries `id`, `name`,
   `account_name` (when known; names repeat), `role` and `access` (`member`,
   or `staff` for a workspace they would enter through a grant). A workspace
   dForms has never seen is named by the identity service's id; passing either
@@ -103,7 +104,10 @@ app's workspace switcher lets them (see
   `admin` row the switcher mints, marked `access_grant = 'staff'` and never on
   the team's roster. Staff then read and write (create, edit, publish) as that
   admin, under every rule a member gets. A workspace where they hold a real
-  membership is always entered as that member.
+  membership is always entered as that member, by either id in any letter
+  case; one where the identity service names them a member but dForms has
+  not seen it yet answers `MEMBERSHIP_NOT_SYNCED` (open it once in dForms),
+  never a grant.
 - **Said and logged.** Every result of such a call names the workspace with
   `access: 'staff'` and starts `In workspace "<name>" (staff access):`. The
   audit line carries `via: 'staff_grant'`, and the API logs one more line per
@@ -121,7 +125,7 @@ app's workspace switcher lets them (see
 | Tool | Kind | What it does |
 |---|---|---|
 | `whoami` | read | Who is connected (the key prefix, or the person signed in), every workspace it can act in with the role there, whether the person is `staff`, and, when a workspace applies, that workspace and the member it acts as. |
-| `list_my_workspaces` | read | The workspaces this connection can act in: id, name, account name, role and access, plus what to do next. `search` filters them; for staff it searches every workspace (3+ letters or digits, at most 20). `limit` caps the list. With a key, the key's one workspace. |
+| `list_my_workspaces` | read | The workspaces this connection can act in: id, name, account name, role and access, plus what to do next. `search` filters them; for staff it searches every workspace (3+ letters or digits, at most 20). `limit` caps the list (default: all; the result says how many were left out). With a key, the key's one workspace. |
 | `list_forms` | read | Forms, most recently updated first, with id, `public_url` and whether edits are unpublished. Filter by name, page with `limit`/`offset`. |
 | `get_form` | read | One form: `public_url`, publish state and the config to edit (the pending draft when there is one). |
 | `create_form` | write | Creates a form from a full config. It is live at once; the result carries its `public_url`. Not idempotent. |
@@ -308,7 +312,8 @@ the login, registers the client and issues the token; dForms verifies it.
   [staff](#staff) only, it also reads that database's live workspaces
   (`workspaces`, and the name of the `accounts` row each belongs to): one by
   id, kept a minute per pod, and a search by name (no index serves it, so it
-  needs 3 letters or digits and returns at most 20).
+  needs 3 letters or digits and returns at most 20); and, before a grant is
+  minted, whether `workspace_users` names the person a live member there.
 - **Limits and audit.** The MCP buckets count per member of the workspace a
   call acts in, so one person's clients share a budget per workspace; a request
   that acts in none (the handshake, the tool list) counts against the person.

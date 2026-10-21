@@ -309,7 +309,13 @@ const listMyWorkspacesInput = z.object({
     .describe(
       `Only workspaces whose name contains this text. Staff of this deployment: searches every workspace (by workspace or account name, and by a member's email or a form name where dForms knows it); needs at least ${STAFF_SEARCH_MIN_CHARS} letters or digits and returns at most ${STAFF_SEARCH_MAX_RESULTS}.`,
     ),
-  limit: z.number().int().min(1).max(50).optional().describe('At most this many workspaces (default 50; a staff search stops at 20).'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(`At most this many workspaces (default: every one that applies; a staff search returns at most ${STAFF_SEARCH_MAX_RESULTS}).`),
 });
 
 const listMyWorkspaces: ToolDef = {
@@ -330,11 +336,13 @@ const listMyWorkspaces: ToolDef = {
     const own = workspacesOf(credential);
     const staffAccess = isConnection(credential) ? credential.staff : undefined;
     const staff = staffAccess !== undefined;
-    const limit = args.limit ?? 50;
+    const limit = args.limit;
     const query = args.search?.trim() ?? '';
+    const cut = (list: WorkspaceItem[], max = limit) => (max === undefined ? list : list.slice(0, max));
 
     if (!query) {
-      const workspaces = own.slice(0, limit);
+      const workspaces = cut(own);
+      const more = own.length - workspaces.length;
       const nextStep = !isConnection(credential)
         ? 'This API key acts in this workspace only: leave workspace_id out.'
         : staff
@@ -344,12 +352,13 @@ const listMyWorkspaces: ToolDef = {
             : own.length === 1
               ? 'Use this workspace without asking: workspace_id is optional while it is the only one.'
               : 'Ask the user which workspace to use, by name, then pass its id as workspace_id on every call. If the user switches, use the new id from then on and say so.';
+      const step = more > 0 ? `${nextStep} ${more} more not shown: raise limit, or search by name.` : nextStep;
       return {
-        data: { workspaces, staff, next_step: nextStep },
+        data: { workspaces, staff, next_step: step },
         summary:
           workspaces.length === 0
-            ? `No workspace${staff ? ' of your own' : ' yet'}. ${nextStep}`
-            : `${workspaces.length} workspace${workspaces.length === 1 ? '' : 's'}: ${listed(workspaces)}. ${nextStep}`,
+            ? `No workspace${staff ? ' of your own' : ' yet'}. ${step}`
+            : `${workspaces.length} workspace${workspaces.length === 1 ? '' : 's'}: ${listed(workspaces)}. ${step}`,
       };
     }
 
@@ -365,7 +374,7 @@ const listMyWorkspaces: ToolDef = {
           'Ask the user for more of the workspace name (or a member email or form name), then search again.',
         );
       }
-      const max = Math.min(limit, STAFF_SEARCH_MAX_RESULTS);
+      const max = Math.min(limit ?? STAFF_SEARCH_MAX_RESULTS, STAFF_SEARCH_MAX_RESULTS);
       const hits = await staffAccess.search(query, max);
       const byId = new Map(own.map((w) => [w.id, w]));
       const seen = new Set(mine.map((w) => w.id));
@@ -378,9 +387,9 @@ const listMyWorkspaces: ToolDef = {
           byId.get(hit.id) ?? { id: hit.id, name: hit.name, account_name: hit.accountName, role: hit.role, access: hit.access },
         );
       }
-      workspaces = workspaces.slice(0, max);
+      workspaces = cut(workspaces, max);
     } else {
-      workspaces = mine.slice(0, limit);
+      workspaces = cut(mine);
     }
     const nextStep =
       workspaces.length === 0

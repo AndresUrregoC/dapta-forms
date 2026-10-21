@@ -400,8 +400,19 @@ describe('staff of the deployment', () => {
     expect(mine.workspaces.map((w) => w.id)).toEqual([h.accountId]);
     expect(mine.next_step).toMatch(/search/);
 
+    // Accounts this database knows but no one could enter are never listed: a
+    // local-only one, and one whose workspace is gone upstream.
+    await h.db.run(
+      sql`INSERT INTO account (id, code, name, external_id, created_at) VALUES (${randomUUID()}, 'globold', 'Globex parked', ${`legacy:${randomUUID()}`}, ${Date.now()})`,
+    );
+    await h.db.run(
+      sql`INSERT INTO account (id, code, name, external_id, created_at) VALUES (${randomUUID()}, 'globgone', 'Globex gone', ${randomUUID()}, ${Date.now()})`,
+    );
     const found = structured<Found>(await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'Glob' } }));
     expect(found.workspaces).toEqual([{ id: h.other.accountId, name: 'Globex', account_name: 'Globex Holdings', role: 'admin', access: 'staff' }]);
+    // Found by a form's name, which only this database knows.
+    const byForm = structured<Found>(await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'secret survey' } }));
+    expect(byForm.workspaces.map((w) => w.id)).toEqual([h.other.accountId]);
     expect(found.next_step).toMatch(/Confirm it even when only one matched/);
     // A workspace dForms has never seen is named by the identity service's id.
     const fresh = structured<Found>(await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'initrode group' } }));
@@ -521,12 +532,27 @@ describe('staff of the deployment', () => {
     const p = await staffPerson(h);
     const member = await join(h, p, h.other.accountId, 'member');
     const c = await signIn(h, p.subject);
-    const who = structured<{ member: { id: string; role: string }; workspace: Record<string, unknown> }>(
-      await c.callTool({ name: 'whoami', arguments: { workspace_id: globexUpstream } }),
-    );
-    expect(who.member).toEqual(expect.objectContaining({ id: member, role: 'member' }));
+    // By the identity service's id, in any letter case.
+    for (const id of [globexUpstream, globexUpstream.toUpperCase()]) {
+      const who = structured<{ member: { id: string; role: string }; workspace: Record<string, unknown> }>(
+        await c.callTool({ name: 'whoami', arguments: { workspace_id: id } }),
+      );
+      expect(who.member).toEqual(expect.objectContaining({ id: member, role: 'member' }));
+    }
     const row = await h.db.get<{ access_grant: string | null; role: string }>(sql`SELECT access_grant, role FROM member WHERE id = ${member}`);
     expect(row).toEqual({ access_grant: null, role: 'member' });
+    expect(h.staffLog).toEqual([]);
+  });
+
+  it('refuses, and grants nothing, where the identity service names staff a member dForms has not seen yet', async () => {
+    const { h, initrode } = await staffDeployment();
+    const p = await staffPerson(h);
+    h.estate.get(initrode)!.members = [p.personId];
+    const c = await signIn(h, p.subject);
+    const text = errorText(await c.callTool({ name: 'list_forms', arguments: { workspace_id: initrode } }));
+    expect(text).toMatch(/^MEMBERSHIP_NOT_SYNCED/);
+    expect(text).toContain('open this workspace once in dForms');
+    expect(await h.db.get(sql`SELECT id FROM account WHERE external_id = ${initrode}`)).toBeUndefined();
     expect(h.staffLog).toEqual([]);
   });
 

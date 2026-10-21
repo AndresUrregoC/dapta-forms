@@ -11,6 +11,17 @@
  */
 
 /**
+ * The identity service's workspace id behind a local account's
+ * `external_id`, or null for an account the identity service does not own
+ * (none, or a local-only `local:`/`dev:`/`legacy:` id). Only such a
+ * workspace can be granted into, or written upstream.
+ */
+export function upstreamWorkspaceIdOf(externalId: string | null | undefined): string | null {
+  if (!externalId || externalId.startsWith('local:') || externalId.startsWith('dev:') || externalId.startsWith('legacy:')) return null;
+  return externalId;
+}
+
+/**
  * True when `email`'s domain (after the last `@`, trimmed, lowercased) is
  * exactly one of `domains` (lowercase, no `@`). No email, an email without a
  * domain, or no domains listed: false, so an unset list makes nobody staff,

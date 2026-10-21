@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { isStaffEmail } from './staff';
+import { isStaffEmail, upstreamWorkspaceIdOf } from './staff';
 import { WorkspaceProjection } from './workspace-projection';
 import type { Db } from '@quill/db';
 import type { IamWorkspacesClient } from './iam-workspaces';
+
+describe('upstreamWorkspaceIdOf', () => {
+  it('names the identity service workspace, and nothing for a local-only account', () => {
+    expect(upstreamWorkspaceIdOf('9b2f6c1e-0000-4000-8000-000000000001')).toBe('9b2f6c1e-0000-4000-8000-000000000001');
+    for (const local of [null, undefined, '', 'local:abc', 'dev:abc', 'legacy:abc']) expect(upstreamWorkspaceIdOf(local)).toBeNull();
+  });
+});
 
 describe('isStaffEmail', () => {
   const domains = ['example.com', 'staff.example.org'];

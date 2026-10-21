@@ -27,12 +27,15 @@ export const STAFF_SEARCH_MIN_CHARS = 3;
 export const STAFF_SEARCH_MAX_RESULTS = 20;
 
 /**
- * A workspace search as it is compared: lowercase letters and digits only, so
- * "Call Center" finds "callcenter's workspace" and a search can never carry a
- * LIKE wildcard.
+ * A workspace search as it is compared: lowercased, then every ASCII
+ * character that is not a letter or a digit dropped (spaces, punctuation,
+ * symbols), so "Call Center" finds "callcenter's workspace" and a search can
+ * never carry a LIKE wildcard. Letters beyond ASCII (accents, other scripts)
+ * are kept, so a host can apply the same rule in SQL whatever its locale.
  */
 export function normalizeWorkspaceSearch(text: string | undefined): string {
-  return (text ?? '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  // eslint-disable-next-line no-control-regex
+  return (text ?? '').toLowerCase().replace(/[\x00-\x2f\x3a-\x60\x7b-\x7f]/g, '');
 }
 
 /** What staff do to pick a workspace: search, confirm with the user, then name it. */

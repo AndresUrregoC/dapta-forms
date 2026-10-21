@@ -56,6 +56,7 @@ import type { AuthProvider, HostPrincipal, ReqLike, UpstreamIdentity } from './a
 import { AuthService } from './auth.service';
 import { apiKeyFromRequest } from './api-keys';
 import { inProcessPrincipalOf } from './in-process-principal';
+import { upstreamWorkspaceIdOf } from './staff';
 import { assertAdmin, assertCanManageTarget, assertNotSelf, assertOwner } from './permissions';
 import {
   IAM_ADMIN_ROLE_NAME,
@@ -465,9 +466,7 @@ export class WorkspaceService {
     const row = await this.db.get<{ external_id: string | null }>(
       sql`SELECT external_id FROM account WHERE id = ${accountId} LIMIT 1`,
     );
-    const id = row?.external_id ?? null;
-    if (!id || id.startsWith('local:') || id.startsWith('dev:') || id.startsWith('legacy:')) return null;
-    return id;
+    return upstreamWorkspaceIdOf(row?.external_id);
   }
 
   /**

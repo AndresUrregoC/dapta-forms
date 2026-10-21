@@ -17,7 +17,8 @@
  *
  * For staff of the deployment it also reads the identity service's live
  * workspaces (`workspaces`, with the name of the `accounts` row each hangs
- * from): one by id, and a search by name. Live = not deleted and not marked
+ * from): one by id, a search by name, and whether a person holds a live
+ * membership (`workspace_users`) in one. Live = not deleted and not marked
  * inactive. Which person is staff is decided by the API, never here.
  *
  * Settings come from the environment (`IAM_DB_*`, see `iamDirectoryConfig`);
@@ -139,6 +140,7 @@ export interface IamDirectoryOptions {
 export interface IamPersonDirectory extends PersonDirectory {
   workspaceOf(workspaceId: string): Promise<EstateWorkspace | null>;
   searchWorkspaces(needle: string, limit: number): Promise<EstateWorkspace[]>;
+  holdsMembership(workspaceId: string, personId: string): Promise<boolean>;
   /** Close the pool (specs, and the API's shutdown). */
   close(): Promise<void>;
 }
@@ -161,8 +163,20 @@ interface WorkspaceRow {
 
 const WORKSPACE_COLUMNS = 'w.id::text AS id, w.name, w.account_id::text AS account_id, a.name AS account_name';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-/** A normalized search: letters and digits only, at least 3 (see `normalizeWorkspaceSearch`). */
-const NEEDLE = /^[\p{L}\p{N}]{3,100}$/u;
+/**
+ * A normalized search (see `normalizeWorkspaceSearch`): no ASCII character but
+ * a lowercase letter or a digit, at least 3 characters. So no LIKE wildcard,
+ * and never an empty needle that would match everything.
+ */
+// eslint-disable-next-line no-control-regex
+const NEEDLE = /^[^\x00-\x2f\x3a-\x60\x7b-\x7f]{3,100}$/;
+/**
+ * The names are normalized the same way in SQL: every ASCII character that is
+ * not a letter or a digit is dropped (letters are lowercased first). Listed
+ * by code point, not as `[:alnum:]`, so it does not depend on the database's
+ * locale: an accented letter is kept on both sides.
+ */
+const ASCII_NON_ALNUM = '[\\x01-\\x2f\\x3a-\\x60\\x7b-\\x7f]';
 const MAX_SEARCH_RESULTS = 20;
 
 function workspaceOf(row: WorkspaceRow): EstateWorkspace {
@@ -244,12 +258,26 @@ export function createIamPersonDirectory(config: IamDirectoryConfig, options: Ia
     LEFT JOIN ${schema}.accounts a ON a.id = w.account_id
     WHERE w.deleted_at IS NULL
       AND w.is_active IS NOT FALSE
-      AND (regexp_replace(lower(w.name), '[^[:alnum:]]', '', 'g') LIKE '%' || ${needle}::text || '%'
-        OR regexp_replace(lower(coalesce(a.name, '')), '[^[:alnum:]]', '', 'g') LIKE '%' || ${needle}::text || '%')
+      AND (regexp_replace(lower(w.name), ${ASCII_NON_ALNUM}, '', 'g') LIKE '%' || ${needle}::text || '%'
+        OR regexp_replace(lower(coalesce(a.name, '')), ${ASCII_NON_ALNUM}, '', 'g') LIKE '%' || ${needle}::text || '%')
     ORDER BY w.created_at DESC
     LIMIT ${limit}::int`;
+  const membership = (workspaceId: string, userId: string) => sql<{ one: number }[]>`
+    SELECT 1 AS one
+    FROM ${schema}.workspace_users wu
+    WHERE wu.workspace_id = ${workspaceId}::uuid
+      AND wu.user_id = ${userId}::uuid
+      AND wu.is_active = true
+      AND wu.deleted_at IS NULL
+    LIMIT 1`;
 
   return {
+    async holdsMembership(workspaceId, personId) {
+      const ws = workspaceId.trim().toLowerCase();
+      const user = personId.trim().toLowerCase();
+      if (!UUID.test(ws) || !UUID.test(user)) return false;
+      return (await timed(membership(ws, user))).length > 0;
+    },
     async workspaceOf(workspaceId) {
       const id = workspaceId.trim().toLowerCase();
       // A malformed id would fail the cast: it names no workspace.

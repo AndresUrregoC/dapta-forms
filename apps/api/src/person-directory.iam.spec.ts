@@ -82,6 +82,14 @@ describe.skipIf(!onPostgres)('the identity-service person directory, on Postgres
         created_at timestamptz NOT NULL DEFAULT now(),
         deleted_at timestamptz
       );
+      CREATE TABLE ${schema}.workspace_users (
+        id uuid PRIMARY KEY,
+        workspace_id uuid NOT NULL REFERENCES ${schema}.workspaces (id),
+        user_id uuid NOT NULL REFERENCES ${schema}.users (id),
+        type text NOT NULL DEFAULT 'MEMBER',
+        is_active boolean NOT NULL DEFAULT true,
+        deleted_at timestamptz
+      );
     `);
     const u = new URL(url);
     config = {
@@ -235,6 +243,35 @@ describe.skipIf(!onPostgres)('the identity-service person directory, on Postgres
     // Never more than 20, whatever the caller asks.
     for (let i = 0; i < 22; i += 1) await workspace(`Bulk ${tag} ${i}`);
     expect(await d.searchWorkspaces(`bulk${tag}`, 500)).toHaveLength(20);
+  });
+
+  it('keeps accented letters on both sides, whatever the database locale', async () => {
+    const d = directory();
+    const tag = randomUUID().replace(/-/g, '').slice(0, 6);
+    const ws = await workspace(`Peñalosa & Hijos ${tag}`);
+    expect((await d.searchWorkspaces(`peñalosahijos${tag}`, 20)).map((w) => w.id)).toEqual([ws.id]);
+  });
+
+  it('says whether a person holds a live membership in a workspace', async () => {
+    const d = directory();
+    const ws = await workspace(`Members ${randomUUID().slice(0, 6)}`);
+    const member = await user();
+    const removed = await user();
+    const deleted = await user();
+    const stranger = await user();
+    const seat = (userId: string, fields: { isActive?: boolean; deleted?: boolean } = {}) =>
+      admin.unsafe(
+        `INSERT INTO ${schema}.workspace_users (id, workspace_id, user_id, is_active, deleted_at) VALUES ($1, $2, $3, $4, ${fields.deleted ? 'now()' : 'NULL'})`,
+        [randomUUID(), ws.id, userId, fields.isActive ?? true],
+      );
+    await seat(member.id);
+    await seat(removed.id, { isActive: false });
+    await seat(deleted.id, { deleted: true });
+    expect(await d.holdsMembership(ws.id, member.id)).toBe(true);
+    expect(await d.holdsMembership(ws.id.toUpperCase(), member.id)).toBe(true);
+    for (const u of [removed, deleted, stranger]) expect(await d.holdsMembership(ws.id, u.id)).toBe(false);
+    expect(await d.holdsMembership('not-a-uuid', member.id)).toBe(false);
+    expect(await d.holdsMembership(ws.id, 'not-a-uuid')).toBe(false);
   });
 
   it('refuses a search that is not a normalized needle of 3 letters or digits, without reading anything', async () => {

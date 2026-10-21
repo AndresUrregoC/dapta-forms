@@ -59,6 +59,12 @@ export interface PersonDirectory {
    * newest first, at most `limit`. Never the full list.
    */
   searchWorkspaces?(needle: string, limit: number): Promise<EstateWorkspace[]>;
+  /**
+   * Staff only: whether `personId` (a `Person.id`) holds a live membership of
+   * its own in the workspace, so it is entered as that member and never
+   * turned into a staff access grant.
+   */
+  holdsMembership?(workspaceId: string, personId: string): Promise<boolean>;
   /** Release what the directory holds (the identity database pool). The API calls it when it shuts down. */
   close?(): Promise<void>;
 }
@@ -205,6 +211,8 @@ export function cachePersonDirectory(directory: PersonDirectory, options: Person
     // A search is a staff action with a short needle and a small limit; each
     // one is its own question, so it is not kept.
     ...(directory.searchWorkspaces ? { searchWorkspaces: directory.searchWorkspaces.bind(directory) } : {}),
+    // Asked only before a grant is minted, once per person and workspace.
+    ...(directory.holdsMembership ? { holdsMembership: directory.holdsMembership.bind(directory) } : {}),
   };
 }
 
