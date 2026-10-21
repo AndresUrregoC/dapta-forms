@@ -23,7 +23,7 @@ import { isKeyAllowedRoute, routeOf } from './api-key-routes';
 import type { ReqLike } from './auth.provider';
 import { inProcessRequest } from './in-process-principal';
 import type { McpOAuth } from './mcp-oauth';
-import type { PersonDirectory } from './person-directory';
+import { lookUpPerson, type PersonDirectory } from './person-directory';
 
 /**
  * forms-api's side of the MCP port (`FormsBackend` in `@quill/mcp`).
@@ -149,7 +149,7 @@ export async function authenticateMcpConnection(
   const access = await oauth.verify(token);
   if (!access) return null;
   const openOnce = `Open dForms once with this account${appUrl ? ` (${appUrl})` : ''}, then connect again.`;
-  const person = await directory.personOf(access.subject);
+  const person = await lookUpPerson(directory, access.subject);
   if (!person) throw new DoorRefusal(`This sign-in has no dForms account yet. ${openOnce}`);
   const workspaces = (await listWorkspacesForIdentity(db, { externalId: person.id, email: person.email })).filter(
     (w) => w.status === 'active',

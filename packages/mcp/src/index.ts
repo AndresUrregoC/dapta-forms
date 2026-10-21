@@ -13,6 +13,7 @@
 export * from './backend';
 export {
   DoorRefusal,
+  DoorUnavailable,
   McpDoor,
   hostnameOf,
   mcpCorsPolicy,

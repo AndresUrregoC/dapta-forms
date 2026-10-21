@@ -257,6 +257,23 @@ export const serverEnvSchema = z.object({
   WORKOS_AUTHKIT_DOMAIN: z.string().optional(),
   MCP_PUBLIC_URL: z.string().optional(),
 
+  // The person directory of MCP connections: read-only access to the identity
+  // service's database, where the API translates the person a token names into
+  // the user id members carry. Read only with MCP_OAUTH_PROVIDER set, and then
+  // all required but the port (checked when the API boots); ignored otherwise.
+  //   IAM_DB_HOST    the database host. TLS is required unless it is a loopback host.
+  //   IAM_DB_PORT    the port, 5432 when unset.
+  //   IAM_DB_NAME    the database.
+  //   IAM_DB_SCHEMA  the schema that holds its users and sessions.
+  //   IAM_DB_USER    a role that can only read.
+  //   IAM_DB_PASS    its password (a secret).
+  IAM_DB_HOST: z.string().optional(),
+  IAM_DB_PORT: z.string().optional(),
+  IAM_DB_NAME: z.string().optional(),
+  IAM_DB_SCHEMA: z.string().optional(),
+  IAM_DB_USER: z.string().optional(),
+  IAM_DB_PASS: z.string().optional(),
+
   // Product analytics — OUR OWN telemetry about the people who USE Dapta Forms
   // (signup, publish, activation), drained from the outbox by AnalyticsCapture.
   //
