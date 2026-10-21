@@ -16,6 +16,8 @@ import type { McpOAuth, McpOAuthDeps } from './mcp-oauth';
 
 /** How long the authorization server metadata is reused before it is read again. */
 const AS_METADATA_MAX_AGE_MS = 10 * 60_000;
+/** While AuthKit cannot be read, how long the stale copy is served before it is tried again. */
+const AS_METADATA_RETRY_MS = 30_000;
 
 export function createWorkosAuthKit(config: McpOAuthConfig, deps: McpOAuthDeps = {}): McpOAuth {
   const jwks = new RemoteJwks(`${config.issuer}/oauth2/jwks`, { fetch: deps.fetch });
@@ -34,8 +36,11 @@ export function createWorkosAuthKit(config: McpOAuthConfig, deps: McpOAuthDeps =
       asMetadata = { at: Date.now(), body: body as Record<string, unknown> };
       return asMetadata.body;
     } catch {
-      if (asMetadata) return asMetadata.body;
-      throw new IssuerUnavailable();
+      if (!asMetadata) throw new IssuerUnavailable();
+      // Keep serving the stale copy, and try AuthKit again in a while rather
+      // than on every request, each of which would wait for the timeout.
+      asMetadata = { at: Date.now() - AS_METADATA_MAX_AGE_MS + AS_METADATA_RETRY_MS, body: asMetadata.body };
+      return asMetadata.body;
     }
   }
 
