@@ -245,6 +245,7 @@ defaults below.
 | `IAM_DB_SCHEMA` | _(unset)_ | `MCP_OAUTH_PROVIDER` is set: the schema holding its `users` and `sessions` tables | no |
 | `IAM_DB_USER` | _(unset)_ | `MCP_OAUTH_PROVIDER` is set: a role that can only read those two tables | no |
 | `IAM_DB_PASS` | _(unset)_ | `MCP_OAUTH_PROVIDER` is set: that role's password | yes |
+| `IAM_DB_SSL_CA` | _(unset: encrypted, certificate not verified, logged once at boot)_ | you have that database's CA: the PEM itself or the path of a file holding it. The certificate and its host name are then verified (verify-full), TLS is on even on a loopback host, and anything that is not a certificate refuses to boot | no |
 
 ### Deprecated API hosts (API, optional)
 

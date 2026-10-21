@@ -46,6 +46,7 @@ describe('booting the person directory', () => {
       user: 'reader',
       password: 'spec-password',
       tls: true,
+      ca: null,
     });
     expect(createPersonDirectory(env())).not.toBeNull();
   });

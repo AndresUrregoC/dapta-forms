@@ -267,12 +267,19 @@ export const serverEnvSchema = z.object({
   //   IAM_DB_SCHEMA  the schema that holds its users and sessions.
   //   IAM_DB_USER    a role that can only read.
   //   IAM_DB_PASS    its password (a secret).
+  //   IAM_DB_SSL_CA  optional: the CA that signs the database's certificate,
+  //                  as the PEM itself or the path of a file holding it. Set,
+  //                  the certificate and its host name are verified
+  //                  (verify-full) and TLS is on even on a loopback host.
+  //                  Unset, the connection is encrypted but the certificate
+  //                  is not verified, and the API logs so once at boot.
   IAM_DB_HOST: z.string().optional(),
   IAM_DB_PORT: z.string().optional(),
   IAM_DB_NAME: z.string().optional(),
   IAM_DB_SCHEMA: z.string().optional(),
   IAM_DB_USER: z.string().optional(),
   IAM_DB_PASS: z.string().optional(),
+  IAM_DB_SSL_CA: z.string().optional(),
 
   // Product analytics — OUR OWN telemetry about the people who USE Dapta Forms
   // (signup, publish, activation), drained from the outbox by AnalyticsCapture.

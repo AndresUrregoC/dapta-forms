@@ -18,6 +18,7 @@
  * Settings come from the environment (`IAM_DB_*`, see `iamDirectoryConfig`);
  * no host, database, schema or role of the hosted deployment is written here.
  */
+import { existsSync, readFileSync } from 'node:fs';
 import postgres from 'postgres';
 import type { ServerEnv } from '@quill/config/env';
 import { PersonRefused, type Person, type PersonDirectory } from './person-directory';
@@ -31,13 +32,19 @@ export interface IamDirectoryConfig {
   schema: string;
   user: string;
   password: string;
-  /** TLS on the connection. Off only for a database on a loopback host. */
+  /** TLS on the connection. Off only for a database on a loopback host without a CA. */
   tls: boolean;
+  /**
+   * The CA that signs the database's certificate (PEM), from `IAM_DB_SSL_CA`.
+   * Set: the certificate is verified against it, and so is the host name it
+   * was issued for (verify-full). Null: encrypted, but not verified.
+   */
+  ca: string | null;
 }
 
 type IamDirectoryEnv = Pick<
   ServerEnv,
-  'IAM_DB_HOST' | 'IAM_DB_PORT' | 'IAM_DB_NAME' | 'IAM_DB_SCHEMA' | 'IAM_DB_USER' | 'IAM_DB_PASS'
+  'IAM_DB_HOST' | 'IAM_DB_PORT' | 'IAM_DB_NAME' | 'IAM_DB_SCHEMA' | 'IAM_DB_USER' | 'IAM_DB_PASS' | 'IAM_DB_SSL_CA'
 >;
 
 const REQUIRED = ['IAM_DB_HOST', 'IAM_DB_NAME', 'IAM_DB_SCHEMA', 'IAM_DB_USER', 'IAM_DB_PASS'] as const;
@@ -47,11 +54,38 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_$]{0,62}$/;
 /** A host name, an IPv4 address or an IPv6 one (bare or bracketed): no scheme, port, path or credentials. */
 const HOST = /^(\[[0-9A-Fa-f:.]+\]|[0-9A-Fa-f]*:[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*|[A-Za-z0-9.-]+)$/;
 
+const PEM_CERTIFICATE = '-----BEGIN CERTIFICATE-----';
+
+/**
+ * `IAM_DB_SSL_CA` as a PEM: the value itself when it is one (newlines may be
+ * escaped as `\n`, for a one-line variable), else a path to a file that holds
+ * one, read now. Null when unset; "Refusing to boot" when it is neither.
+ */
+function caOf(raw: string | undefined): string | null {
+  const value = (raw ?? '').trim();
+  if (!value) return null;
+  if (value.includes(PEM_CERTIFICATE)) return value.replace(/\\n/g, '\n');
+  let file: string | null = null;
+  try {
+    file = existsSync(value) ? readFileSync(value, 'utf8') : null;
+  } catch {
+    file = null;
+  }
+  if (file === null) {
+    throw new Error('Refusing to boot: IAM_DB_SSL_CA must be a PEM certificate or the path of a readable file that holds one.');
+  }
+  if (!file.includes(PEM_CERTIFICATE)) {
+    throw new Error('Refusing to boot: IAM_DB_SSL_CA names a file that holds no PEM certificate.');
+  }
+  return file;
+}
+
 /**
  * The identity database settings, checked: every value present (the port
- * defaults to 5432), the schema a plain identifier, the port a port. Throws
- * "Refusing to boot" naming what is wrong, so a directory that could never
- * read is not served. TLS is on unless the host is a loopback host.
+ * defaults to 5432), the schema a plain identifier, the port a port, the CA a
+ * certificate. Throws "Refusing to boot" naming what is wrong, so a directory
+ * that could never read is not served. TLS is on unless the host is a
+ * loopback host; with a CA it is always on, and verified.
  */
 export function iamDirectoryConfig(env: IamDirectoryEnv): IamDirectoryConfig {
   const value = (name: (typeof REQUIRED)[number]) => (env[name] ?? '').trim();
@@ -70,6 +104,7 @@ export function iamDirectoryConfig(env: IamDirectoryEnv): IamDirectoryConfig {
   if (!IDENTIFIER.test(schema)) {
     throw new Error(`Refusing to boot: IAM_DB_SCHEMA must be a plain schema name (letters, digits, _), got ${JSON.stringify(schema)}.`);
   }
+  const ca = caOf(env.IAM_DB_SSL_CA);
   const rawPort = (env.IAM_DB_PORT ?? '').trim();
   const port = rawPort ? Number(rawPort) : 5432;
   if (!/^\d+$/.test(rawPort || '5432') || port < 1 || port > 65_535) {
@@ -83,7 +118,8 @@ export function iamDirectoryConfig(env: IamDirectoryEnv): IamDirectoryConfig {
     user: value('IAM_DB_USER'),
     // The password is used as given: a secret may legitimately end in a space.
     password: env.IAM_DB_PASS ?? '',
-    tls: !LOOPBACK.has(host.toLowerCase()),
+    tls: ca !== null || !LOOPBACK.has(host.toLowerCase()),
+    ca,
   };
 }
 
@@ -122,9 +158,11 @@ export function createIamPersonDirectory(config: IamDirectoryConfig, options: Ia
     database: config.database,
     username: config.user,
     password: config.password,
-    // 'require' encrypts and never falls back to plain text; the certificate
-    // is not checked against a CA, as the sibling MCP server reads it.
-    ssl: config.tls ? 'require' : false,
+    // With a CA: verify-full, the certificate against the CA and the host it
+    // was issued for (Node's default identity check, with the host as the
+    // server name). Without one, 'require' encrypts and never falls back to
+    // plain text, but checks no certificate; the API says so once at boot.
+    ssl: config.ca ? { ca: config.ca, rejectUnauthorized: true } : config.tls ? 'require' : false,
     max: options.maxConnections ?? 4,
     connect_timeout: 5,
     idle_timeout: 60,

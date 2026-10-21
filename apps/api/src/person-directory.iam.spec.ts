@@ -79,6 +79,7 @@ describe.skipIf(!onPostgres)('the identity-service person directory, on Postgres
       user: decodeURIComponent(u.username),
       password: decodeURIComponent(u.password),
       tls: false,
+      ca: null,
     };
   });
 

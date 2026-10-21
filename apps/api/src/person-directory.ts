@@ -53,9 +53,16 @@ export class PersonRefused extends Error {
  * Nothing connects here: the directory reads on its first lookup, so the API
  * boots, and keeps serving API keys, while the identity database is down.
  */
-export function createPersonDirectory(env: ServerEnv): PersonDirectory | null {
+export function createPersonDirectory(
+  env: ServerEnv,
+  warn: (line: string) => void = (line) => new Logger('PersonDirectory').warn(line),
+): PersonDirectory | null {
   if (!mcpOAuth(env)) return null;
-  return createIamPersonDirectory(iamDirectoryConfig(env));
+  const config = iamDirectoryConfig(env);
+  if (config.tls && !config.ca) {
+    warn("The identity database's TLS certificate is not verified: set IAM_DB_SSL_CA to its CA to verify it and its host name.");
+  }
+  return createIamPersonDirectory(config);
 }
 
 /** A subject's lookups ran past their budget (see `cachePersonDirectory`). */

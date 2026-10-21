@@ -220,13 +220,21 @@ the login, registers the client and issues the token; dForms verifies it.
 - **The person directory.** The token's `sub` is the identity provider's id
   for the person; members carry the identity service's user id. The API reads
   the identity service's database (`IAM_DB_*`, a read-only role, TLS unless
-  the host is a loopback host, at most 4 connections, 5 seconds per query):
-  the live user row with that provider id, and only if there is none, the live
-  users its sessions link to that id. More than one person, or an inactive or
-  blocked one, is a 403 that says to contact support; nobody is the 403 above.
-  While that database cannot be read, a signed-in request gets a 503 with
-  `Retry-After` (never a 401 that would start a new login), and API keys keep
-  working: nothing connects until the first sign-in.
+  the host is a loopback host, at most 4 connections, 5 seconds per query).
+  With `IAM_DB_SSL_CA` set, its certificate and host name are verified
+  (verify-full); unset, the connection is encrypted but not verified, and the
+  API logs that once at boot. It reads the live user row with that provider
+  id, and only if there is none, the live users its sessions link to that id.
+  More than one person, or an inactive or blocked one, is a 403 that says to
+  contact support; nobody is the 403 above. While that database cannot be
+  read, a signed-in request gets a 503 with `Retry-After` (never a 401 that
+  would start a new login), and API keys keep working: nothing connects until
+  the first sign-in. Each API pod keeps who a subject is for a minute (nobody,
+  or a refusal, for 10 seconds; an outage never), so a burst of requests with
+  one token reads that database once; a lookup the cache cannot answer first
+  takes a token from a bucket keyed by the token's `sub` (a burst of 10, then
+  one every 6 seconds), and past it gets a 429 with `Retry-After`. Which
+  workspaces the person may act in is still read on every request.
 - **Limits and audit.** The MCP buckets count per member of the workspace a
   call acts in, so one person's clients share a budget per workspace; a request
   that acts in none (the handshake, the tool list) counts against the person.
@@ -251,6 +259,7 @@ All optional; unset (or blank) means the safe default. See
 | `WORKOS_AUTHKIT_DOMAIN` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
 | `IAM_DB_HOST`, `IAM_DB_NAME`, `IAM_DB_SCHEMA`, `IAM_DB_USER`, `IAM_DB_PASS` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
 | `IAM_DB_PORT` | API | `5432` |
+| `IAM_DB_SSL_CA` | API | unset (encrypted, certificate not verified) |
 
 ## Check it yourself
 
