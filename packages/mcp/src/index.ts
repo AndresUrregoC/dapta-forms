@@ -32,5 +32,14 @@ export {
   type FormsMcpServerOptions,
   type McpCall,
 } from './server';
-export { ToolFailure, argsHash, redactArgs, renderIssues, toFailure, untrusted } from './support';
+export {
+  ToolFailure,
+  argsHash,
+  describeError,
+  redactArgs,
+  renderIssues,
+  toFailure,
+  untrusted,
+  type ErrorDescriptor,
+} from './support';
 export { METRIC_DEFINITIONS, TOOLS, type ToolContext, type ToolDef, type ToolResult } from './tools';

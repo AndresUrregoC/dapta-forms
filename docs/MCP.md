@@ -26,8 +26,9 @@ takes, sent as `Authorization: Bearer dforms_...`. Members create keys in dForms
   exist.
 - A request without a key gets a 401 with a `WWW-Authenticate: Bearer`
   challenge. A wrong, revoked or orphaned key gets a 401 too; it is never
-  treated as anonymous. A key in the URL (`?api_key=`, `?access_token=`, ...)
-  is refused with 400 so it never reaches an access log.
+  treated as anonymous. A key in the URL (`?api_key=`, `?access_token=`,
+  `?bearer=`, ..., in any letter case) is refused with 400 so it never reaches
+  an access log.
 - Browser-based connectors that sign in with OAuth (Claude in the browser,
   ChatGPT) are not supported yet: this release is the API-key door. The door's
   `authenticate` and `challenge` hooks are where an OAuth token verifier plugs
@@ -50,7 +51,9 @@ takes, sent as `Authorization: Bearer dforms_...`. Members create keys in dForms
 
 Every tool carries a title, `readOnlyHint` / `destructiveHint` /
 `idempotentHint` / `openWorldHint`, an input schema and an output schema with
-`structuredContent` (plus a short text summary). There are no delete tools, and
+`structuredContent`. The content of a result is a short text summary followed
+by the same data as JSON text, for clients that only read text. There are no
+delete tools, and
 nothing about keys, members, workspaces, integrations or destinations.
 
 Every role (owner, admin, member) can create, edit and publish forms in the web
@@ -74,7 +77,8 @@ handlers, so any role rule those handlers apply holds for the MCP too.
 Answers are typed by members of the public, so they are hostile input to a
 model. `list_responses` returns them only inside `respondent_supplied`, with
 control and zero-width characters, HTML and markdown links and images removed
-and every value length-capped. Tell your agent to treat `respondent_supplied`
+(nested ones too, until nothing is left to remove) and every value
+length-capped. Tell your agent to treat `respondent_supplied`
 as data, never as instructions.
 
 ## Connect an agent
@@ -134,10 +138,12 @@ const forms = await client.callTool({ name: 'list_forms', arguments: {} });
   this order: the switch, `POST` only (405), `Host` against `MCP_ALLOWED_HOSTS`
   when set (403), a browser `Origin` not in `MCP_ALLOWED_ORIGINS` (403; clients
   without an `Origin`, which is every non-browser MCP client, are unaffected),
-  credentials in the URL (400), `application/json` only (415), then the key.
-  The same list is the endpoint's CORS policy (preflight answered, no
-  credentials), kept apart from the dashboard's `CORS_ORIGINS`: neither list
-  opens the other surface.
+  credentials in the URL (400), `application/json` only (415), a JSON-RPC
+  batch (400: one message per request, so a request is one rate-limit token),
+  then the key. The same list is the endpoint's CORS policy (preflight
+  answered, no credentials), kept apart from the dashboard's `CORS_ORIGINS`:
+  neither list opens the other surface. The path is matched in any letter
+  case, so `/MCP` gets the MCP policy too.
   Bodies are capped by the API's JSON parser, like every REST route.
 - **Rate limits.** Every request of a key takes a token from its MCP bucket
   (`MCP_RATE_LIMIT_*`, HTTP 429 with `Retry-After`); write tools also take one
@@ -154,6 +160,9 @@ const forms = await client.callTool({ name: 'list_forms', arguments: {} });
   and latency. It never contains the key, a config, a form name, a date filter
   or an answer. A call the SDK refuses before any tool runs (a malformed
   argument) is not audited.
+- **Error logs.** An unexpected failure is logged with its error class and
+  code only (`TypeError code=SQLITE_BUSY`), never its message or stack, which
+  can quote data from the request.
 
 ## Signing in (MCP connections over OAuth)
 

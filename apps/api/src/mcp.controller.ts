@@ -3,7 +3,15 @@ import { All, Controller, Inject, Logger, OnModuleInit, Req, Res } from '@nestjs
 import { ModuleRef } from '@nestjs/core';
 import type { Db } from '@quill/db';
 import type { ServerEnv } from '@quill/config/env';
-import { FormsMcpServer, McpDoor, unlimited, type DoorRequest, type DoorResponse, type RateLimiter } from '@quill/mcp';
+import {
+  FormsMcpServer,
+  McpDoor,
+  unlimited,
+  type DoorRequest,
+  type DoorResponse,
+  type ErrorDescriptor,
+  type RateLimiter,
+} from '@quill/mcp';
 import { AdminCrudController } from './admin-crud.controller';
 import { AnalyticsController } from './analytics.controller';
 import {
@@ -27,6 +35,11 @@ function csv(value: string | undefined): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/** `TypeError code=SQLITE_BUSY`: what a log line says about a failure. */
+export function errorLabel(error: ErrorDescriptor): string {
+  return error.code ? `${error.errorClass} code=${error.code}` : error.errorClass;
 }
 
 /** A caller's own request id when it is a short safe token, else a fresh one. */
@@ -71,9 +84,9 @@ export class McpController implements OnModuleInit {
       backend: new ApiFormsBackend(db, () => this.resolveHandlers()),
       toolTimeoutMs: env.MCP_TOOL_TIMEOUT_MS,
       writeLimiter: bucket(env.MCP_WRITE_RATE_LIMIT_CAPACITY, env.MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC),
-      onInternalError: (tool, requestId, error) =>
-        this.logger.error(`tool ${tool} failed (${requestId})`, error instanceof Error ? error.stack : String(error)),
-      onTransportError: (error) => this.logger.warn(`mcp transport: ${error.message}`),
+      // Class and code only: a stack or a message can quote the request's data.
+      onInternalError: (tool, requestId, error) => this.logger.error(`tool ${tool} failed (${requestId}): ${errorLabel(error)}`),
+      onTransportError: (error) => this.logger.warn(`mcp transport: ${errorLabel(error)}`),
     });
     this.door = new McpDoor({
       server: this.server,

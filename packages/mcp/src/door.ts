@@ -3,8 +3,12 @@ import type { McpCaller } from './backend';
 import type { RateLimiter } from './rate-limit';
 import { CALL_KEY, type FormsMcpServer, type McpCall } from './server';
 
-/** Credentials in the URL end up in access logs and proxies; refuse them outright. */
-const URL_CREDENTIAL_PARAMS = ['key', 'api_key', 'apikey', 'access_token', 'token', 'authorization'];
+/**
+ * Credentials in the URL end up in access logs and proxies; refuse them
+ * outright. Names are compared in lower case, so `?API_KEY=` and `?Token=`
+ * are caught too.
+ */
+const URL_CREDENTIAL_PARAMS = new Set(['key', 'api_key', 'apikey', 'access_key', 'access_token', 'token', 'bearer', 'authorization']);
 
 /** The request the door reads: a Node `IncomingMessage` with its JSON body already parsed. */
 export interface DoorRequest extends AsyncIterable<unknown> {
@@ -174,8 +178,8 @@ const keyChallenge = (error?: 'invalid_token'): string =>
  * The SDK handler trusts its caller: it checks no Host, no Origin and no
  * token. Everything that guards the endpoint lives here, in this order:
  * switch, method, transport hygiene (Host, Origin, credentials in the URL,
- * content type), then authentication with its rate limits. There is no
- * anonymous door: a request without a credential is a 401 challenge, and a
+ * content type, no batch), then authentication with its rate limits. There
+ * is no anonymous door: a request without a credential is a 401 challenge, and a
  * request with a bad one is a 401 too, never quietly downgraded.
  */
 export class McpDoor {
@@ -211,12 +215,19 @@ export class McpDoor {
       return;
     }
     const query = new URL(req.url ?? '/', 'http://door.invalid').searchParams;
-    if (URL_CREDENTIAL_PARAMS.some((p) => query.has(p))) {
+    if ([...query.keys()].some((name) => URL_CREDENTIAL_PARAMS.has(name.toLowerCase()))) {
       rpcError(res, 400, -32000, 'Send credentials in the Authorization header, never in the URL.');
       return;
     }
     if (!/^application\/json\b/i.test(firstHeader(req.headers['content-type']) ?? '')) {
       rpcError(res, 415, -32000, 'Content-Type must be application/json.');
+      return;
+    }
+    // A JSON-RPC batch would run every message on one rate-limit token.
+    // Protocol 2025-06-18 removed batches and MCP clients send one message
+    // per request, so a body that is an array is refused outright.
+    if (Array.isArray(req.body)) {
+      rpcError(res, 400, -32600, 'Batch requests are not supported: send one JSON-RPC message per request.');
       return;
     }
 
