@@ -178,6 +178,16 @@ the login, registers the client and issues the token; dForms verifies it.
   active member, with the member's live role, under every rule an API key
   gets. A person with no active member gets a 403 that says to open dForms
   once; a person with several workspaces is refused for now.
+- **The person directory.** The token's `sub` is the identity provider's id
+  for the person; members carry the identity service's user id. The API reads
+  the identity service's database (`IAM_DB_*`, a read-only role, TLS unless
+  the host is a loopback host, at most 4 connections, 5 seconds per query):
+  the live user row with that provider id, and only if there is none, the live
+  users its sessions link to that id. More than one person, or an inactive or
+  blocked one, is a 403 that says to contact support; nobody is the 403 above.
+  While that database cannot be read, a signed-in request gets a 503 with
+  `Retry-After` (never a 401 that would start a new login), and API keys keep
+  working: nothing connects until the first sign-in.
 - **Limits and audit.** The MCP buckets count per member, so one person's
   clients share a budget. The audit line names the member, the person and the
   workspace (caller `oauth:<person>`), never the token.
@@ -198,6 +208,8 @@ All optional; unset (or blank) means the safe default. See
 | `MCP_PUBLIC_URL` | web (runtime); API with `MCP_OAUTH_PROVIDER` (required) | `<PUBLIC_API_URL>/mcp` on the web |
 | `MCP_OAUTH_PROVIDER` | API and web (runtime) | unset (API keys only; the MCP page shows the key guide alone) |
 | `WORKOS_AUTHKIT_DOMAIN` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
+| `IAM_DB_HOST`, `IAM_DB_NAME`, `IAM_DB_SCHEMA`, `IAM_DB_USER`, `IAM_DB_PASS` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
+| `IAM_DB_PORT` | API | `5432` |
 
 ## Check it yourself
 
