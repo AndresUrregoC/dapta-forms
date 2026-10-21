@@ -83,6 +83,7 @@ export const API_ROUTE_TOOLS: Readonly<Record<string, string>> = {
   'PUT /v1/forms/:id': 'update_form',
   'POST /v1/forms/:id/publish': 'publish_form',
   'POST /v1/forms/:id/revert': 'revert_form',
+  'POST /v1/forms/:id/discard-draft': 'discard_draft',
   'PUT /v1/forms/:id/slug': 'set_form_slug',
   'POST /v1/forms/:id/duplicate': 'duplicate_form',
   'PATCH /v1/forms/:id/folder': 'move_form',

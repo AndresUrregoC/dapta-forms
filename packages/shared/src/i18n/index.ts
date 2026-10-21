@@ -4308,6 +4308,8 @@ export const en: FormsMessages = {
         'PUT /v1/forms/:id':
           'Saves a new config as a draft; the public form does not change until you publish. The config replaces the whole draft, so send every step.',
         'POST /v1/forms/:id/publish': 'Makes the draft live. With no draft pending, it answers the form unchanged.',
+        'POST /v1/forms/:id/discard-draft':
+          'Throws away the pending draft, so the form goes back to its live config. What the public sees does not change. With no draft pending, it answers the form unchanged.',
         'POST /v1/forms/:id/revert':
           'Puts the previously published version back live. Calling it again undoes the revert. The pending draft and the destinations stay as they are.',
         'PUT /v1/forms/:id/slug':
@@ -6567,6 +6569,8 @@ export const es: FormsMessages = {
         'PUT /v1/forms/:id':
           'Guarda una config nueva como borrador; el form público no cambia hasta que publiques. La config reemplaza el borrador entero, así que manda todos los pasos.',
         'POST /v1/forms/:id/publish': 'Publica el borrador. Si no hay borrador pendiente, responde el form sin cambios.',
+        'POST /v1/forms/:id/discard-draft':
+          'Descarta el borrador pendiente, así el form vuelve a su config publicada. Lo que ve el público no cambia. Si no hay borrador pendiente, responde el form sin cambios.',
         'POST /v1/forms/:id/revert':
           'Vuelve a publicar la versión anterior. Si la llamas otra vez, deshaces el cambio. El borrador pendiente y los destinos se quedan como están.',
         'PUT /v1/forms/:id/slug':

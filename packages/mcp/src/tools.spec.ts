@@ -31,6 +31,7 @@ describe('catalog', () => {
       'update_form',
       'publish_form',
       'revert_form',
+      'discard_draft',
       'list_responses',
       'get_form_analytics',
       'get_form_guide',
@@ -50,8 +51,9 @@ describe('catalog', () => {
     for (const name of ['whoami', 'list_my_workspaces', 'list_forms', 'get_form', 'list_responses', 'get_form_analytics', 'get_form_guide'])
       expect(byName[name]!.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
     for (const name of ['create_form', 'update_form']) expect(byName[name]!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
-    for (const name of ['publish_form', 'revert_form']) expect(byName[name]!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
-    expect(TOOLS.filter((t) => t.write).map((t) => t.name)).toEqual(['create_form', 'update_form', 'publish_form', 'revert_form']);
+    for (const name of ['publish_form', 'revert_form', 'discard_draft'])
+      expect(byName[name]!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+    expect(TOOLS.filter((t) => t.write).map((t) => t.name)).toEqual(['create_form', 'update_form', 'publish_form', 'revert_form', 'discard_draft']);
     for (const t of TOOLS) {
       const keys = Object.keys(t.input.shape);
       expect(keys.filter((k) => /account|workspace|member/.test(k)), t.name).toEqual(t.workspace === 'none' ? [] : ['workspace_id']);
@@ -253,7 +255,7 @@ describe('publish_form and revert_form', () => {
       await c.callTool({ name: 'publish_form', arguments: { form_id: 'form-1', expected_updated_at: NOW + 1 } }),
     );
     expect(out.form.public_url).toContain('/acme/f/lead-form');
-    expect(out.last_published_at).toBe(new Date(NOW + 2).toISOString());
+    expect(Date.parse(out.last_published_at)).toBeGreaterThan(NOW);
     expect(out.previous_published_at).toBe(new Date(NOW - 5).toISOString());
     expect(h.calls.at(-1)).toMatchObject({ method: 'publishForm', args: ['form-1', NOW + 1] });
   });

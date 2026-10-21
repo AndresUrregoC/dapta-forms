@@ -181,6 +181,12 @@ export interface FormListItem {
   publicUrl: string | null;
   /** The form in the dForms editor, or null without a public address. */
   editorUrl: string | null;
+  /**
+   * How many steps the LIVE config has (what the public link serves), when the
+   * host knows it. Zero means the form never published a step: its link opens
+   * an empty form. Absent or null: unknown.
+   */
+  liveStepCount?: number | null;
 }
 
 /** One form in full. Secrets in the config (webhook signing secrets) arrive masked. */
@@ -226,6 +232,16 @@ export interface ResponseAnswer {
   question: string;
   /** The answer as a person reads it: option labels, not stored values. */
   answer: string;
+  /** The step this answer belongs to, when the host knows it. */
+  stepKey?: string | null;
+  /** That step's type (`email`, `multiple_choice`, ...), when the live form still has it. */
+  type?: string | null;
+  /**
+   * True for an answer stored under a key the live form no longer has (a step
+   * deleted or renamed since the response was given). Its `question` is then
+   * the stored key: there is no question text left to show.
+   */
+  stepRemoved?: boolean;
 }
 
 export interface ResponseItem {
@@ -235,6 +251,12 @@ export interface ResponseItem {
   startedAt: number | null;
   partialAt: number | null;
   score: number | null;
+  /**
+   * The outcome (result range) a completed response lands in, resolved with
+   * the live form's outcomes; null for a partial or a form without outcomes.
+   * Absent when the host does not resolve it.
+   */
+  outcome?: { id: string; label: string } | null;
   /** Everything here was typed by a member of the public. */
   answers: ResponseAnswer[];
 }
@@ -299,6 +321,11 @@ export interface FormsBackend extends ApiParityBackend {
   updateForm(caller: McpCaller, formId: string, input: UpdateFormInput): Promise<FormDetail>;
   publishForm(caller: McpCaller, formId: string, expectedUpdatedAt?: number): Promise<FormDetail>;
   revertForm(caller: McpCaller, formId: string): Promise<FormDetail>;
+  /**
+   * Drop the form's unpublished draft so it goes back to its live config. A
+   * no-op without a draft; a later save than `expectedUpdatedAt` is a STALE.
+   */
+  discardDraft(caller: McpCaller, formId: string, expectedUpdatedAt?: number): Promise<FormDetail>;
   listResponses(caller: McpCaller, formId: string, query: ResponsesQuery): Promise<ResponsesPage>;
   formAnalytics(caller: McpCaller, formId: string, query: AnalyticsQuery): Promise<FormAnalytics>;
 }

@@ -4,12 +4,21 @@ import {
   getAccountByExternalId,
   getFormById,
   grantStaffAccess,
+  listLiveStepCounts,
   listWorkspacesForIdentity,
   searchProjectedAccounts,
   sql,
   type Db,
 } from '@quill/db';
-import { summarizeAnswers, type Answers, type FormConfig as EngineConfig } from '@quill/engine';
+import {
+  formatAnswerValue,
+  nameFields,
+  resolveOutcome,
+  summarizeAnswersByStep,
+  type Answers,
+  type FormConfig as EngineConfig,
+  type FormStep,
+} from '@quill/engine';
 import {
   BackendError,
   DoorRefusal,
@@ -27,6 +36,7 @@ import {
   type FormListItem,
   type McpCaller,
   type McpConnection,
+  type ResponseAnswer,
   type ResponsesPage,
   type ResponsesQuery,
   type UpdateFormInput,
@@ -80,6 +90,7 @@ export const MCP_FORM_HANDLERS = [
   'updateForm',
   'publishForm',
   'revertForm',
+  'discardDraft',
   'formSubmissions',
 ] as const;
 export const MCP_ANALYTICS_HANDLERS = ['formAnalytics'] as const;
@@ -201,6 +212,46 @@ export async function authenticateMcpConnection(
     connection.staff = staffAccessFor(db, directory as StaffDirectory, person, label, workspaces, opts.staffLog ?? defaultStaffLog);
   }
   return connection;
+}
+
+/** Longest stored answer a leftover row carries (the summary rows' own cap); the tool cuts again for the model. */
+const LEFTOVER_MAX = 2000;
+
+/**
+ * A response's answers as the owner reads them, each with the step it
+ * answers: the rows the notification emails print (`summarizeAnswersByStep`:
+ * the question as the respondent saw it, option labels, step order). Then
+ * whatever the response stores under a key the live form does not have,
+ * marked `stepRemoved`: a step deleted or renamed since, or extra data the
+ * respondent's browser sent. Those print as stored (no step is left to map a
+ * value to its label), so an agent never reads a response as having fewer
+ * answers than it does.
+ */
+export function answerRows(config: EngineConfig, data: Answers): ResponseAnswer[] {
+  const rows: ResponseAnswer[] = summarizeAnswersByStep(config, data).map((row) => ({
+    question: row.label,
+    answer: row.value,
+    stepKey: row.key,
+    type: row.type,
+  }));
+  const known = new Set((config.steps ?? []).flatMap((step) => [step.key, ...nameFields(step)]));
+  for (const [key, raw] of Object.entries(data)) {
+    if (known.has(key)) continue;
+    const value = formatAnswerValue({ key, type: 'text' } as FormStep, raw, { separator: ', ' });
+    if (!value) continue;
+    rows.push({ question: key, answer: value.slice(0, LEFTOVER_MAX), stepKey: key, type: null, stepRemoved: true });
+  }
+  return rows;
+}
+
+/** The outcome a completed response lands in, by the live config; null when none applies. */
+function outcomeOf(config: EngineConfig, score: number | null, data: Answers): { id: string; label: string } | null {
+  try {
+    const outcome = resolveOutcome(config, score ?? 0, data);
+    return outcome ? { id: outcome.id, label: outcome.label } : null;
+  } catch {
+    return null; // A stored config the engine cannot read resolves to no outcome, never a failed page.
+  }
 }
 
 /** What `authenticateMcpConnection` needs beyond the token. */
@@ -478,7 +529,15 @@ export class ApiFormsBackend implements CoreFormsBackend {
   }
 
   listForms(caller: McpCaller): Promise<FormListItem[]> {
-    return run(async () => (await this.handlers().forms.listForms(reqOf(caller))).map(listItemOf));
+    return run(async () => {
+      // In parallel: the counts are only used once the route has resolved the
+      // caller (it throws otherwise), and they read the same workspace.
+      const [forms, live] = await Promise.all([
+        this.handlers().forms.listForms(reqOf(caller)),
+        listLiveStepCounts(this.db, caller.accountId),
+      ]);
+      return forms.map((f) => ({ ...listItemOf(f), liveStepCount: live.get(f.id) ?? null }));
+    });
   }
 
   getForm(caller: McpCaller, formId: string): Promise<FormDetail> {
@@ -509,12 +568,23 @@ export class ApiFormsBackend implements CoreFormsBackend {
     return run(async () => detailOf(await this.handlers().forms.revertForm(reqOf(caller), formId)));
   }
 
+  discardDraft(caller: McpCaller, formId: string, expectedUpdatedAt?: number): Promise<FormDetail> {
+    return run(async () =>
+      detailOf(
+        await this.handlers().forms.discardDraft(
+          reqOf(caller),
+          formId,
+          expectedUpdatedAt === undefined ? {} : { expectedUpdatedAt },
+        ),
+      ),
+    );
+  }
+
   /**
    * A page through the submissions route (key resolution, account scope and
    * filters exactly as the table), then each response's answers rendered as
-   * the owner reads them: the question as the respondent saw it and the
-   * answer with option labels, by the same engine function the notification
-   * emails use. Steps the live form no longer has are left out, as in the table.
+   * the owner reads them (`answerRows`), and a completed response's outcome
+   * by the live config.
    */
   listResponses(caller: McpCaller, formId: string, query: ResponsesQuery): Promise<ResponsesPage> {
     return run(async () => {
@@ -535,10 +605,8 @@ export class ApiFormsBackend implements CoreFormsBackend {
           startedAt: s.startedAt ?? null,
           partialAt: s.partialAt ?? null,
           score: s.score ?? null,
-          answers: summarizeAnswers(config, (s.data ?? {}) as Answers).map((row) => ({
-            question: row.label,
-            answer: row.value,
-          })),
+          outcome: s.completedAt != null ? outcomeOf(config, s.score ?? null, (s.data ?? {}) as Answers) : null,
+          answers: answerRows(config, (s.data ?? {}) as Answers),
         })),
         total: page.total,
         limit: page.limit,

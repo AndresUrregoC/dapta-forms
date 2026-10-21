@@ -92,6 +92,45 @@ describe('tools over the real handlers', () => {
     expect(JSON.parse(afterRevert!.config).steps).toHaveLength(2);
   });
 
+  it('discards a draft through the real route, flags a form whose link serves nothing, and leaves the live form alone', async () => {
+    const h = await boot();
+    const c = await h.connect((await h.key()).key);
+    const created = structured<FormOut & { form: { is_live: boolean; live_step_count: number } }>(
+      await c.callTool({ name: 'create_form', arguments: { name: 'Agenda una demo', config: { version: 1, steps: [] } } }),
+    );
+    expect(created.form).toMatchObject({ is_live: false, live_step_count: 0 });
+    const read = structured<{ config: Record<string, unknown>; updated_at: number }>(
+      await c.callTool({ name: 'get_form', arguments: { form_id: created.form.id } }),
+    );
+    const draft = structured<FormOut>(
+      await c.callTool({
+        name: 'update_form',
+        arguments: { form_id: created.form.id, config: { ...read.config, steps: LEAD.steps }, expected_updated_at: read.updated_at },
+      }),
+    );
+    const listed = structured<{ forms: Array<{ id: string; is_live: boolean | null; live_step_count: number | null }> }>(
+      await c.callTool({ name: 'list_forms', arguments: { query: 'agenda' } }),
+    );
+    expect(listed.forms).toEqual([expect.objectContaining({ id: created.form.id, is_live: false, live_step_count: 0 })]);
+    expect(
+      structured<{ forms: Array<{ id: string; live_step_count: number | null }> }>(await c.callTool({ name: 'list_forms', arguments: {} })).forms.find(
+        (f) => f.id === h.formId,
+      )!.live_step_count,
+    ).toBeGreaterThan(0);
+
+    const discarded = structured<FormOut & { discarded: boolean }>(
+      await c.callTool({ name: 'discard_draft', arguments: { form_id: created.form.id, expected_updated_at: draft.form.updated_at } }),
+    );
+    expect(discarded).toMatchObject({ discarded: true, form: { has_unpublished_draft: false } });
+    const row = await h.db.get<{ config: string; draft_config: string | null }>(
+      sql`SELECT config, draft_config FROM form WHERE id = ${created.form.id}`,
+    );
+    expect(row!.draft_config).toBeNull();
+    expect(JSON.parse(row!.config).steps).toEqual([]);
+    const again = structured<{ discarded: boolean }>(await c.callTool({ name: 'discard_draft', arguments: { form_id: created.form.id } }));
+    expect(again.discarded).toBe(false);
+  });
+
   it('answers STALE, with the new stamp, when the form changed since it was read', async () => {
     const h = await boot();
     const c = await h.connect((await h.key()).key);
@@ -110,23 +149,41 @@ describe('tools over the real handlers', () => {
     await upsertSubmission(h.db, {
       formId: h.formId,
       sessionId: 'sess-1',
-      data: { role: 'founder', team_size: 12, company: 'Acme <script>x</script> [win](https://evil.test)', email: 'lead@example.org' },
+      data: {
+        role: 'founder',
+        team_size: 12,
+        company: 'Acme <script>x</script> [win](https://evil.test)',
+        email: 'lead@example.org',
+        // A step deleted from the form since this response was given.
+        budget: 'Over 10k',
+      },
       score: 18,
     });
     await upsertSubmission(h.db, { formId: h.formId, sessionId: 'sess-2', data: { role: 'lead' }, score: 6, partial: true });
     const out = structured<{
       total: number;
-      responses: Array<{ status: string; score: number | null; respondent_supplied: { answers: Array<{ question: string; answer: string }> } }>;
+      responses: Array<{
+        status: string;
+        score: number | null;
+        outcome: { id: string; label: string } | null;
+        respondent_supplied: { answers: Array<Record<string, unknown>> };
+      }>;
     }>(await c.callTool({ name: 'list_responses', arguments: { form_id: h.formId } }));
     expect(out.total).toBe(2);
     const done = out.responses.find((r) => r.status === 'completed')!;
     expect(done.score).toBe(18);
-    expect(done.respondent_supplied.answers).toEqual([
-      { question: 'What best describes you?', answer: 'Founder / Owner' },
-      { question: 'How big is your team?', answer: '12' },
-      { question: 'What company do you work at?', answer: 'Acme x win' },
-      { question: 'Where should we send the results?', answer: 'lead@example.org' },
+    expect(done.respondent_supplied.answers.map(({ question, answer, step_key, step_removed }) => ({ question, answer, step_key, step_removed }))).toEqual([
+      { question: 'What best describes you?', answer: 'Founder / Owner', step_key: 'role', step_removed: false },
+      { question: 'How big is your team?', answer: '12', step_key: 'team_size', step_removed: false },
+      { question: 'What company do you work at?', answer: 'Acme x win', step_key: 'company', step_removed: false },
+      { question: 'Where should we send the results?', answer: 'lead@example.org', step_key: 'email', step_removed: false },
+      { question: 'budget', answer: 'Over 10k', step_key: 'budget', step_removed: true },
     ]);
+    expect(done.respondent_supplied.answers.find((a) => a.step_key === 'email')!.type).toBe('email');
+    expect(done.respondent_supplied.answers.find((a) => a.step_key === 'budget')!.type).toBeNull();
+    // Resolved by the live form's outcomes, as the respondent's ending was.
+    expect(done.outcome).toEqual({ id: 'qualified', label: 'Qualified' });
+    expect(out.responses.find((r) => r.status === 'partial')!.outcome).toBeNull();
     const completedOnly = structured<{ total: number }>(
       await c.callTool({ name: 'list_responses', arguments: { form_id: h.formId, status: 'completed' } }),
     );

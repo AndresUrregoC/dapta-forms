@@ -50,6 +50,7 @@ export const API_KEY_ALLOWED_ROUTES: ReadonlySet<string> = new Set([
   'POST /v1/forms/:id/duplicate',
   'POST /v1/forms/:id/publish',
   'POST /v1/forms/:id/revert',
+  'POST /v1/forms/:id/discard-draft',
   'PATCH /v1/forms/:id/folder',
 
   // Folders.

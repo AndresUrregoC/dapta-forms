@@ -12,7 +12,7 @@ describe('formGuide', () => {
   it('serves every part on "all", and only the asked part otherwise', () => {
     const all = formGuide();
     expect(all.rules?.length).toBeGreaterThan(5);
-    expect(all.config_schema).toEqual(formConfigJsonSchema());
+    expect(all.config_schema).toEqual(formConfigJsonSchema('mcp'));
     expect(all.examples).toBe(GUIDE_EXAMPLES);
     expect(Object.keys(formGuide('examples')).sort()).toEqual(['examples', 'part']);
     expect(Object.keys(formGuide('config_schema')).sort()).toEqual(['config_schema', 'part']);

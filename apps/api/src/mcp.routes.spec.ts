@@ -42,6 +42,7 @@ describe('the handlers the MCP calls', () => {
       'PUT /v1/forms/:id',
       'POST /v1/forms/:id/publish',
       'POST /v1/forms/:id/revert',
+      'POST /v1/forms/:id/discard-draft',
       'GET /v1/forms/:id/submissions',
       'GET /v1/forms/:id/analytics',
     ]);

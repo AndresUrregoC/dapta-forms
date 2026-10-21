@@ -301,6 +301,19 @@ export const openapiSpec = {
         responses: { '200': { description: 'Published (no-op without a draft)' } },
       },
     },
+    '/v1/forms/{id}/discard-draft': {
+      post: {
+        summary: 'Throw away the pending draft (host)',
+        description:
+          'Body { expectedUpdatedAt? }. Drops the unpublished draft, so the editor and the next publish start from the live config again. The live config, the version kept for a revert and the publish dates do not change. A no-op without a draft. Allowed with an API key.',
+        security: [{ hostSession: [] }],
+        responses: {
+          '200': { description: 'The form, with draftConfig null' },
+          '404': { description: 'No such form in this workspace' },
+          '409': { description: 'STALE: the form was saved after expectedUpdatedAt' },
+        },
+      },
+    },
     '/v1/forms/{id}/revert': {
       post: {
         summary: 'Put the previously published version back live (host)',

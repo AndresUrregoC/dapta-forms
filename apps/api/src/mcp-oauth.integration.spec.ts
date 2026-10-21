@@ -104,6 +104,7 @@ describe('signing in', () => {
     );
     structured(await c.callTool({ name: 'publish_form', arguments: { form_id: created.form.id, expected_updated_at: draft.form.updated_at } }));
     structured(await c.callTool({ name: 'revert_form', arguments: { form_id: created.form.id } }));
+    structured(await c.callTool({ name: 'discard_draft', arguments: { form_id: created.form.id } }));
     structured(await c.callTool({ name: 'list_responses', arguments: { form_id: created.form.id } }));
     structured(await c.callTool({ name: 'get_form_analytics', arguments: { form_id: created.form.id } }));
     structured(await c.callTool({ name: 'get_response_facets', arguments: { form_id: created.form.id } }));
