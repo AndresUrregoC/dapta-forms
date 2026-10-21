@@ -78,7 +78,7 @@ export interface CsvExport {
 }
 
 export interface DeliveriesQuery {
-  /** Delivery statuses (`done`, `pending`, `failed`, `skipped`). Default: failures only, as the REST route. */
+  /** Delivery statuses (`done`, `pending`, `failed`, `skipped`). Default: failed and skipped, as the REST route. */
   status?: string[];
   /** Delivery kinds (`webhook`, `hubspot`, `email`, `booking_sync`). Default: every kind. */
   kind?: string[];
