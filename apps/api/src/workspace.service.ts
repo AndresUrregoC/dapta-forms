@@ -55,6 +55,7 @@ import { AUTH_PROVIDER, DB, WORKSPACE_PROJECTION } from './tokens';
 import type { AuthProvider, HostPrincipal, ReqLike, UpstreamIdentity } from './auth.provider';
 import { AuthService } from './auth.service';
 import { apiKeyFromRequest } from './api-keys';
+import { inProcessPrincipalOf } from './in-process-principal';
 import { assertAdmin, assertCanManageTarget, assertNotSelf, assertOwner } from './permissions';
 import {
   IAM_ADMIN_ROLE_NAME,
@@ -118,10 +119,11 @@ export class WorkspaceService {
    * The caller's upstream identity when this deployment has one, else null.
    * An API key has none: it is not a session the identity service issued, so
    * it is never forwarded there (GET /v1/me asks `isStaff` with a key too).
+   * Neither has an MCP tool call: its in-process request carries no session.
    */
   private async upstream(req: ReqLike): Promise<UpstreamIdentity | null> {
     if (!this.projection || !this.provider.resolveUpstream) return null;
-    if (apiKeyFromRequest(req) !== null) return null;
+    if (apiKeyFromRequest(req) !== null || inProcessPrincipalOf(req) !== null) return null;
     return this.provider.resolveUpstream(req);
   }
 
