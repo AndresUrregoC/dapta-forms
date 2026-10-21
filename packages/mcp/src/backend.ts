@@ -21,10 +21,21 @@ export interface McpCaller {
   memberId: string;
   /** That member's role in the workspace (`owner`, `admin`, `member`). */
   role: string;
-  /** Stable id of the credential (an API key id), for rate-limit buckets. */
+  /**
+   * Stable id of the rate-limit bucket: the API key's id, or for an MCP
+   * connection its member (so one person's clients share one budget).
+   */
   credentialId: string;
-  /** The credential's public label (the key prefix, `dforms_ab12c`). The only identity that reaches a log. */
+  /**
+   * The credential's public label: the key prefix (`dforms_ab12c`), or for an
+   * MCP connection the person it signed in as. Never a secret: it reaches logs.
+   */
   label: string;
+  /**
+   * The person an MCP connection signed in as, in the terms members are keyed
+   * by. Absent for an API key.
+   */
+  personId?: string;
   /** Host-defined, opaque to this package: how the backend acts as this caller. */
   context: unknown;
 }

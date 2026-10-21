@@ -236,6 +236,9 @@ defaults below.
 | `MCP_RATE_LIMIT_CAPACITY` / `MCP_RATE_LIMIT_REFILL_PER_SEC` | `120` / `2` | per API key, every request; off with `RATE_LIMIT_ENABLED=false` | no |
 | `MCP_WRITE_RATE_LIMIT_CAPACITY` / `MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC` | `20` / `0.2` | per API key, write tools only | no |
 | `MCP_TOOL_TIMEOUT_MS` | `20000` | a tool call that runs longer is abandoned | no |
+| `MCP_OAUTH_PROVIDER` | _(unset: API keys only)_ | `workos` lets chat apps sign in through your WorkOS AuthKit (see [`docs/MCP.md`](docs/MCP.md)); then the two below are required, and a missing or malformed one refuses to boot | no |
+| `WORKOS_AUTHKIT_DOMAIN` | _(unset)_ | `MCP_OAUTH_PROVIDER` is set: the AuthKit issuer, an https origin with no path | no |
+| `MCP_PUBLIC_URL` | _(unset)_ | `MCP_OAUTH_PROVIDER` is set: the `/mcp` endpoint customers reach, registered as a resource with AuthKit; every token's audience. The web app reads the same name | no |
 
 ### Deprecated API hosts (API, optional)
 

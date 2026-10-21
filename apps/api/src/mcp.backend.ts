@@ -1,8 +1,9 @@
 import { HttpException } from '@nestjs/common';
-import { findApiKeyPrincipal, getFormById, type Db } from '@quill/db';
+import { findApiKeyPrincipal, getFormById, listWorkspacesForIdentity, type Db } from '@quill/db';
 import { summarizeAnswers, type Answers, type FormConfig as EngineConfig } from '@quill/engine';
 import {
   BackendError,
+  DoorRefusal,
   type AnalyticsQuery,
   type CreateFormInput,
   type FormAnalytics,
@@ -21,6 +22,8 @@ import { API_KEY_PREFIX, hashApiKey } from './api-keys';
 import { isKeyAllowedRoute, routeOf } from './api-key-routes';
 import type { ReqLike } from './auth.provider';
 import { inProcessRequest } from './in-process-principal';
+import type { McpOAuth } from './mcp-oauth';
+import type { PersonDirectory } from './person-directory';
 
 /**
  * forms-api's side of the MCP port (`FormsBackend` in `@quill/mcp`).
@@ -115,6 +118,58 @@ export async function authenticateMcpKey(db: Db, token: string): Promise<McpCall
     credentialId: row.keyId,
     // The stored, displayed prefix of the key (see `generateApiKey`).
     label: token.slice(0, 12),
+    context,
+  };
+}
+
+/**
+ * Resolve an access token to the MCP caller of an MCP connection: a person,
+ * acting as their member in their only workspace. Null when the token does
+ * not verify (a 401 that points at the login again).
+ *
+ * A token that verifies but cannot act is a `DoorRefusal` (403) with a
+ * message the person can act on, because signing in again would not change
+ * it: the directory knows nobody by the token's subject, or the person has no
+ * active member in any workspace yet, or (until a call can name its
+ * workspace) more than one.
+ *
+ * The workspaces are dForms' own active members, matched by the person's
+ * identity-service id or email exactly as the web's workspace switcher does,
+ * never the identity provider's view. Like a key, this is a lookup only: every
+ * tool call re-reads the member through `AuthService.resolveHost`, so a member
+ * disabled, removed or demoted after this point is seen on the call itself.
+ */
+export async function authenticateMcpConnection(
+  db: Db,
+  oauth: McpOAuth,
+  directory: PersonDirectory,
+  token: string,
+  appUrl = '',
+): Promise<McpCaller | null> {
+  const access = await oauth.verify(token);
+  if (!access) return null;
+  const openOnce = `Open dForms once with this account${appUrl ? ` (${appUrl})` : ''}, then connect again.`;
+  const person = await directory.personOf(access.subject);
+  if (!person) throw new DoorRefusal(`This sign-in has no dForms account yet. ${openOnce}`);
+  const workspaces = (await listWorkspacesForIdentity(db, { externalId: person.id, email: person.email })).filter(
+    (w) => w.status === 'active',
+  );
+  if (workspaces.length === 0) throw new DoorRefusal(`You are not an active member of any dForms workspace yet. ${openOnce}`);
+  if (workspaces.length > 1) {
+    throw new DoorRefusal(
+      'You are a member of several dForms workspaces, and choosing one when you sign in is not available yet. For now, connect with an API key of the workspace you want.',
+    );
+  }
+  const [workspace] = workspaces as [(typeof workspaces)[number]];
+  const context: ApiCallerContext = { req: inProcessRequest({ accountId: workspace.accountId, memberId: workspace.memberId }) };
+  return {
+    accountId: workspace.accountId,
+    memberId: workspace.memberId,
+    role: workspace.role,
+    // One bucket per member: the same person on several clients shares it.
+    credentialId: `member:${workspace.memberId}`,
+    label: `oauth:${person.id}`,
+    personId: person.id,
     context,
   };
 }

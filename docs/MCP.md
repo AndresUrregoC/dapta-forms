@@ -155,6 +155,33 @@ const forms = await client.callTool({ name: 'list_forms', arguments: {} });
   or an answer. A call the SDK refuses before any tool runs (a malformed
   argument) is not audited.
 
+## Signing in (MCP connections over OAuth)
+
+Chat apps (Claude.ai, ChatGPT) cannot send a header, so with
+`MCP_OAUTH_PROVIDER=workos` the endpoint also takes an access token from the
+deployment's WorkOS AuthKit. dForms is only the resource server: AuthKit runs
+the login, registers the client and issues the token; dForms verifies it.
+
+- **Discovery.** A request without a credential gets a 401 with
+  `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`.
+  That document (RFC 9728) names `MCP_PUBLIC_URL` as the resource and AuthKit
+  as the authorization server.
+- **The token.** RS256, signed by a key AuthKit publishes at
+  `<WORKOS_AUTHKIT_DOMAIN>/oauth2/jwks`; `iss` must be `WORKOS_AUTHKIT_DOMAIN`,
+  `aud` must be `MCP_PUBLIC_URL`, and `sub` and `exp` are required. Anything
+  else is a 401 that points at the login again.
+- **Both credentials, one URL.** A bearer that starts with `dforms_` is an API
+  key and takes the key path, unchanged; any other is an access token. A
+  revoked key gets the key's 401, which never points at the login.
+- **Who it acts as.** The token names a person; the person directory maps them
+  to the person members are keyed by, and the call acts as that person's
+  active member, with the member's live role, under every rule an API key
+  gets. A person with no active member gets a 403 that says to open dForms
+  once; a person with several workspaces is refused for now.
+- **Limits and audit.** The MCP buckets count per member, so one person's
+  clients share a budget. The audit line names the member, the person and the
+  workspace (caller `oauth:<person>`), never the token.
+
 ## Configuration
 
 All optional; unset (or blank) means the safe default. See
@@ -168,8 +195,9 @@ All optional; unset (or blank) means the safe default. See
 | `MCP_RATE_LIMIT_CAPACITY` / `MCP_RATE_LIMIT_REFILL_PER_SEC` | API | `120` / `2` |
 | `MCP_WRITE_RATE_LIMIT_CAPACITY` / `MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC` | API | `20` / `0.2` |
 | `MCP_TOOL_TIMEOUT_MS` | API | `20000` |
-| `MCP_PUBLIC_URL` | web (runtime) | `<PUBLIC_API_URL>/mcp` |
-| `MCP_OAUTH_PROVIDER` | web (runtime) | unset (the MCP page shows the key guide alone) |
+| `MCP_PUBLIC_URL` | web (runtime); API with `MCP_OAUTH_PROVIDER` (required) | `<PUBLIC_API_URL>/mcp` on the web |
+| `MCP_OAUTH_PROVIDER` | API and web (runtime) | unset (API keys only; the MCP page shows the key guide alone) |
+| `WORKOS_AUTHKIT_DOMAIN` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
 
 ## Check it yourself
 
