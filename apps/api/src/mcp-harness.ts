@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { createServer } from 'node:net';
+import { createServer, type Server } from 'node:http';
 import { Client, ClientCredentialsProvider, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createDb, insertApiKey, migrate, seed, sql, type Db } from '@quill/db';
 import { loadServerEnv } from '@quill/config/env';
@@ -52,6 +52,8 @@ export interface Harness {
   people: Map<string, Person>;
   /** How many times the API asked the person directory. */
   directoryLookups(): number;
+  /** Whether the API closed the person directory (it does when it shuts down). */
+  directoryClosed(): boolean;
   post(body: unknown, headers?: Record<string, string>, path?: string): Promise<Response>;
   close(): Promise<void>;
 }
@@ -97,21 +99,27 @@ export interface HarnessOAuth {
   issuer: string;
 }
 
-/** A free loopback port, so the MCP public URL (every token's audience) is known before the app boots. */
-async function freePort(): Promise<number> {
-  const probe = createServer();
-  await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve));
-  const { port } = probe.address() as AddressInfo;
-  await new Promise<void>((resolve) => probe.close(() => resolve()));
-  return port;
+/**
+ * A loopback HTTP server bound to a port the OS picks, and kept: the port is
+ * known before the app boots (the MCP public URL, every token's audience, has
+ * to name it), and nothing else can take it in between. It serves the app
+ * once the app is built.
+ */
+async function boundServer(): Promise<{ server: Server; port: number }> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { server, port: (server.address() as AddressInfo).port };
 }
 
 /** The person directory of the specs: a table from token subject to person (the IAM adapter is separate). */
-function tableDirectory(people: Map<string, Person>, counter: { lookups: number }): PersonDirectory {
+function tableDirectory(people: Map<string, Person>, counter: { lookups: number; closed: boolean }): PersonDirectory {
   return {
     personOf: async (subject) => {
       counter.lookups += 1;
       return people.get(subject) ?? null;
+    },
+    close: async () => {
+      counter.closed = true;
     },
   };
 }
@@ -121,9 +129,9 @@ export async function bootHarness(
   opts: { oauth?: HarnessOAuth } = {},
 ): Promise<Harness> {
   const dir = mkdtempSync(join(tmpdir(), 'forms-mcp-spec-'));
-  const port = opts.oauth ? await freePort() : 0;
+  const { server, port } = await boundServer();
   const people = new Map<string, Person>();
-  const counter = { lookups: 0 };
+  const counter = { lookups: 0, closed: false };
   const oauthEnv = opts.oauth
     ? {
         MCP_OAUTH_PROVIDER: 'workos',
@@ -164,6 +172,7 @@ export async function bootHarness(
   } catch (error) {
     restoreEnv(saved);
     await db.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(dir, { recursive: true, force: true });
     throw error;
   }
@@ -172,13 +181,14 @@ export async function bootHarness(
   const deprecatedHostLog: string[] = [];
   configureDeprecatedHosts(app, loadServerEnv(), (line) => deprecatedHostLog.push(line));
   configureCors(app, loadServerEnv());
-  await app.listen(port, '127.0.0.1');
+  await app.init();
+  server.on('request', app.getHttpAdapter().getInstance());
   // Providers read the environment while the app is built; put it back at once
   // so harnesses booted side by side do not leak settings into each other.
   restoreEnv(saved);
   const audit: string[] = [];
   app.get(McpController).server.auditSink = (line) => audit.push(line);
-  const base = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
+  const base = `http://127.0.0.1:${port}`;
 
   const mint = async (account: string, memberId: string): Promise<string> => {
     const minted = generateApiKey();
@@ -244,6 +254,7 @@ export async function bootHarness(
     },
     people,
     directoryLookups: () => counter.lookups,
+    directoryClosed: () => counter.closed,
     post: (body, headers = {}, path = '/mcp') =>
       fetch(`${base}${path}`, {
         method: 'POST',
@@ -253,6 +264,8 @@ export async function bootHarness(
     async close() {
       await Promise.all(clients.map((c) => c.close().catch(() => undefined)));
       await app.close();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
       await db.close();
       rmSync(dir, { recursive: true, force: true });
     },
