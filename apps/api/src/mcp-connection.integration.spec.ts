@@ -45,6 +45,7 @@ function backendOf(h: Harness): ApiFormsBackend {
 function connection(accountId: string, memberId: string): McpCaller {
   return {
     accountId,
+    workspaceName: 'unused',
     memberId,
     role: 'unused: the handlers read it live',
     credentialId: memberId,

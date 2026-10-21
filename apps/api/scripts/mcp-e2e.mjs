@@ -105,7 +105,7 @@ try {
   await c.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${key}` } } }));
   const tools = (await c.listTools()).tools;
   say(`tools/list -> ${tools.length} tools: ${tools.map((t) => `${t.name}${t.annotations?.destructiveHint ? '(destructive)' : t.annotations?.readOnlyHint ? '(read)' : '(write)'}`).join(', ')}`);
-  if (tools.length !== 10) fail('expected 10 tools');
+  if (tools.length !== 11) fail('expected 11 tools');
   if (tools.some((t) => !t.title || typeof t.annotations?.readOnlyHint !== 'boolean')) fail('a tool lacks its title or hints');
 
   const call = async (name, args = {}) => {
