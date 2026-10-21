@@ -1,7 +1,8 @@
 import { toNodeHandler } from '@modelcontextprotocol/node';
-import type { McpCaller } from './backend';
+import type { McpCaller, McpConnection, McpCredential } from './backend';
 import type { RateLimiter } from './rate-limit';
 import { CALL_KEY, type FormsMcpServer, type McpCall } from './server';
+import { bucketOf } from './workspace';
 
 /** Credentials in the URL end up in access logs and proxies; refuse them outright. */
 const URL_CREDENTIAL_PARAMS = ['key', 'api_key', 'apikey', 'access_token', 'token', 'authorization'];
@@ -48,8 +49,12 @@ export interface McpDoorOptions {
    * attribute the request (forms-api notes the key id of a call on a
    * deprecated API host). Optional; it must not throw.
    */
-  onAuthenticated?(req: DoorRequest, caller: McpCaller): void;
-  /** Every request of an authenticated credential takes a token, keyed by `caller.credentialId`. */
+  onAuthenticated?(req: DoorRequest, credential: McpCredential): void;
+  /**
+   * Every request of an authenticated credential takes a token: an API key's
+   * from its own bucket, an MCP connection's from the member of the workspace
+   * the call acts in (see `bucketOf`).
+   */
   keyLimiter: RateLimiter;
   /** Requests without a credential, failed attempts and refusals take a token, keyed by client address. */
   ipLimiter: RateLimiter;
@@ -69,11 +74,13 @@ export interface McpDoorOAuth {
   /** True for a bearer that is an API key (by its shape, never by a lookup). */
   isApiKey(token: string): boolean;
   /**
-   * Verify an access token and resolve the caller it acts as, or null when the
-   * token does not verify. Throws `DoorRefusal` when it verifies but cannot
-   * act (a person with no workspace): a 403 a new login would not change.
+   * Verify an access token and resolve the person it signs in, with every
+   * workspace they may act in now, or null when the token does not verify.
+   * Throws `DoorRefusal` when it verifies but names nobody the host knows: a
+   * 403 a new login would not change. A person with no workspace yet is not
+   * refused here: their tools answer NO_WORKSPACE, which a model can explain.
    */
-  authenticate(token: string): Promise<McpCaller | null>;
+  authenticate(token: string): Promise<McpConnection | null>;
   /** The URL of this resource's protected-resource metadata (RFC 9728). */
   resourceMetadataUrl: string;
 }
@@ -237,7 +244,7 @@ export class McpDoor {
     }
     const token = /^Bearer\s+(\S+)$/i.exec(header.trim())?.[1];
     const viaOAuth = oauth !== undefined && token !== undefined && !oauth.isApiKey(token);
-    let caller: McpCaller | null = null;
+    let caller: McpCredential | null = null;
     try {
       if (token) caller = viaOAuth ? await oauth!.authenticate(token) : await this.options.authenticate(token);
     } catch (error) {
@@ -261,10 +268,10 @@ export class McpDoor {
       return;
     }
     this.options.onAuthenticated?.(req, caller);
-    const { allowed, retryAfterMs } = this.options.keyLimiter.take(`mcp-key:${caller.credentialId}`);
+    const { allowed, retryAfterMs } = this.options.keyLimiter.take(`mcp-key:${bucketOf(caller, req.body)}`);
     if (!allowed) return this.tooMany(res, retryAfterMs);
 
-    const call: McpCall = { requestId: ctx.requestId, protocolVersion: protocolVersionOf(req), caller };
+    const call: McpCall = { requestId: ctx.requestId, protocolVersion: protocolVersionOf(req), credential: caller };
     // The token itself is never handed on: the SDK sees the public label, and
     // the caller travels to the tools through `extra`.
     const forwarded = req as DoorRequest & { auth?: unknown };

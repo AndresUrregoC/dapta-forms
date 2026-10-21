@@ -11,6 +11,7 @@
  *   examples), shared with the web app's API skill.
  */
 export * from './backend';
+export { LIST_WORKSPACES_HINT, bucketOf, resolveWorkspace } from './workspace';
 export {
   DoorRefusal,
   McpDoor,

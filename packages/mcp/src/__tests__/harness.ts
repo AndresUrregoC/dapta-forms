@@ -201,6 +201,7 @@ export async function bootHarness(opts: HarnessOptions = {}): Promise<Harness> {
       const t = token(role);
       keys.set(t, {
         accountId: 'acct-1',
+        workspaceName: 'Acme',
         memberId: `member-${role}`,
         role,
         credentialId: `key-${keys.size + 1}`,
