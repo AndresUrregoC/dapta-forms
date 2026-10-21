@@ -16,7 +16,7 @@ import { ApiKeyAuthenticator, createApiKeyRateLimiter } from './api-key-auth';
 import type { RateLimiter } from './rate-limit';
 import { API_KEY_RATE_LIMITER, AUTH_PROVIDER, DB } from './tokens';
 import { header, type AuthProvider, type HostPrincipal, type ReqLike } from './auth.provider';
-import { inProcessPrincipalOf, type InProcessPrincipal } from './in-process-principal';
+import { inProcessPrincipalOf, oncePerCall, type InProcessPrincipal } from './in-process-principal';
 
 export type { HostPrincipal, PrincipalVia, ReqLike } from './auth.provider';
 export { isAgentPrincipal, isApiKeyPrincipal } from './auth.provider';
@@ -81,7 +81,8 @@ export class AuthService {
    */
   async resolveHost(req: ReqLike): Promise<HostPrincipal> {
     const inProcess = inProcessPrincipalOf(req);
-    if (inProcess) return this.resolveInProcess(req, inProcess);
+    // One tool call that runs several handlers resolves (and counts a key) once.
+    if (inProcess) return oncePerCall(req, () => this.resolveInProcess(req, inProcess));
 
     const key = apiKeyFromRequest(req);
     if (key !== null) return this.apiKeys.resolve(req, key);

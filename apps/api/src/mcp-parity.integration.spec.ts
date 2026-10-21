@@ -8,11 +8,13 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Client } from '@modelcontextprotocol/client';
 import { sql, upsertSubmission } from '@quill/db';
 import { WEBHOOK_SECRET_MASK } from '@quill/types';
 import { APP_URL, bootHarness, errorText, structured, type Harness } from './mcp-harness';
+import type { RateLimiter } from './rate-limit';
+import { API_KEY_RATE_LIMITER } from './tokens';
 
 const CONFIG = {
   version: 1,
@@ -210,8 +212,12 @@ describe('responses', () => {
       await member.callTool({ name: 'get_response', arguments: { form_id: formId, response_id: ana } }),
     );
     expect(r.status).toBe('completed');
-    expect(r.respondent_supplied.answers).toContainEqual({ question: 'What are you interested in?', answer: 'A demo' });
-    expect(r.respondent_supplied.answers).toContainEqual({ question: 'Anything else?', answer: 'We run ads in three countries.' });
+    expect(r.respondent_supplied.answers).toContainEqual(
+      expect.objectContaining({ question: 'What are you interested in?', answer: 'A demo', step_key: 'interest' }),
+    );
+    expect(r.respondent_supplied.answers).toContainEqual(
+      expect.objectContaining({ question: 'Anything else?', answer: 'We run ads in three countries.', step_key: 'notes' }),
+    );
     notFound(errorText(await c.callTool({ name: 'get_response', arguments: { form_id: h.formId, response_id: ana } })));
     notFound(errorText(await c.callTool({ name: 'get_response', arguments: { form_id: formId, response_id: randomUUID() } })));
     expect((await c.callTool({ name: 'get_response', arguments: { form_id: formId } })).isError).toBe(true);
@@ -400,6 +406,34 @@ describe('integrations, read only', () => {
     expect(structured<{ enabled: boolean }>(await member.callTool({ name: 'list_hubspot_properties', arguments: {} })).enabled).toBe(false);
     expect(structured<{ enabled: boolean }>(await member.callTool({ name: 'list_calendly_event_types', arguments: {} })).enabled).toBe(false);
     expect((await c.callTool({ name: 'list_webhooks', arguments: { workspace_id: 3 } })).isError).toBe(true);
+  });
+});
+
+describe('one tool call, one API-key call', () => {
+  it('counts a tool that reads before it writes once against the key budget, as one REST call', async () => {
+    const limiter = h.app.get<RateLimiter>(API_KEY_RATE_LIMITER, { strict: false });
+    const take = vi.spyOn(limiter, 'take');
+    try {
+      const c = await owner();
+      const spent = async (name: string, args: Record<string, unknown>) => {
+        take.mockClear();
+        await c.callTool({ name, arguments: args });
+        return take.mock.calls.length;
+      };
+      const formId = await newForm(c);
+      const [a, b] = [await respond(formId, { email: 'a@example.com' }), await respond(formId, { email: 'b@example.com' })];
+      const folder = structured<{ folder: { id: string } }>(
+        await c.callTool({ name: 'create_folder', arguments: { name: `F ${randomUUID().slice(0, 6)}` } }),
+      ).folder;
+      expect(await spent('get_response_file', { form_id: formId, response_id: a, step_key: 'email' })).toBe(1);
+      expect(await spent('delete_response', { form_id: formId, response_id: a })).toBe(1);
+      expect(await spent('delete_folder', { folder_id: folder.id })).toBe(1);
+      // A later call is resolved, and counted, again.
+      expect(await spent('get_response', { form_id: formId, response_id: b })).toBe(1);
+      expect(await spent('delete_form', { form_id: formId })).toBe(1);
+    } finally {
+      take.mockRestore();
+    }
   });
 });
 

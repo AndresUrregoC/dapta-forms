@@ -51,3 +51,32 @@ export function inProcessRequest(principal: InProcessPrincipal): ReqLike {
 export function inProcessPrincipalOf(req: object): InProcessPrincipal | null {
   return PRINCIPALS.get(req) ?? null;
 }
+
+/**
+ * Requests made by `callRequest`, each with the principal its first handler
+ * resolved (or is resolving).
+ */
+const CALL_REQUESTS = new WeakMap<object, { resolved?: Promise<unknown> }>();
+
+/**
+ * A fresh request for ONE tool call that runs more than one handler (a read
+ * that proves an id exists, then the write). The principal is resolved at the
+ * first handler and reused by the rest (`oncePerCall`), so the call counts
+ * once against an API key's 120 calls a minute, as one REST call does, and is
+ * re-read in full on the next tool call. Never kept past the call it was made for.
+ */
+export function callRequest(req: ReqLike): ReqLike {
+  const principal = inProcessPrincipalOf(req);
+  if (!principal) throw new Error('callRequest needs an in-process request');
+  const out = inProcessRequest(principal);
+  CALL_REQUESTS.set(out, {});
+  return out;
+}
+
+/** `resolve()` once per `callRequest` request; on any other request, every time. */
+export function oncePerCall<T>(req: object, resolve: () => Promise<T>): Promise<T> {
+  const slot = CALL_REQUESTS.get(req);
+  if (!slot) return resolve();
+  slot.resolved ??= resolve();
+  return slot.resolved as Promise<T>;
+}

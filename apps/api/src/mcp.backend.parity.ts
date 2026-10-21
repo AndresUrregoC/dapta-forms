@@ -33,6 +33,7 @@ import type { AdminCrudController } from './admin-crud.controller';
 import type { AnalyticsController } from './analytics.controller';
 import type { BrandingController } from './branding.controller';
 import type { FormDestinationsController, IntegrationsController } from './integrations.controller';
+import { callRequest } from './in-process-principal';
 import { ApiFormsBackend, answerRows, detailOf, outcomeOf, reqOf, run, type McpHandlers } from './mcp.backend';
 import type { FilterQuery } from './submission-filter';
 
@@ -48,7 +49,9 @@ import type { FilterQuery } from './submission-filter';
  * with nothing restated here. Where a route answers 204 for an id it cannot
  * see (deleting a form, a folder or a response), the method first reads it
  * through the matching read route, so the agent hears NOT_FOUND instead of a
- * success that did nothing.
+ * success that did nothing. Such a method runs both handlers on one
+ * `callRequest`, so the principal is resolved, and an API key counted, once
+ * per tool call.
  */
 
 /** Every handler the parity tools call, by controller. Each is checked against the API-key allowlist at boot. */
@@ -177,7 +180,7 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
 
   deleteForm(caller: McpCaller, formId: string) {
     return run(async () => {
-      const req = reqOf(caller);
+      const req = callRequest(reqOf(caller));
       const form = await this.parity().forms.getForm(req, formId);
       await this.parity().forms.deleteForm(req, formId);
       return { id: form.id, name: form.name };
@@ -200,7 +203,7 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
 
   deleteFolder(caller: McpCaller, folderId: string): Promise<FolderItem> {
     return run(async () => {
-      const req = reqOf(caller);
+      const req = callRequest(reqOf(caller));
       const folder = (await this.parity().forms.listFolders(req)).find((f) => f.id === folderId);
       if (!folder) throw new BackendError(404, 'NOT_FOUND', 'Not found.');
       await this.parity().forms.deleteFolder(req, folderId);
@@ -265,7 +268,7 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
 
   getResponseFile(caller: McpCaller, formId: string, responseId: string, stepKey: string): Promise<ResponseFile> {
     return run(async () => {
-      const req = reqOf(caller);
+      const req = callRequest(reqOf(caller));
       // The file route reads the response by account alone; the form must match too.
       await this.parity().analytics.submission(req, formId, responseId);
       const f = await this.parity().forms.submissionFile(req, responseId, stepKey);
@@ -293,7 +296,7 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
 
   deleteResponse(caller: McpCaller, formId: string, responseId: string): Promise<void> {
     return run(async () => {
-      const req = reqOf(caller);
+      const req = callRequest(reqOf(caller));
       await this.parity().analytics.submission(req, formId, responseId);
       await this.parity().analytics.deleteSubmission(req, responseId);
     });
