@@ -33,6 +33,27 @@ export function publicMcpUrl(env: Record<string, string | undefined> = process.e
   return api ? `${api}/mcp` : null;
 }
 
+/**
+ * The sign-in adapters the API's MCP door knows (its `MCP_OAUTH_PROVIDER`).
+ * The web mirrors that variable, the way it mirrors `AUTH_PROVIDER`.
+ */
+const MCP_OAUTH_PROVIDERS = ['workos'] as const;
+
+/**
+ * Whether this deployment's MCP server takes a sign-in (OAuth) besides the API
+ * key, so a chat client (Claude.ai, ChatGPT) can connect with the URL alone.
+ *
+ * Read at RUNTIME from `MCP_OAUTH_PROVIDER`, the same name and values as the
+ * API's, so one value per environment drives both. Unset or blank is the
+ * self-hosted default: the page shows the key guide alone, exactly as before.
+ * A value the API would not accept fails closed for the same reason: the page
+ * never offers a sign-in that cannot work.
+ */
+export function mcpOauthEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  const value = env.MCP_OAUTH_PROVIDER?.trim().toLowerCase();
+  return !!value && (MCP_OAUTH_PROVIDERS as readonly string[]).includes(value);
+}
+
 /** The single entry Cursor stores under `mcpServers.dforms`. */
 export function cursorServerEntry(mcpUrl: string): { url: string; headers: { Authorization: string } } {
   // `${env:NAME}` is Cursor's own interpolation, resolved on the user's machine

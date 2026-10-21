@@ -169,6 +169,7 @@ All optional; unset (or blank) means the safe default. See
 | `MCP_WRITE_RATE_LIMIT_CAPACITY` / `MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC` | API | `20` / `0.2` |
 | `MCP_TOOL_TIMEOUT_MS` | API | `20000` |
 | `MCP_PUBLIC_URL` | web (runtime) | `<PUBLIC_API_URL>/mcp` |
+| `MCP_OAUTH_PROVIDER` | web (runtime) | unset (the MCP page shows the key guide alone) |
 
 ## Check it yourself
 
