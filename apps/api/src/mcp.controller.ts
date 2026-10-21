@@ -70,6 +70,8 @@ export class McpController implements OnModuleInit {
   private readonly trustProxyHops: number;
   private handlers: McpHandlers | null = null;
   private parityHandlers: McpParityHandlers | null = null;
+  /** Where each staff call outside the person's own workspaces is logged (one JSON line). A field so specs can read it. */
+  staffLogSink: (line: string) => void = (line) => this.logger.log(line);
 
   constructor(
     @Inject(ENV) env: ServerEnv,
@@ -115,7 +117,13 @@ export class McpController implements OnModuleInit {
         oauth && people
           ? {
               isApiKey: (token) => token.startsWith(API_KEY_PREFIX),
-              authenticate: (token) => authenticateMcpConnection(db, oauth, people, token, env.PUBLIC_APP_URL),
+              authenticate: (token) =>
+                authenticateMcpConnection(db, oauth, people, token, {
+                  appUrl: env.PUBLIC_APP_URL,
+                  // Staff of the deployment: the same list, and the same rule, as the web app's switcher.
+                  staffDomains: env.IAM_STAFF_DOMAINS,
+                  staffLog: (line) => this.staffLogSink(line),
+                }),
               resourceMetadataUrl: oauth.resourceMetadataUrl,
             }
           : undefined,

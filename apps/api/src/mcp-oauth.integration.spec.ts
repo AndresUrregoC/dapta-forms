@@ -74,7 +74,7 @@ describe('signing in', () => {
     const byKey = await h.connect((await h.key()).key);
     expect((await byKey.listTools()).tools.map((t) => t.name)).toEqual(tools);
     expect(structured<{ workspaces: Array<{ id: string }> }>(await c.callTool({ name: 'list_my_workspaces', arguments: {} })).workspaces).toEqual([
-      { id: h.accountId, name: 'Acme Inc.', role: 'admin' },
+      { id: h.accountId, name: 'Acme Inc.', account_name: null, role: 'admin', access: 'member' },
     ]);
 
     const who = structured<{ workspace: { id: string }; member: { id: string; role: string }; key: unknown }>(

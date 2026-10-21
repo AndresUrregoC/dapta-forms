@@ -15,20 +15,26 @@
  * Every query casts the parameter, never the column, so the indexes on the
  * provider id columns serve it.
  *
+ * For staff of the deployment it also reads the identity service's live
+ * workspaces (`workspaces`, with the name of the `accounts` row each hangs
+ * from): one by id, a search by name, and whether a person holds a live
+ * membership (`workspace_users`) in one. Live = not deleted and not marked
+ * inactive. Which person is staff is decided by the API, never here.
+ *
  * Settings come from the environment (`IAM_DB_*`, see `iamDirectoryConfig`);
  * no host, database, schema or role of the hosted deployment is written here.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import postgres from 'postgres';
 import type { ServerEnv } from '@quill/config/env';
-import { PersonRefused, type Person, type PersonDirectory } from './person-directory';
+import { PersonRefused, type EstateWorkspace, type Person, type PersonDirectory } from './person-directory';
 
 /** Where the identity service's database is, and the read-only role to read it as. */
 export interface IamDirectoryConfig {
   host: string;
   port: number;
   database: string;
-  /** The schema that holds `users` and `sessions`. */
+  /** The schema that holds `users`, `sessions`, `workspaces` and `accounts`. */
   schema: string;
   user: string;
   password: string;
@@ -132,6 +138,9 @@ export interface IamDirectoryOptions {
 }
 
 export interface IamPersonDirectory extends PersonDirectory {
+  workspaceOf(workspaceId: string): Promise<EstateWorkspace | null>;
+  searchWorkspaces(needle: string, limit: number): Promise<EstateWorkspace[]>;
+  holdsMembership(workspaceId: string, personId: string): Promise<boolean>;
   /** Close the pool (specs, and the API's shutdown). */
   close(): Promise<void>;
 }
@@ -144,6 +153,35 @@ interface UserRow {
 }
 
 const COLUMNS = 'u.id::text AS id, u.email, u.is_active, (u.blocked_at IS NOT NULL) AS blocked';
+
+interface WorkspaceRow {
+  id: string;
+  name: string | null;
+  account_id: string | null;
+  account_name: string | null;
+}
+
+const WORKSPACE_COLUMNS = 'w.id::text AS id, w.name, w.account_id::text AS account_id, a.name AS account_name';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/**
+ * A normalized search (see `normalizeWorkspaceSearch`): no ASCII character but
+ * a lowercase letter or a digit, at least 3 characters. So no LIKE wildcard,
+ * and never an empty needle that would match everything.
+ */
+// eslint-disable-next-line no-control-regex
+const NEEDLE = /^[^\x00-\x2f\x3a-\x60\x7b-\x7f]{3,100}$/;
+/**
+ * The names are normalized the same way in SQL: every ASCII character that is
+ * not a letter or a digit is dropped (letters are lowercased first). Listed
+ * by code point, not as `[:alnum:]`, so it does not depend on the database's
+ * locale: an accented letter is kept on both sides.
+ */
+const ASCII_NON_ALNUM = '[\\x01-\\x2f\\x3a-\\x60\\x7b-\\x7f]';
+const MAX_SEARCH_RESULTS = 20;
+
+function workspaceOf(row: WorkspaceRow): EstateWorkspace {
+  return { id: row.id, name: row.name ?? 'Workspace', accountId: row.account_id, accountName: row.account_name };
+}
 
 /** How the adapter's connections show in `pg_stat_activity`. */
 const APPLICATION_NAME = 'dforms-person-directory';
@@ -173,7 +211,7 @@ export function createIamPersonDirectory(config: IamDirectoryConfig, options: Ia
   const schema = sql(config.schema);
 
   /** `query`, failed and cancelled on the server once it runs past the timeout. */
-  async function timed(query: postgres.PendingQuery<UserRow[]>): Promise<UserRow[]> {
+  async function timed<T extends readonly object[]>(query: postgres.PendingQuery<T>): Promise<T> {
     let timer: NodeJS.Timeout | undefined;
     const late = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
@@ -202,7 +240,58 @@ export function createIamPersonDirectory(config: IamDirectoryConfig, options: Ia
       AND u.deleted_at IS NULL
     LIMIT 2`;
 
+  // Staff lookups. Neither is scoped to a person: the API asks them only for
+  // a person who is staff of the deployment on that request.
+  const workspaceById = (id: string) => sql<WorkspaceRow[]>`
+    SELECT ${sql.unsafe(WORKSPACE_COLUMNS)}
+    FROM ${schema}.workspaces w
+    LEFT JOIN ${schema}.accounts a ON a.id = w.account_id
+    WHERE w.id = ${id}::uuid
+      AND w.deleted_at IS NULL
+      AND w.is_active IS NOT FALSE
+    LIMIT 1`;
+  // No index serves this: it scans the live workspaces. It is staff only,
+  // with a needle of at least 3 letters or digits and a small LIMIT.
+  const workspacesMatching = (needle: string, limit: number) => sql<WorkspaceRow[]>`
+    SELECT ${sql.unsafe(WORKSPACE_COLUMNS)}
+    FROM ${schema}.workspaces w
+    LEFT JOIN ${schema}.accounts a ON a.id = w.account_id
+    WHERE w.deleted_at IS NULL
+      AND w.is_active IS NOT FALSE
+      AND (regexp_replace(lower(w.name), ${ASCII_NON_ALNUM}, '', 'g') LIKE '%' || ${needle}::text || '%'
+        OR regexp_replace(lower(coalesce(a.name, '')), ${ASCII_NON_ALNUM}, '', 'g') LIKE '%' || ${needle}::text || '%')
+    ORDER BY w.created_at DESC
+    LIMIT ${limit}::int`;
+  const membership = (workspaceId: string, userId: string) => sql<{ one: number }[]>`
+    SELECT 1 AS one
+    FROM ${schema}.workspace_users wu
+    WHERE wu.workspace_id = ${workspaceId}::uuid
+      AND wu.user_id = ${userId}::uuid
+      AND wu.is_active = true
+      AND wu.deleted_at IS NULL
+    LIMIT 1`;
+
   return {
+    async holdsMembership(workspaceId, personId) {
+      const ws = workspaceId.trim().toLowerCase();
+      const user = personId.trim().toLowerCase();
+      if (!UUID.test(ws) || !UUID.test(user)) return false;
+      return (await timed(membership(ws, user))).length > 0;
+    },
+    async workspaceOf(workspaceId) {
+      const id = workspaceId.trim().toLowerCase();
+      // A malformed id would fail the cast: it names no workspace.
+      if (!UUID.test(id)) return null;
+      const [row] = await timed(workspaceById(id));
+      return row ? workspaceOf(row) : null;
+    },
+    async searchWorkspaces(needle, limit) {
+      // The needle arrives normalized; anything else (a LIKE wildcard, an
+      // empty string that would match everything) is refused here too.
+      if (!NEEDLE.test(needle)) return [];
+      const bounded = Math.max(1, Math.min(MAX_SEARCH_RESULTS, Math.floor(limit)));
+      return (await timed(workspacesMatching(needle, bounded))).map(workspaceOf);
+    },
     async personOf(subject) {
       let rows = await timed(byUser(subject));
       if (rows.length === 0) rows = await timed(bySession(subject));

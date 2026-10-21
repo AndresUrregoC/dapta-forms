@@ -82,7 +82,9 @@ export function fakeBackend(over: Partial<FormsBackend> = {}) {
       displayName: 'Ada',
       email: 'ada@example.test',
       role: c.role,
+      status: 'active',
       timezone: 'UTC',
+      locale: 'en',
     }),
     listForms: async () => [form(), form({ id: 'form-2', name: 'Quiz', slug: 'quiz', hasDraft: true })],
     getForm: async (_c, id) => {

@@ -12,7 +12,16 @@
  */
 export * from './backend';
 export * from './parity-backend';
-export { LIST_WORKSPACES_HINT, bucketOf, openDFormsOnce, resolveWorkspace } from './workspace';
+export {
+  LIST_WORKSPACES_HINT,
+  STAFF_SEARCH_MAX_RESULTS,
+  STAFF_SEARCH_MIN_CHARS,
+  STAFF_WORKSPACE_HINT,
+  bucketOf,
+  normalizeWorkspaceSearch,
+  openDFormsOnce,
+  resolveWorkspace,
+} from './workspace';
 export {
   DoorRefusal,
   DoorThrottled,

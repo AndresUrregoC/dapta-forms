@@ -4,7 +4,7 @@ Chat clients (browser connectors) can only reach an MCP server through OAuth, so
 
 ## Consequences
 
-- An MCP connection is a person, not a workspace: each tool call carries a workspace, chosen from the workspaces where that person has an active member (only one: used without asking). An API key keeps fixing its workspace, and a different one in a call is refused.
+- An MCP connection is a person, not a workspace: each tool call carries a workspace, chosen from the workspaces where that person has an active member (only one: used without asking). An API key keeps fixing its workspace, and a different one in a call is refused. (For the deployment's staff this no longer holds: see [0002](0002-staff-access-over-mcp.md).)
 - The token names the person in the provider's terms; the adapter maps it to the person the members are keyed by. Access is cut by deactivating the member, which takes effect on the next call; the provider's session is not revoked by dForms.
 - Rate limits for MCP connections count per member, so one person with several connected clients shares one budget.
 - The resource URL is registered with the provider and is the audience of every token, so changing the MCP host later means re-registering it and every connection signing in again.

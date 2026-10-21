@@ -1,6 +1,7 @@
 /**
  * The identity-service person directory against a real Postgres: a minimal
- * `users` + `sessions` schema created here, in a schema of its own, and the
+ * `users` + `sessions` (+ `workspaces` and `accounts`, for the staff lookups)
+ * schema created here, in a schema of its own, and the
  * adapter reading it the way it reads the identity service's database.
  *
  * Runs when DATABASE_URL is a Postgres URL (the Postgres CI job, or
@@ -68,6 +69,26 @@ describe.skipIf(!onPostgres)('the identity-service person directory, on Postgres
         id uuid PRIMARY KEY,
         user_id uuid NOT NULL REFERENCES ${schema}.users (id),
         workos_user_id text
+      );
+      CREATE TABLE ${schema}.accounts (
+        id uuid PRIMARY KEY,
+        name text
+      );
+      CREATE TABLE ${schema}.workspaces (
+        id uuid PRIMARY KEY,
+        name text NOT NULL,
+        account_id uuid REFERENCES ${schema}.accounts (id),
+        is_active boolean,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        deleted_at timestamptz
+      );
+      CREATE TABLE ${schema}.workspace_users (
+        id uuid PRIMARY KEY,
+        workspace_id uuid NOT NULL REFERENCES ${schema}.workspaces (id),
+        user_id uuid NOT NULL REFERENCES ${schema}.users (id),
+        type text NOT NULL DEFAULT 'MEMBER',
+        is_active boolean NOT NULL DEFAULT true,
+        deleted_at timestamptz
       );
     `);
     const u = new URL(url);
@@ -175,6 +196,88 @@ describe.skipIf(!onPostgres)('the identity-service person directory, on Postgres
     } finally {
       await admin.unsafe(`DROP SCHEMA ${slow} CASCADE`);
     }
+  });
+
+  /** A workspace (and its account, when `account` is named) in the identity database. */
+  async function workspace(name: string, fields: { account?: string; isActive?: boolean | null; deleted?: boolean; age?: number } = {}) {
+    const id = randomUUID();
+    let accountId: string | null = null;
+    if (fields.account !== undefined) {
+      accountId = randomUUID();
+      await admin.unsafe(`INSERT INTO ${schema}.accounts (id, name) VALUES ($1, $2)`, [accountId, fields.account]);
+    }
+    await admin.unsafe(
+      `INSERT INTO ${schema}.workspaces (id, name, account_id, is_active, created_at, deleted_at)
+       VALUES ($1, $2, $3, $4, now() - ($5 || ' minutes')::interval, ${fields.deleted ? 'now()' : 'NULL'})`,
+      [id, name, accountId, fields.isActive === undefined ? true : fields.isActive, String(fields.age ?? 0)],
+    );
+    return { id, accountId };
+  }
+
+  it('reads one live workspace by id, with its account, and nothing for a deleted, inactive or malformed one', async () => {
+    const d = directory();
+    const tag = randomUUID().slice(0, 6);
+    const live = await workspace(`Initech ${tag}`, { account: 'Initech Corp' });
+    expect(await d.workspaceOf(live.id)).toEqual({ id: live.id, name: `Initech ${tag}`, accountId: live.accountId, accountName: 'Initech Corp' });
+    expect(await d.workspaceOf(live.id.toUpperCase())).toMatchObject({ id: live.id });
+    const unset = await workspace(`Unset ${tag}`, { isActive: null });
+    expect(await d.workspaceOf(unset.id)).toMatchObject({ id: unset.id, accountId: null, accountName: null });
+    expect(await d.workspaceOf((await workspace(`Gone ${tag}`, { deleted: true })).id)).toBeNull();
+    expect(await d.workspaceOf((await workspace(`Off ${tag}`, { isActive: false })).id)).toBeNull();
+    expect(await d.workspaceOf(randomUUID())).toBeNull();
+    for (const bad of ['', 'not-a-uuid', `${live.id}'; --`]) expect(await d.workspaceOf(bad)).toBeNull();
+  });
+
+  it('searches live workspaces by workspace or account name, ignoring case and punctuation, newest first, within the limit', async () => {
+    const d = directory();
+    const tag = randomUUID().replace(/-/g, '').slice(0, 8);
+    const older = await workspace(`Call Center ${tag}`, { age: 10 });
+    const newer = await workspace(`CALL-center ${tag}'s workspace`, { age: 1 });
+    const byAccount = await workspace(`Sales ${tag}`, { account: `Call-Center ${tag} Holdings`, age: 5 });
+    await workspace(`Call Center ${tag} deleted`, { deleted: true });
+    await workspace(`Call Center ${tag} off`, { isActive: false });
+    const found = await d.searchWorkspaces(`callcenter${tag}`, 20);
+    expect(found.map((w) => w.id)).toEqual([newer.id, byAccount.id, older.id]);
+    expect(found[1]).toMatchObject({ accountName: `Call-Center ${tag} Holdings` });
+    expect(await d.searchWorkspaces(`callcenter${tag}`, 1)).toHaveLength(1);
+    // Never more than 20, whatever the caller asks.
+    for (let i = 0; i < 22; i += 1) await workspace(`Bulk ${tag} ${i}`);
+    expect(await d.searchWorkspaces(`bulk${tag}`, 500)).toHaveLength(20);
+  });
+
+  it('keeps accented letters on both sides, whatever the database locale', async () => {
+    const d = directory();
+    const tag = randomUUID().replace(/-/g, '').slice(0, 6);
+    const ws = await workspace(`Peñalosa & Hijos ${tag}`);
+    expect((await d.searchWorkspaces(`peñalosahijos${tag}`, 20)).map((w) => w.id)).toEqual([ws.id]);
+  });
+
+  it('says whether a person holds a live membership in a workspace', async () => {
+    const d = directory();
+    const ws = await workspace(`Members ${randomUUID().slice(0, 6)}`);
+    const member = await user();
+    const removed = await user();
+    const deleted = await user();
+    const stranger = await user();
+    const seat = (userId: string, fields: { isActive?: boolean; deleted?: boolean } = {}) =>
+      admin.unsafe(
+        `INSERT INTO ${schema}.workspace_users (id, workspace_id, user_id, is_active, deleted_at) VALUES ($1, $2, $3, $4, ${fields.deleted ? 'now()' : 'NULL'})`,
+        [randomUUID(), ws.id, userId, fields.isActive ?? true],
+      );
+    await seat(member.id);
+    await seat(removed.id, { isActive: false });
+    await seat(deleted.id, { deleted: true });
+    expect(await d.holdsMembership(ws.id, member.id)).toBe(true);
+    expect(await d.holdsMembership(ws.id.toUpperCase(), member.id)).toBe(true);
+    for (const u of [removed, deleted, stranger]) expect(await d.holdsMembership(ws.id, u.id)).toBe(false);
+    expect(await d.holdsMembership('not-a-uuid', member.id)).toBe(false);
+    expect(await d.holdsMembership(ws.id, 'not-a-uuid')).toBe(false);
+  });
+
+  it('refuses a search that is not a normalized needle of 3 letters or digits, without reading anything', async () => {
+    const d = directory();
+    await workspace(`Anything ${randomUUID().slice(0, 4)}`);
+    for (const needle of ['', 'ab', '%%%', 'a_b', '%', 'abc%', 'ab c']) expect(await d.searchWorkspaces(needle, 20)).toEqual([]);
   });
 
   it('keeps its pool small however many lookups arrive at once', async () => {

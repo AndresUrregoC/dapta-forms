@@ -26,6 +26,19 @@ export interface Person {
   email: string | null;
 }
 
+/**
+ * A workspace as the identity service knows it, for staff of the deployment:
+ * they find any workspace by name and enter it through a staff access grant.
+ */
+export interface EstateWorkspace {
+  /** The identity service's workspace id: what `account.external_id` holds. */
+  id: string;
+  name: string;
+  /** The account (billing) the workspace hangs from, and its name. */
+  accountId: string | null;
+  accountName: string | null;
+}
+
 export interface PersonDirectory {
   /**
    * The person a verified token's subject names, or null when the directory
@@ -34,6 +47,24 @@ export interface PersonDirectory {
    * blocked); any other throw means the directory cannot be read.
    */
   personOf(subject: string): Promise<Person | null>;
+  /**
+   * Staff only: one live workspace by its id, or null (none has it, deleted,
+   * inactive, or not a well-formed id). Without it staff reach their own
+   * workspaces only.
+   */
+  workspaceOf?(workspaceId: string): Promise<EstateWorkspace | null>;
+  /**
+   * Staff only: live workspaces whose name, or whose account's name, contains
+   * `needle` (lowercase letters and digits only, compared the same way),
+   * newest first, at most `limit`. Never the full list.
+   */
+  searchWorkspaces?(needle: string, limit: number): Promise<EstateWorkspace[]>;
+  /**
+   * Staff only: whether `personId` (a `Person.id`) holds a live membership of
+   * its own in the workspace, so it is entered as that member and never
+   * turned into a staff access grant.
+   */
+  holdsMembership?(workspaceId: string, personId: string): Promise<boolean>;
   /** Release what the directory holds (the identity database pool). The API calls it when it shuts down. */
   close?(): Promise<void>;
 }
@@ -99,10 +130,11 @@ type Cached = { until: number; person: Person | null } | { until: number; refuse
  * budget the lookup is `PersonLookupThrottled` (a 429) without reaching the
  * directory.
  *
- * What it keeps is only WHO a subject is. Which workspaces that person may act
- * in is still read from dForms' own members on every request, so removing a
- * member takes effect on the next call; a person the identity service blocks
- * is seen within a minute.
+ * What it keeps is WHO a subject is, and for staff which live workspace an id
+ * names (`workspaceOf`, kept the same way). Which workspaces that person may
+ * act in is still read from dForms' own members on every request, so removing
+ * a member takes effect on the next call; a person the identity service
+ * blocks, or whose email leaves a staff domain, is seen within a minute.
  */
 export function cachePersonDirectory(directory: PersonDirectory, options: PersonCacheOptions): PersonDirectory {
   const personTtl = options.personTtlMs ?? 60_000;
@@ -131,6 +163,14 @@ export function cachePersonDirectory(directory: PersonDirectory, options: Person
     }
   }
 
+  // Staff lookups of one workspace: kept like a person (a workspace for a
+  // minute, none for a few seconds, an outage never), so a staff
+  // conversation in a customer's workspace reads the identity database about
+  // it once a minute, not once a call.
+  const workspaces = new Map<string, { until: number; workspace: EstateWorkspace | null }>();
+  const workspacesInFlight = new Map<string, Promise<EstateWorkspace | null>>();
+  const workspaceOf = directory.workspaceOf?.bind(directory);
+
   return {
     async personOf(subject) {
       const hit = entries.get(subject);
@@ -146,6 +186,33 @@ export function cachePersonDirectory(directory: PersonDirectory, options: Person
       }
       return pending;
     },
+    ...(workspaceOf
+      ? {
+          async workspaceOf(workspaceId: string) {
+            const hit = workspaces.get(workspaceId);
+            if (hit && hit.until > now()) return hit.workspace;
+            if (hit) workspaces.delete(workspaceId);
+            let pending = workspacesInFlight.get(workspaceId);
+            if (!pending) {
+              pending = workspaceOf(workspaceId)
+                .then((workspace) => {
+                  workspaces.delete(workspaceId);
+                  workspaces.set(workspaceId, { until: now() + (workspace ? personTtl : nobodyTtl), workspace });
+                  while (workspaces.size > maxEntries) workspaces.delete(workspaces.keys().next().value as string);
+                  return workspace;
+                })
+                .finally(() => workspacesInFlight.delete(workspaceId));
+              workspacesInFlight.set(workspaceId, pending);
+            }
+            return pending;
+          },
+        }
+      : {}),
+    // A search is a staff action with a short needle and a small limit; each
+    // one is its own question, so it is not kept.
+    ...(directory.searchWorkspaces ? { searchWorkspaces: directory.searchWorkspaces.bind(directory) } : {}),
+    // Asked only before a grant is minted, once per person and workspace.
+    ...(directory.holdsMembership ? { holdsMembership: directory.holdsMembership.bind(directory) } : {}),
   };
 }
 

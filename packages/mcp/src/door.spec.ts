@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { bootHarness, capped, errorText, initialize, structured, type Harness, type HarnessOptions } from './__tests__/harness';
-import type { McpCaller, McpConnection } from './backend';
+import type { McpCaller, McpConnection, McpStaffAccess } from './backend';
 import { DoorRefusal, DoorThrottled, DoorUnavailable, hostnameOf, mcpCorsPolicy, normalizeOrigin, type McpDoorOAuth } from './door';
 
 const open: Harness[] = [];
@@ -493,9 +493,25 @@ describe('an MCP connection with several workspaces', () => {
     expect(errorText(await c.callTool({ name: 'list_forms', arguments: { workspace_id: 'acct-9' } }))).toMatch(/^NOT_FOUND/);
     const mine = structured<{ workspaces: unknown[] }>(await c.callTool({ name: 'list_my_workspaces', arguments: {} }));
     expect(mine.workspaces).toEqual([
-      { id: 'acct-1', name: 'Acme', role: 'owner' },
-      { id: 'acct-2', name: 'Globex', role: 'member' },
+      { id: 'acct-1', name: 'Acme', account_name: null, role: 'owner', access: 'member' },
+      { id: 'acct-2', name: 'Globex', account_name: null, role: 'member', access: 'member' },
     ]);
+  });
+
+  it('filters its own workspaces by search, and a person who is not staff never searches beyond them', async () => {
+    const h = await boot({ door: { oauth: oauthSide({ t: connection([acme, globex]) }).oauth } });
+    const c = await h.connect('t');
+    const found = structured<{ workspaces: Array<{ id: string }>; staff: boolean }>(
+      await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'glob' } }),
+    );
+    expect(found).toMatchObject({ staff: false, workspaces: [{ id: 'acct-2' }] });
+    // Short searches are fine for a person: they only filter their own list.
+    const short = structured<{ workspaces: Array<{ id: string }> }>(
+      await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'x' } }),
+    );
+    expect(short.workspaces.map((w) => w.id)).toEqual(['acct-2']);
+    const none = structured<{ workspaces: unknown[] }>(await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'initech' } }));
+    expect(none.workspaces).toEqual([]);
   });
 
   it('takes the door token from the member of the workspace a call names, and the person for the rest', async () => {
@@ -527,6 +543,89 @@ describe('an MCP connection with several workspaces', () => {
     expect(who).toMatchObject({ workspace: null, workspaces: [], person: { id: 'person-1' } });
     expect(errorText(await c.callTool({ name: 'get_form', arguments: { form_id: 'form-1' } }))).toMatch(/^NO_WORKSPACE.*open dForms once/);
     expect(h.calls).toEqual([]);
+  });
+});
+
+describe('an MCP connection of staff', () => {
+  const own = workspaceCaller();
+  const entered = workspaceCaller({
+    accountId: 'acct-7',
+    workspaceName: 'Initech',
+    memberId: 'grant-7',
+    role: 'admin',
+    credentialId: 'member:grant-7',
+    access: 'staff',
+  });
+  /** Staff access over a fixed estate, recording what it was asked. */
+  function staffConnection(workspaces: McpCaller[] = [own]) {
+    const asked: string[] = [];
+    const access: McpStaffAccess = {
+      async search(query, limit) {
+        asked.push(`search:${query}:${limit}`);
+        return [
+          { id: 'acct-1', name: 'Acme', accountName: 'Acme Holdings', role: 'admin', access: 'staff' },
+          { id: 'acct-7', name: 'Initech', accountName: 'Initech Corp', role: 'admin', access: 'staff' },
+        ];
+      },
+      async enter(id) {
+        asked.push(`enter:${id}`);
+        return id === 'acct-7' ? entered : null;
+      },
+    };
+    return { conn: { ...connection(workspaces), staff: access } satisfies McpConnection, asked };
+  }
+
+  it('always asks for workspace_id, even with one workspace of their own, and says to search and confirm', async () => {
+    const { conn } = staffConnection();
+    const h = await boot({ door: { oauth: oauthSide({ t: conn }).oauth } });
+    const c = await h.connect('t');
+    const text = errorText(await c.callTool({ name: 'list_forms', arguments: {} }));
+    expect(text).toMatch(/^WORKSPACE_REQUIRED: You are staff of this deployment/);
+    expect(text).toContain('list_my_workspaces(search=');
+    expect(text).toContain('confirm it with the user');
+    expect(h.calls).toEqual([]);
+    const who = structured<{ staff: boolean; workspace: unknown }>(await c.callTool({ name: 'whoami', arguments: {} }));
+    expect(who).toMatchObject({ staff: true, workspace: null });
+  });
+
+  it('searches every workspace, keeps its own as a member, caps at 20 and refuses a search under 3 letters or digits', async () => {
+    const { conn, asked } = staffConnection();
+    const h = await boot({ door: { oauth: oauthSide({ t: conn }).oauth } });
+    const c = await h.connect('t');
+    const found = structured<{ workspaces: Array<Record<string, unknown>>; staff: boolean; next_step: string }>(
+      await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'In-i', limit: 50 } }),
+    );
+    expect(found.staff).toBe(true);
+    expect(found.workspaces).toEqual([
+      { id: 'acct-1', name: 'Acme', account_name: null, role: 'owner', access: 'member' },
+      { id: 'acct-7', name: 'Initech', account_name: 'Initech Corp', role: 'admin', access: 'staff' },
+    ]);
+    expect(found.next_step).toMatch(/Confirm it even when only one matched/);
+    expect(asked).toEqual(['search:In-i:20']);
+    for (const search of ['ab', ' a-b ', '..']) {
+      expect(errorText(await c.callTool({ name: 'list_my_workspaces', arguments: { search } }))).toMatch(/^SEARCH_TOO_SHORT/);
+    }
+    expect(asked).toHaveLength(1);
+    const mine = structured<{ next_step: string; workspaces: unknown[] }>(await c.callTool({ name: 'list_my_workspaces', arguments: {} }));
+    expect(mine.workspaces).toHaveLength(1);
+    expect(mine.next_step).toMatch(/only your own workspaces/);
+  });
+
+  it('acts in a workspace it is not a member of through staff access, says so, and audits it', async () => {
+    const { conn, asked } = staffConnection();
+    const h = await boot({ door: { oauth: oauthSide({ t: conn }).oauth } });
+    const c = await h.connect('t');
+    const res = await c.callTool({ name: 'list_forms', arguments: { workspace_id: 'acct-7' } });
+    expect(structured<{ workspace: unknown }>(res).workspace).toEqual({ id: 'acct-7', name: 'Initech', access: 'staff' });
+    expect((res as { content: Array<{ text: string }> }).content[0]!.text).toMatch(/^In workspace "Initech" \(staff access\): /);
+    expect(h.calls[0]).toMatchObject({ method: 'listForms', caller: { accountId: 'acct-7', memberId: 'grant-7' } });
+    expect(JSON.parse(h.audit.at(-1)!)).toMatchObject({ tool: 'list_forms', accountId: 'acct-7', via: 'staff_grant', personId: 'person-1' });
+    // Its own workspace is its member's, never a grant, and asks nothing of the staff side.
+    structured(await c.callTool({ name: 'list_forms', arguments: { workspace_id: 'acct-1' } }));
+    expect(JSON.parse(h.audit.at(-1)!)).not.toHaveProperty('via');
+    expect(asked).toEqual(['enter:acct-7']);
+    const missing = errorText(await c.callTool({ name: 'list_forms', arguments: { workspace_id: 'acct-404' } }));
+    expect(missing).toMatch(/^NOT_FOUND: No live workspace has this id\./);
   });
 });
 

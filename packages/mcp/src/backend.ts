@@ -17,7 +17,8 @@
  * member in one workspace, fixed by the key. An MCP connection (a person
  * signed in through OAuth) is an `McpConnection`: a person with one
  * `McpCaller` per workspace where they hold an active member, and each tool
- * call names the one it acts in.
+ * call names the one it acts in. Staff of the deployment may also name any
+ * other workspace (`McpConnection.staff`).
  */
 
 import type { ApiParityBackend } from './parity-backend';
@@ -47,8 +48,47 @@ export interface McpCaller {
    * by. Absent for an API key.
    */
   personId?: string;
+  /**
+   * How the person reaches this workspace: `staff` through a staff access
+   * grant (staff of the deployment, not a member there), `member` (or absent)
+   * as a member. Results and the audit line say so.
+   */
+  access?: 'member' | 'staff';
   /** Host-defined, opaque to this package: how the backend acts as this caller. */
   context: unknown;
+}
+
+/** One workspace a staff search found. */
+export interface StaffWorkspaceHit {
+  /** What a call passes as `workspace_id`. */
+  id: string;
+  name: string;
+  /** The account (billing) the workspace belongs to, when the host knows it: workspace names repeat. */
+  accountName: string | null;
+  /** The role a call there acts with: the member's own, or `admin` through a staff access grant. */
+  role: string;
+  access: 'member' | 'staff';
+}
+
+/**
+ * What staff of the deployment can do beyond their own workspaces. The host
+ * hands it out only when the person is staff, judged again on every request,
+ * so a person who stops being staff loses it on the next call whatever rows
+ * an earlier grant left behind.
+ */
+export interface McpStaffAccess {
+  /**
+   * Workspaces of the whole deployment that match `query` (already checked to
+   * hold at least `STAFF_SEARCH_MIN_CHARS` letters or digits), at most
+   * `limit`. Never the full list.
+   */
+  search(query: string, limit: number): Promise<StaffWorkspaceHit[]>;
+  /**
+   * The caller for a workspace the person is not a member of, through a staff
+   * access grant (minted on first use, re-checked on every call). Null when
+   * no live workspace has this id.
+   */
+  enter(workspaceId: string): Promise<McpCaller | null>;
 }
 
 /**
@@ -67,8 +107,12 @@ export interface McpConnection {
   /**
    * One caller per workspace the person may act in now, in a stable order (by
    * workspace name). Empty when they have no active member anywhere yet.
+   * Staff access grants are never listed here: they are reached through
+   * `staff`, and only while the person is staff.
    */
   workspaces: McpCaller[];
+  /** Present only when the person is staff of the deployment on this request. */
+  staff?: McpStaffAccess;
 }
 
 /** Who the door let in: an API key (one workspace) or an MCP connection (a person). */
@@ -106,7 +150,7 @@ export class BackendError extends Error {
   }
 }
 
-/** The member and workspace the credential acts as (`GET /v1/me`, trimmed). */
+/** The member and workspace the credential acts as: every field `GET /v1/me` documents. */
 export interface WhoAmI {
   accountId: string;
   accountName: string;
@@ -116,7 +160,11 @@ export interface WhoAmI {
   displayName: string | null;
   email: string | null;
   role: string;
+  /** The member's status (`active` for every caller that gets this far). */
+  status: string;
   timezone: string | null;
+  /** The language the member chose for the admin (`en`, `es`), or null when they never did. */
+  locale: string | null;
 }
 
 /** One form in a list. */
