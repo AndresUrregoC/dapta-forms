@@ -47,6 +47,7 @@ export const GUIDE_WORKSPACES: readonly string[] = [
   'If the user asks to switch workspace, use the new id from then on and say so. Form ids belong to one workspace: a form from another workspace answers NOT_FOUND.',
   'Every result names the workspace it acted in (`workspace`). If it is not the one the user means, stop and ask before you go on.',
   'No workspace yet (NO_WORKSPACE): the person has never opened dForms with this account. Tell them to open it once, then try again.',
+  "Staff of the deployment (whoami and list_my_workspaces say staff: true) can act in any workspace, as an admin, through a staff access grant. Find a customer's workspace with list_my_workspaces(search=<part of its name, a member email or a form name>; at least 3 letters or digits, at most 20 results), show the matches by name and account, and confirm the exact workspace with the user before the first call that reads or changes anything in it, even when only one matches. Staff send workspace_id on every call, even with one workspace of their own.",
 ];
 
 export const GUIDE_STEP_TYPES: ReadonlyArray<{ type: string; use_for: string }> = [

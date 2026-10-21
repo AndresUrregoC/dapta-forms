@@ -11,6 +11,7 @@ export const MCP_SERVER_VERSION = '1.0.0';
 export const MCP_INSTRUCTIONS = [
   'Tools to build, publish and read dForms forms.',
   'Which workspace: an API key acts in its own workspace only, so leave workspace_id out. A person signed in may be a member of several workspaces: call list_my_workspaces first; with one, it is used without asking; with several, ask the user which one by name (never pick one yourself, never ask for an id) and send its id as workspace_id on every call. If the user switches workspace, use the new id from then on and say so.',
+  'Staff of this deployment (whoami says staff: true) can act in any workspace: always send workspace_id, even with one workspace of their own; find a customer\'s workspace with list_my_workspaces(search=<part of its name>) and confirm the exact workspace with the user, by name and account, before the first call that reads or changes anything in it, even when only one matches.',
   'Every result names the workspace it acted in (workspace.name); if it is not the one the user means, stop and ask.',
   'Start with whoami. Read get_form_guide once before your first create_form or update_form.',
   'To edit: get_form, change a copy of its config, update_form with the whole config and expected_updated_at, then publish_form.',
@@ -108,17 +109,24 @@ export class FormsMcpServer {
       if (!call) throw new ToolFailure('AUTH_REQUIRED', 'This call carries no credential.', 'Send Authorization: Bearer <your dForms API key>.');
       if (def.workspace !== 'none') {
         const named = (args as { workspace_id?: string } | undefined)?.workspace_id;
-        caller = resolveWorkspace(call.credential, named, { required: def.workspace === 'required', appUrl: this.options.appUrl });
+        caller = await resolveWorkspace(call.credential, named, {
+          required: def.workspace === 'required',
+          appUrl: this.options.appUrl,
+        });
       }
       if (def.write) this.takeWriteToken(caller!);
       result = await this.withTimeout(
         def.run(args as never, { credential: call.credential, caller, backend: this.options.backend, appUrl: this.options.appUrl }),
       );
       if (def.workspace === 'required' && caller) {
+        const staff = caller.access === 'staff';
         result = {
           ...result,
-          data: { ...result.data, workspace: { id: caller.accountId, name: caller.workspaceName } },
-          summary: `In workspace "${caller.workspaceName}": ${result.summary}`,
+          data: {
+            ...result.data,
+            workspace: { id: caller.accountId, name: caller.workspaceName, ...(staff ? { access: 'staff' as const } : {}) },
+          },
+          summary: `In workspace "${caller.workspaceName}"${staff ? ' (staff access)' : ''}: ${result.summary}`,
         };
       }
     } catch (error) {
@@ -201,6 +209,8 @@ export class FormsMcpServer {
       accountId: actedAs?.accountId ?? null,
       memberId: actedAs?.memberId ?? null,
       personId: call && isConnection(call.credential) ? call.credential.personId : null,
+      // A staff call outside the person's own workspaces says so on its line.
+      ...(actedAs?.access === 'staff' ? { via: 'staff_grant' } : {}),
       tool: def.name,
       argsHash: argsHash(args),
       affected: result?.affected ?? [],

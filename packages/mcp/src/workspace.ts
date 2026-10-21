@@ -8,12 +8,36 @@ import { ToolFailure } from './support';
  * out or name the key's own, and any other is refused, so a key never leaves
  * its workspace. An MCP connection names a person who may hold members in
  * several workspaces: a call names one with `workspace_id`, and with exactly
- * one workspace it may leave it out. The choice is always among the person's
- * active members as the host read them on this request, so an id of any other
- * workspace (one they never joined, one they were removed from, one they
- * reach only by a staff access grant) is reported exactly like an id that
- * does not exist.
+ * one workspace it may leave it out. The choice is among the person's active
+ * members as the host read them on this request, so for anyone but staff an
+ * id of any other workspace (one they never joined, one they were removed
+ * from, one an earlier staff access grant reached) is reported exactly like
+ * an id that does not exist.
+ *
+ * Staff of the deployment (`McpConnection.staff`, judged again on every
+ * request) may also name any other live workspace, which they then act in
+ * through a staff access grant. Staff always name the workspace, even with
+ * one of their own, and the agent confirms it with the user first: a staff
+ * call can reach any customer's forms.
  */
+
+/** A staff search needs at least this many letters or digits. */
+export const STAFF_SEARCH_MIN_CHARS = 3;
+/** A staff search never returns more than this many workspaces. */
+export const STAFF_SEARCH_MAX_RESULTS = 20;
+
+/**
+ * A workspace search as it is compared: lowercase letters and digits only, so
+ * "Call Center" finds "callcenter's workspace" and a search can never carry a
+ * LIKE wildcard.
+ */
+export function normalizeWorkspaceSearch(text: string | undefined): string {
+  return (text ?? '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+/** What staff do to pick a workspace: search, confirm with the user, then name it. */
+export const STAFF_WORKSPACE_HINT =
+  'You are staff of this deployment and can act in any workspace. Find the one the user means with list_my_workspaces(search=<part of its name>), confirm it with the user by name and account (even when only one matches), then repeat this call with its workspace_id.';
 
 export const LIST_WORKSPACES_HINT =
   'Call list_my_workspaces, ask the user which workspace by its name (never pick one yourself), then repeat this call with that workspace_id.';
@@ -36,13 +60,14 @@ export function noWorkspace(appUrl?: string): ToolFailure {
 /**
  * The caller a tool call acts as, or a `ToolFailure` the model can act on.
  * `required` false (whoami): null instead of a failure when the call does not
- * name a workspace and there is not exactly one to use.
+ * name a workspace and there is not exactly one to use (staff: when it names
+ * none).
  */
-export function resolveWorkspace(
+export async function resolveWorkspace(
   credential: McpCredential,
   workspaceId: string | undefined,
   opts: { required: boolean; appUrl?: string },
-): McpCaller | null {
+): Promise<McpCaller | null> {
   if (!isConnection(credential)) {
     if (workspaceId !== undefined && workspaceId !== credential.accountId) {
       throw new ToolFailure(
@@ -53,14 +78,27 @@ export function resolveWorkspace(
     }
     return credential;
   }
-  const { workspaces } = credential;
+  const { workspaces, staff } = credential;
   if (workspaceId !== undefined) {
     const named = workspaces.find((w) => w.accountId === workspaceId);
     if (named) return named;
+    if (staff) {
+      const entered = await staff.enter(workspaceId);
+      if (entered) return entered;
+      throw new ToolFailure('NOT_FOUND', 'No live workspace has this id.', STAFF_WORKSPACE_HINT);
+    }
     throw new ToolFailure(
       'NOT_FOUND',
       'No workspace of yours has this id.',
       'Use an id from list_my_workspaces: you may have been removed from that workspace.',
+    );
+  }
+  if (staff) {
+    if (!opts.required) return null;
+    throw new ToolFailure(
+      'WORKSPACE_REQUIRED',
+      'You are staff of this deployment, so every call must name its workspace in workspace_id, even with one workspace of your own.',
+      STAFF_WORKSPACE_HINT,
     );
   }
   if (workspaces.length === 1) return workspaces[0]!;

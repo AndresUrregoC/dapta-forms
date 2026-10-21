@@ -34,6 +34,7 @@ import {
   type IamWorkspace,
 } from './iam-workspaces';
 import { maybeSeedDemoForm, notifySignup, type SeedDemoEnv, type SignupObserver } from './auth.provider';
+import { isStaffEmail } from './staff';
 
 /** What the auth provider proved about the caller — never read from the request body. */
 export interface UpstreamIdentity {
@@ -88,14 +89,9 @@ export class WorkspaceProjection {
     this.ttlMs = opts.ttlMs ?? DEFAULT_TTL_MS;
   }
 
-  /** Whether this email belongs to the deployment's staff (by domain). */
+  /** Whether this email belongs to the deployment's staff (by domain): the one rule, `isStaffEmail`. */
   isStaff(email: string | null | undefined): boolean {
-    const domains = this.opts.staffDomains ?? [];
-    if (!domains.length || !email) return false;
-    const at = email.lastIndexOf('@');
-    if (at < 0) return false;
-    const domain = email.slice(at + 1).trim().toLowerCase();
-    return domains.includes(domain);
+    return isStaffEmail(email, this.opts.staffDomains);
   }
 
   private now(): number {

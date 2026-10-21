@@ -51,22 +51,77 @@ summary.
 - The workspaces are the person's **active** members in dForms, read again on
   every request: remove or disable the member and the workspace drops out of
   `list_my_workspaces` on the next call, while the others stay. Pending
-  invitations and staff access grants are not listed and cannot be named.
-- A `workspace_id` the person cannot act in (never joined, removed, or one that
-  does not exist) answers `NOT_FOUND` with the same message in every case, so
-  nothing about that workspace leaks.
+  invitations and staff access grants are never listed.
+- A `workspace_id` the person cannot act in (never joined, removed, reached
+  only by an earlier staff access grant, or one that does not exist) answers
+  `NOT_FOUND` with the same message in every case, so nothing about that
+  workspace leaks. Staff are the exception, below.
 - A person with no active member anywhere still connects: `whoami` and
   `list_my_workspaces` answer, and every other tool answers `NO_WORKSPACE`
   with what to do (open dForms once with that account).
 - The role is the member's role in the workspace the call names, read live on
   every call.
 
+### Staff
+
+The deployment's staff can work in any workspace over MCP, the way the web
+app's workspace switcher lets them (see
+[ADR 0002](adr/0002-staff-access-over-mcp.md)).
+
+- **Who.** A person signed in whose email, as the person directory holds it
+  (the identity service's user row, never anything the request says), is on
+  one of the domains in `IAM_STAFF_DOMAINS`: exact domain, any letter case.
+  The same list and the same rule as the switcher. Unset: nobody. API keys
+  never become staff.
+- **Judged on every call.** A staff access grant row, once minted, is never
+  revoked, so the door decides staff again on every request. A person whose
+  email leaves the staff domains, or a domain dropped from the list, reaches
+  none of those workspaces on the next call (the directory keeps who a person
+  is for at most a minute), and is back to the person rules above: the
+  uniform `NOT_FOUND`.
+- **Finding a workspace.** `list_my_workspaces` without `search` lists only
+  their own workspaces. With `search` (at least 3 letters or digits) it also
+  searches every workspace: the ones dForms already knows (by workspace name,
+  a member's email or a form name) and the identity service's live
+  workspaces (by workspace or account name, ignoring case and punctuation).
+  At most 20, never the full list. Each result carries `id`, `name`,
+  `account_name` (when known; names repeat), `role` and `access` (`member`,
+  or `staff` for a workspace they would enter through a grant). A workspace
+  dForms has never seen is named by the identity service's id; passing either
+  id works.
+- **Always named, always confirmed.** Staff send `workspace_id` on every
+  call, even with one workspace of their own (`WORKSPACE_REQUIRED`
+  otherwise). The server instructions, `whoami`, `list_my_workspaces` and the
+  guide tell the agent to confirm the exact workspace with the user, by name
+  and account, before the first call that reads or changes anything in it,
+  even when only one matched.
+- **Acting there.** A `workspace_id` that is not one of their own must name a
+  workspace that is live in the identity service now (read through a
+  one-minute cache), or the call answers `NOT_FOUND`; a local-only workspace
+  is never entered this way. The first call projects the workspace if dForms
+  has never seen it (no onboarding stamp, no demo form) and mints the same
+  `admin` row the switcher mints, marked `access_grant = 'staff'` and never on
+  the team's roster. Staff then read and write (create, edit, publish) as that
+  admin, under every rule a member gets. A workspace where they hold a real
+  membership is always entered as that member.
+- **Said and logged.** Every result of such a call names the workspace with
+  `access: 'staff'` and starts `In workspace "<name>" (staff access):`. The
+  audit line carries `via: 'staff_grant'`, and the API logs one more line per
+  call (`mcp.staff_access`, `channel: 'mcp'`, `via: 'staff_grant'`, the
+  person, the workspace, and whether this call minted the grant).
+- **Limits.** A staff call outside their own workspaces counts against the
+  person's bucket, not a member's.
+- **Email verification.** Staff is decided by the email domain alone, as in
+  the web app. That is only as strong as the identity service's guarantee
+  that the address on a user row was verified and cannot be changed without
+  verification; dForms cannot check it from the data it reads. See the ADR.
+
 ## Tools
 
 | Tool | Kind | What it does |
 |---|---|---|
-| `whoami` | read | Who is connected (the key prefix, or the person signed in), every workspace it can act in with the role there, and, when a workspace applies, that workspace and the member it acts as. |
-| `list_my_workspaces` | read | The workspaces this connection can act in: name, role and id, plus what to do next. With a key, the key's one workspace. |
+| `whoami` | read | Who is connected (the key prefix, or the person signed in), every workspace it can act in with the role there, whether the person is `staff`, and, when a workspace applies, that workspace and the member it acts as. |
+| `list_my_workspaces` | read | The workspaces this connection can act in: id, name, account name, role and access, plus what to do next. `search` filters them; for staff it searches every workspace (3+ letters or digits, at most 20). `limit` caps the list. With a key, the key's one workspace. |
 | `list_forms` | read | Forms, most recently updated first, with id, `public_url` and whether edits are unpublished. Filter by name, page with `limit`/`offset`. |
 | `get_form` | read | One form: `public_url`, publish state and the config to edit (the pending draft when there is one). |
 | `create_form` | write | Creates a form from a full config. It is live at once; the result carries its `public_url`. Not idempotent. |
@@ -228,7 +283,8 @@ the login, registers the client and issues the token; dForms verifies it.
   to the person members are keyed by, and each call acts as that person's
   active member in the workspace it names (see
   [Choosing a workspace](#choosing-a-workspace)), with the member's live role,
-  under every rule an API key gets. A sign-in the directory does not know gets
+  under every rule an API key gets. [Staff](#staff) may also act in any other
+  live workspace, through a staff access grant. A sign-in the directory does not know gets
   a 403 that says to open dForms once; a known person with no workspace yet
   connects, and their tools answer `NO_WORKSPACE`.
 - **The person directory.** The token's `sub` is the identity provider's id
@@ -248,7 +304,11 @@ the login, registers the client and issues the token; dForms verifies it.
   one token reads that database once; a lookup the cache cannot answer first
   takes a token from a bucket keyed by the token's `sub` (a burst of 10, then
   one every 6 seconds), and past it gets a 429 with `Retry-After`. Which
-  workspaces the person may act in is still read on every request.
+  workspaces the person may act in is still read on every request. For
+  [staff](#staff) only, it also reads that database's live workspaces
+  (`workspaces`, and the name of the `accounts` row each belongs to): one by
+  id, kept a minute per pod, and a search by name (no index serves it, so it
+  needs 3 letters or digits and returns at most 20).
 - **Limits and audit.** The MCP buckets count per member of the workspace a
   call acts in, so one person's clients share a budget per workspace; a request
   that acts in none (the handshake, the tool list) counts against the person.
@@ -274,6 +334,7 @@ All optional; unset (or blank) means the safe default. See
 | `IAM_DB_HOST`, `IAM_DB_NAME`, `IAM_DB_SCHEMA`, `IAM_DB_USER`, `IAM_DB_PASS` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
 | `IAM_DB_PORT` | API | `5432` |
 | `IAM_DB_SSL_CA` | API | unset (encrypted, certificate not verified) |
+| `IAM_STAFF_DOMAINS` | API (the web app's switcher reads the same list) | unset (nobody is staff) |
 
 ## Check it yourself
 

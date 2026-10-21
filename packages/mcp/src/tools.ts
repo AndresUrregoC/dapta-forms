@@ -12,7 +12,7 @@ import {
 import { GUIDE_PARTS, formGuide, type GuidePart } from './guide/guide';
 import { LEAD_CONFIG } from './guide/examples';
 import { ToolFailure, untrusted } from './support';
-import { openDFormsOnce } from './workspace';
+import { STAFF_SEARCH_MAX_RESULTS, STAFF_SEARCH_MIN_CHARS, normalizeWorkspaceSearch, openDFormsOnce } from './workspace';
 
 /**
  * The tool catalog. Small and task-shaped on purpose: what an agent needs to
@@ -89,27 +89,53 @@ const workspaceId = z
   .max(64)
   .optional()
   .describe(
-    'The workspace this call acts in: an id from list_my_workspaces. Required when you signed in as a person with several workspaces; leave it out with an API key or with only one workspace.',
+    'The workspace this call acts in: an id from list_my_workspaces. Required when you signed in as a person with several workspaces, and always for staff of this deployment; leave it out with an API key or with only one workspace.',
   );
 
 /** The workspace a result acted in. The server adds it to every tool that acts in one. */
 export const actedIn = z
-  .object({ id: z.string(), name: z.string() })
+  .object({
+    id: z.string(),
+    name: z.string(),
+    access: z
+      .literal('staff')
+      .optional()
+      .describe('Present when this call acted through a staff access grant: you are not a member of this workspace.'),
+  })
   .describe('The workspace this call acted in. If it is not the one the user means, stop and ask.');
 
 const workspaceItem = z.object({
   id: z.string().describe('Pass it as workspace_id.'),
   name: z.string(),
+  account_name: z
+    .string()
+    .nullable()
+    .describe('The account the workspace belongs to, when known. Workspace names repeat: show it to the user too.'),
   role: z.string().describe('Your role there: owner, admin or member.'),
+  access: z
+    .enum(['member', 'staff'])
+    .describe('member: you are a member there. staff: you would act there as an admin through a staff access grant.'),
 });
 
-function workspacesOf(credential: McpCredential) {
+type WorkspaceItem = z.infer<typeof workspaceItem>;
+
+function workspacesOf(credential: McpCredential): WorkspaceItem[] {
   const callers = isConnection(credential) ? credential.workspaces : [credential];
-  return callers.map((c) => ({ id: c.accountId, name: c.workspaceName, role: c.role }));
+  return callers.map((c) => ({ id: c.accountId, name: c.workspaceName, account_name: null, role: c.role, access: c.access ?? 'member' }));
 }
 
-const listed = (workspaces: Array<{ name: string; role: string }>): string =>
-  workspaces.map((w) => `${w.name} (${w.role})`).join(', ');
+const listed = (workspaces: Array<{ name: string; role: string; account_name?: string | null; access?: string }>): string =>
+  workspaces
+    .map(
+      (w) =>
+        `${w.name}${w.account_name ? ` [account ${w.account_name}]` : ''} (${w.role}${w.access === 'staff' ? ', staff access' : ''})`,
+    )
+    .join(', ');
+
+/** True for a person signed in who is staff of the deployment on this request. */
+function isStaffConnection(credential: McpCredential): boolean {
+  return isConnection(credential) && credential.staff !== undefined;
+}
 
 
 const configObject = z
@@ -225,23 +251,36 @@ const whoami: ToolDef = {
       .describe('The person signed in through OAuth, or null for an API key.'),
     workspaces: z
       .array(workspaceItem)
-      .describe("Every workspace this connection can act in: the API key's own, or each one where the person is an active member."),
+      .describe(
+        "The API key's own workspace, or each one where the person is an active member. Staff can also act in any other workspace: they find it with list_my_workspaces(search).",
+      ),
+    staff: z
+      .boolean()
+      .describe(
+        'True when the person signed in is staff of this deployment: they can act in any workspace, must send workspace_id on every call, and you confirm the workspace with the user before reading or changing anything in it.',
+      ),
   }),
   async run(_args: z.infer<typeof whoamiInput>, { credential, caller, backend, appUrl }) {
     const workspaces = workspacesOf(credential);
     const person = isConnection(credential) ? { id: credential.personId, email: credential.email } : null;
     const key = isConnection(credential) ? null : { prefix: credential.label };
+    const staff = isStaffConnection(credential);
     if (!caller) {
       const who = person?.email ?? person?.id ?? 'this person';
       return {
-        data: { workspace: null, member: null, key, person, workspaces },
-        summary:
-          workspaces.length === 0
+        data: { workspace: null, member: null, key, person, workspaces, staff },
+        summary: staff
+          ? `Signed in as ${who}, staff of this deployment: you can act in any workspace.${
+              workspaces.length > 0 ? ` Your own: ${listed(workspaces)}.` : ''
+            } Before the first call that reads or changes anything, find the workspace the user means with list_my_workspaces(search=<part of its name>), confirm it with the user by name and account, and send its id as workspace_id on every call.`
+          : workspaces.length === 0
             ? `Signed in as ${who}, who is not an active member of any dForms workspace yet. Ask the user to ${openDFormsOnce(appUrl)}`
             : `Signed in as ${who}, a member of ${workspaces.length} workspaces: ${listed(workspaces)}. Ask the user which one to use, by name, and pass its id as workspace_id on every call.`,
       };
     }
     const me = await backend.whoami(caller);
+    const throughGrant = caller.access === 'staff';
+    const others = workspaces.filter((w) => w.id !== me.accountId);
     return {
       data: {
         workspace: { id: me.accountId, name: me.accountName, code: me.accountCode, time_zone: me.timezone },
@@ -249,9 +288,12 @@ const whoami: ToolDef = {
         key,
         person,
         workspaces,
+        staff,
       },
-      summary: `Connected to workspace "${me.accountName}" as ${me.displayName ?? me.email ?? me.memberId} (${me.role}).${
-        workspaces.length > 1 ? ` You can also act in: ${listed(workspaces.filter((w) => w.id !== me.accountId))}.` : ''
+      summary: `Connected to workspace "${me.accountName}" as ${me.displayName ?? me.email ?? me.memberId} (${me.role}${
+        throughGrant ? ', staff access: you are not a member here' : ''
+      }).${others.length > 0 ? ` You can also act in: ${listed(others)}.` : ''}${
+        staff ? ' Confirm with the user that this is the workspace they mean before reading or changing anything in it.' : ''
       }`,
     };
   },
@@ -259,34 +301,101 @@ const whoami: ToolDef = {
 
 // --- list_my_workspaces -------------------------------------------------------
 
+const listMyWorkspacesInput = z.object({
+  search: z
+    .string()
+    .max(100)
+    .optional()
+    .describe(
+      `Only workspaces whose name contains this text. Staff of this deployment: searches every workspace (by workspace or account name, and by a member's email or a form name where dForms knows it); needs at least ${STAFF_SEARCH_MIN_CHARS} letters or digits and returns at most ${STAFF_SEARCH_MAX_RESULTS}.`,
+    ),
+  limit: z.number().int().min(1).max(50).optional().describe('At most this many workspaces (default 50; a staff search stops at 20).'),
+});
+
 const listMyWorkspaces: ToolDef = {
   name: 'list_my_workspaces',
   title: 'List my workspaces',
   description:
-    'The workspaces this connection can act in, each with its name, your role there and its id. Signed in as a person: call it before the first call that reads or changes forms; with one workspace, use it without asking; with several, ask the user which one by name (never pick one yourself) and pass its id as workspace_id on every call. With an API key it lists the key\'s own workspace, the only one the key can act in.',
+    'The workspaces this connection can act in, each with its name, your role there and its id. Signed in as a person: call it before the first call that reads or changes forms; with one workspace, use it without asking; with several, ask the user which one by name (never pick one yourself) and pass its id as workspace_id on every call. Staff of this deployment can act in any workspace: search for a customer\'s with search, and confirm the exact workspace with the user before using it, even when only one matches. With an API key it lists the key\'s own workspace, the only one the key can act in.',
   write: false,
   workspace: 'none',
   annotations: READ,
-  input: z.object({}),
+  input: listMyWorkspacesInput,
   output: z.object({
     workspaces: z.array(workspaceItem),
+    staff: z.boolean().describe('True when you are staff of this deployment and can act in any workspace.'),
     next_step: z.string().describe('What to do next with these workspaces.'),
   }),
-  async run(_args: Record<string, never>, { credential, appUrl }) {
-    const workspaces = workspacesOf(credential);
-    const nextStep = !isConnection(credential)
-      ? 'This API key acts in this workspace only: leave workspace_id out.'
-      : workspaces.length === 0
-        ? `Ask the user to ${openDFormsOnce(appUrl)}`
-        : workspaces.length === 1
-          ? 'Use this workspace without asking: workspace_id is optional while it is the only one.'
-          : 'Ask the user which workspace to use, by name, then pass its id as workspace_id on every call. If the user switches, use the new id from then on and say so.';
+  async run(args: z.infer<typeof listMyWorkspacesInput>, { credential, appUrl }) {
+    const own = workspacesOf(credential);
+    const staffAccess = isConnection(credential) ? credential.staff : undefined;
+    const staff = staffAccess !== undefined;
+    const limit = args.limit ?? 50;
+    const query = args.search?.trim() ?? '';
+
+    if (!query) {
+      const workspaces = own.slice(0, limit);
+      const nextStep = !isConnection(credential)
+        ? 'This API key acts in this workspace only: leave workspace_id out.'
+        : staff
+          ? 'These are only your own workspaces. You are staff of this deployment: to act in a customer\'s workspace, search with list_my_workspaces(search=<part of its name>) and confirm the result with the user. Send workspace_id on every call, even with one workspace.'
+          : own.length === 0
+            ? `Ask the user to ${openDFormsOnce(appUrl)}`
+            : own.length === 1
+              ? 'Use this workspace without asking: workspace_id is optional while it is the only one.'
+              : 'Ask the user which workspace to use, by name, then pass its id as workspace_id on every call. If the user switches, use the new id from then on and say so.';
+      return {
+        data: { workspaces, staff, next_step: nextStep },
+        summary:
+          workspaces.length === 0
+            ? `No workspace${staff ? ' of your own' : ' yet'}. ${nextStep}`
+            : `${workspaces.length} workspace${workspaces.length === 1 ? '' : 's'}: ${listed(workspaces)}. ${nextStep}`,
+      };
+    }
+
+    const needle = normalizeWorkspaceSearch(query);
+    const lowered = query.toLowerCase();
+    const mine = own.filter((w) => w.name.toLowerCase().includes(lowered) || (needle !== '' && normalizeWorkspaceSearch(w.name).includes(needle)));
+    let workspaces: WorkspaceItem[];
+    if (staffAccess) {
+      if (needle.length < STAFF_SEARCH_MIN_CHARS) {
+        throw new ToolFailure(
+          'SEARCH_TOO_SHORT',
+          `A search needs at least ${STAFF_SEARCH_MIN_CHARS} letters or digits.`,
+          'Ask the user for more of the workspace name (or a member email or form name), then search again.',
+        );
+      }
+      const max = Math.min(limit, STAFF_SEARCH_MAX_RESULTS);
+      const hits = await staffAccess.search(query, max);
+      const byId = new Map(own.map((w) => [w.id, w]));
+      const seen = new Set(mine.map((w) => w.id));
+      workspaces = [...mine];
+      for (const hit of hits) {
+        if (seen.has(hit.id)) continue;
+        seen.add(hit.id);
+        // A workspace of the person's own keeps its member role, whichever way it matched.
+        workspaces.push(
+          byId.get(hit.id) ?? { id: hit.id, name: hit.name, account_name: hit.accountName, role: hit.role, access: hit.access },
+        );
+      }
+      workspaces = workspaces.slice(0, max);
+    } else {
+      workspaces = mine.slice(0, limit);
+    }
+    const nextStep =
+      workspaces.length === 0
+        ? staff
+          ? 'Nothing matched. Ask the user for another part of the workspace name, a member email or a form name.'
+          : 'None of your workspaces matched. Call list_my_workspaces without search to see them all.'
+        : staff
+          ? 'Show these to the user by name and account, and ask which one they mean. Confirm it even when only one matched; never pick one yourself. Then send its id as workspace_id on every call.'
+          : 'Ask the user which workspace to use, by name, then pass its id as workspace_id on every call.';
     return {
-      data: { workspaces, next_step: nextStep },
+      data: { workspaces, staff, next_step: nextStep },
       summary:
         workspaces.length === 0
-          ? `No workspace yet. ${nextStep}`
-          : `${workspaces.length} workspace${workspaces.length === 1 ? '' : 's'}: ${listed(workspaces)}. ${nextStep}`,
+          ? `No workspace matched. ${nextStep}`
+          : `${workspaces.length} workspace${workspaces.length === 1 ? '' : 's'} matched: ${listed(workspaces)}. ${nextStep}`,
     };
   },
 };

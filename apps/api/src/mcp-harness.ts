@@ -15,7 +15,7 @@ import { generateApiKey } from './api-keys';
 import { configureCors } from './cors';
 import { configureDeprecatedHosts } from './deprecated-hosts';
 import { McpController } from './mcp.controller';
-import type { Person, PersonDirectory } from './person-directory';
+import type { EstateWorkspace, Person, PersonDirectory } from './person-directory';
 
 /**
  * A real API for the MCP specs: the whole `AppModule` (so every `@Inject` and
@@ -50,6 +50,10 @@ export interface Harness {
   signIn(credentials: { clientId: string; clientSecret: string }): Promise<Client>;
   /** The fake person directory (only with `oauth` on): register who a token's subject is. */
   people: Map<string, Person>;
+  /** The identity service's live workspaces, by id, as the fake directory answers staff lookups. */
+  estate: Map<string, EstateWorkspace>;
+  /** The lines the API logged for staff calls outside the person's own workspaces. */
+  staffLog: string[];
   /** How many times the API asked the person directory. */
   directoryLookups(): number;
   /** Whether the API closed the person directory (it does when it shuts down). */
@@ -90,6 +94,7 @@ const ENV_KEYS = [
   'IAM_DB_SCHEMA',
   'IAM_DB_USER',
   'IAM_DB_PASS',
+  'IAM_STAFF_DOMAINS',
 ] as const;
 
 export const APP_URL = 'https://forms.example.test';
@@ -111,13 +116,25 @@ async function boundServer(): Promise<{ server: Server; port: number }> {
   return { server, port: (server.address() as AddressInfo).port };
 }
 
-/** The person directory of the specs: a table from token subject to person (the IAM adapter is separate). */
-function tableDirectory(people: Map<string, Person>, counter: { lookups: number; closed: boolean }): PersonDirectory {
+/**
+ * The person directory of the specs: a table from token subject to person,
+ * and one of live workspaces for the staff lookups (the IAM adapter is
+ * separate).
+ */
+function tableDirectory(
+  people: Map<string, Person>,
+  estate: Map<string, EstateWorkspace>,
+  counter: { lookups: number; closed: boolean },
+): PersonDirectory {
+  const squash = (s: string | null) => (s ?? '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
   return {
     personOf: async (subject) => {
       counter.lookups += 1;
       return people.get(subject) ?? null;
     },
+    workspaceOf: async (id) => estate.get(id.toLowerCase()) ?? null,
+    searchWorkspaces: async (needle, limit) =>
+      [...estate.values()].filter((w) => squash(w.name).includes(needle) || squash(w.accountName).includes(needle)).slice(0, limit),
     close: async () => {
       counter.closed = true;
     },
@@ -131,6 +148,7 @@ export async function bootHarness(
   const dir = mkdtempSync(join(tmpdir(), 'forms-mcp-spec-'));
   const { server, port } = await boundServer();
   const people = new Map<string, Person>();
+  const estate = new Map<string, EstateWorkspace>();
   const counter = { lookups: 0, closed: false };
   const oauthEnv = opts.oauth
     ? {
@@ -165,7 +183,7 @@ export async function bootHarness(
   let app: INestApplication;
   try {
     // abortOnError off: a refused boot rejects here instead of exiting the process.
-    app = await NestFactory.create(opts.oauth ? AppModule.withPersonDirectory(tableDirectory(people, counter)) : AppModule, {
+    app = await NestFactory.create(opts.oauth ? AppModule.withPersonDirectory(tableDirectory(people, estate, counter)) : AppModule, {
       logger: false,
       abortOnError: false,
     });
@@ -188,6 +206,8 @@ export async function bootHarness(
   restoreEnv(saved);
   const audit: string[] = [];
   app.get(McpController).server.auditSink = (line) => audit.push(line);
+  const staffLog: string[] = [];
+  app.get(McpController).staffLogSink = (line) => staffLog.push(line);
   const base = `http://127.0.0.1:${port}`;
 
   const mint = async (account: string, memberId: string): Promise<string> => {
@@ -253,6 +273,8 @@ export async function bootHarness(
       return client;
     },
     people,
+    estate,
+    staffLog,
     directoryLookups: () => counter.lookups,
     directoryClosed: () => counter.closed,
     post: (body, headers = {}, path = '/mcp') =>

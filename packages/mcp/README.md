@@ -13,7 +13,7 @@ connect one, is in [`docs/MCP.md`](../../docs/MCP.md).
 |---|---|
 | `backend.ts` | `FormsBackend`, the port the host implements. The tools never touch a database or an HTTP route; forms-api implements the port over its own form handlers (`apps/api/src/mcp.backend.ts`), so every rule a write is held to on the web applies to an agent too. |
 | `tools.ts` | The catalog: eleven tools, each with a title, the four behaviour hints, a zod input and output schema, and a `run` over the backend. No delete tools. Every tool that acts in a workspace takes an optional `workspace_id`. |
-| `workspace.ts` | Which workspace a call acts in: an API key keeps its own (another `workspace_id` is refused), an MCP connection acts in the one the call names, or its only one. Also the door's rate-limit bucket per member. |
+| `workspace.ts` | Which workspace a call acts in: an API key keeps its own (another `workspace_id` is refused), an MCP connection acts in the one the call names, or its only one; staff always name one, and may name any live workspace. Also the door's rate-limit bucket per member. |
 | `server.ts` | `FormsMcpServer`: the SDK's stateless handler (2026-07-28 and 2025-era clients), a fresh `McpServer` per request, and the one wrapper every tool call runs through: write rate limit, timeout, error mapping, one audit line. |
 | `door.ts` | `McpDoor`: the HTTP guard. Switch, `POST` only, `Host`, `Origin`, credentials in the URL, JSON content type, then the bearer token, with rate limits per credential and per client address. No anonymous door. |
 | `support.ts` | `ToolFailure` (stable code plus what to do), validation issues rendered path first, the untrusted-text cleaner, argument redaction for the audit line. |
@@ -44,7 +44,11 @@ member, role, credential id, a public label, and an opaque `context` the
 backend uses to act as that caller). With an `oauth` side, any other bearer is
 an access token: its `authenticate` resolves it to an `McpConnection`, a person
 with one `McpCaller` per workspace they may act in, and each tool call names
-the one it acts in (`workspace_id`, optional with a single workspace).
+the one it acts in (`workspace_id`, optional with a single workspace). When the
+host judges the person staff of the deployment on that request, the connection
+also carries `staff` (`McpStaffAccess`): `search` over every workspace and
+`enter` into any live one through a staff access grant. Staff always name the
+workspace, and the tools tell the agent to confirm it with the user first.
 
 ## Tests
 
