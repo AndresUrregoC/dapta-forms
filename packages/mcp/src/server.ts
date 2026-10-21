@@ -1,7 +1,7 @@
 import { McpServer, createMcpHandler, type McpHttpHandler } from '@modelcontextprotocol/server';
 import type { FormsBackend, McpCaller } from './backend';
 import type { RateLimiter } from './rate-limit';
-import { ToolFailure, argsHash, toFailure } from './support';
+import { ToolFailure, argsHash, describeError, toFailure, type ErrorDescriptor } from './support';
 import { TOOLS, type ToolDef, type ToolResult } from './tools';
 
 export const MCP_SERVER_NAME = 'dforms';
@@ -32,10 +32,14 @@ export interface FormsMcpServerOptions {
   toolTimeoutMs: number;
   /** The tighter per-credential bucket every write tool takes a token from. */
   writeLimiter: RateLimiter;
-  /** Where internal failures are reported (never shown to the model). */
-  onInternalError?: (tool: string, requestId: string, error: unknown) => void;
-  /** Transport-level problems the SDK reports (reporting only). */
-  onTransportError?: (error: Error) => void;
+  /**
+   * Where internal failures are reported (never shown to the model). Only the
+   * class and code reach it: the message and stack of a failure can carry
+   * data from the request.
+   */
+  onInternalError?: (tool: string, requestId: string, error: ErrorDescriptor) => void;
+  /** Transport-level problems the SDK reports (reporting only), described the same way. */
+  onTransportError?: (error: ErrorDescriptor) => void;
 }
 
 const TOOL_TIMEOUT = Symbol('timeout');
@@ -56,7 +60,7 @@ export class FormsMcpServer {
   constructor(private readonly options: FormsMcpServerOptions) {
     this.handler = createMcpHandler((ctx) => this.buildServer(ctx.authInfo?.extra?.[CALL_KEY] as McpCall | undefined), {
       legacy: 'stateless',
-      onerror: (error) => options.onTransportError?.(error),
+      onerror: (error) => options.onTransportError?.(describeError(error)),
     });
   }
 
@@ -95,7 +99,7 @@ export class FormsMcpServer {
       result = await this.withTimeout(def.run(args as never, { caller: call.caller, backend: this.options.backend }));
     } catch (error) {
       failure = toFailure(error);
-      if (failure.code === 'INTERNAL_ERROR') this.options.onInternalError?.(def.name, call?.requestId ?? 'unknown', error);
+      if (failure.code === 'INTERNAL_ERROR') this.options.onInternalError?.(def.name, call?.requestId ?? 'unknown', describeError(error));
     }
     this.audit(def, args, call, started, result, failure);
     if (failure || !result) {
@@ -104,7 +108,15 @@ export class FormsMcpServer {
         content: [{ type: 'text' as const, text: (failure ?? new ToolFailure('INTERNAL_ERROR', 'No result.')).render() }],
       };
     }
-    return { content: [{ type: 'text' as const, text: result.summary }], structuredContent: result.data };
+    // The data also travels as JSON text: a client that ignores
+    // `structuredContent` would otherwise see the summary alone.
+    return {
+      content: [
+        { type: 'text' as const, text: result.summary },
+        { type: 'text' as const, text: JSON.stringify(result.data) },
+      ],
+      structuredContent: result.data,
+    };
   }
 
   private takeWriteToken(call: McpCall): void {

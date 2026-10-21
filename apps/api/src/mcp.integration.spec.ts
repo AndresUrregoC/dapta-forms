@@ -3,7 +3,8 @@
  * handlers the REST routes run, on a throwaway SQLite database, driven by the
  * official MCP client over HTTP.
  */
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { Logger } from '@nestjs/common';
 import { recordFormEvent, sql, upsertSubmission } from '@quill/db';
 import { loadServerEnv } from '@quill/config/env';
 import { APP_URL, bootHarness, errorText, initialize, structured, type Harness } from './mcp-harness';
@@ -271,6 +272,35 @@ describe('the door on the real app', () => {
     expect((await h.post(initialize('2025-06-18'), { authorization: 'Bearer dforms_not_a_real_key' })).status).toBe(401);
   });
 
+  it('refuses a batch of 100 tool calls in one request, and URL credentials in any case', async () => {
+    const h = await boot();
+    const { key } = await h.key();
+    const auth = { authorization: `Bearer ${key}`, 'mcp-protocol-version': '2025-06-18' };
+    const batch = Array.from({ length: 100 }, (_, i) => ({
+      jsonrpc: '2.0',
+      id: i + 1,
+      method: 'tools/call',
+      params: { name: 'get_form_guide', arguments: {} },
+    }));
+    expect((await h.post(batch, auth)).status).toBe(400);
+    expect(h.audit).toHaveLength(0);
+    for (const p of ['API_KEY', 'Token', 'bearer', 'access_key']) expect((await h.post(initialize('2025-06-18'), auth, `/mcp?${p}=x`)).status, p).toBe(400);
+  });
+
+  it('logs a failure by class only, never the request data that caused it', async () => {
+    const h = await boot();
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      const auth = { authorization: `Bearer ${(await h.key()).key}`, 'mcp-protocol-version': '2025-06-18' };
+      const res = await h.post({ note: 'private.person@example.org' }, auth);
+      expect(res.status).toBe(400);
+      expect(warn).toHaveBeenCalledWith('mcp transport: Error');
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('private.person');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('answers 429 with Retry-After once a key spends its MCP bucket', async () => {
     const h = await boot({ MCP_RATE_LIMIT_CAPACITY: '2', MCP_RATE_LIMIT_REFILL_PER_SEC: '0.01' });
     const auth = { authorization: `Bearer ${(await h.key()).key}` };
@@ -339,6 +369,18 @@ describe('browser access (CORS)', () => {
     expect(rest.headers.get('access-control-allow-credentials')).toBe('true');
     const crossed = await preflight(h, '/v1/forms', mcpOrigin);
     expect(crossed.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  it('applies the MCP policy to /mcp in any case: /MCP never gets the dashboard allowlist', async () => {
+    const mcpOrigin = 'https://inspector.example.test';
+    const h = await boot({ MCP_ALLOWED_ORIGINS: mcpOrigin });
+    for (const path of ['/MCP', '/Mcp/']) {
+      const dashboard = await preflight(h, path, APP_URL);
+      expect(dashboard.headers.get('access-control-allow-origin'), path).toBeNull();
+      expect(dashboard.headers.get('access-control-allow-credentials'), path).toBeNull();
+      const listed = await preflight(h, path, mcpOrigin);
+      expect(listed.headers.get('access-control-allow-origin'), path).toBe(mcpOrigin);
+    }
   });
 
   it('with no MCP origin configured, no browser can preflight /mcp', async () => {
