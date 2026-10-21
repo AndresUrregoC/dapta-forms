@@ -307,6 +307,9 @@ importers:
       '@quill/engine':
         specifier: workspace:*
         version: link:../engine
+      '@quill/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@quill/types':
         specifier: workspace:*
         version: link:../types

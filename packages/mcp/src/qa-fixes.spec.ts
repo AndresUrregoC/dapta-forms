@@ -10,6 +10,7 @@ import { BackendError, type FormListItem, type ResponsesPage } from './backend';
 import { NOW, analytics, bootHarness, errorText, form, structured, type Harness, type HarnessOptions } from './__tests__/harness';
 import { LEAD_CONFIG, QUIZ_CONFIG, SCORE_GATE_CONFIG } from './guide/examples';
 import { formGuide } from './guide/guide';
+import { reviewConfig, splitInherited } from './config-check';
 import { renderIssues } from './support';
 import { TOOLS } from './tools';
 
@@ -352,6 +353,36 @@ describe('get_form_analytics says when its numbers cannot be read as a funnel', 
     expect(text(result)).toContain('not reliable');
   });
 
+  it('blames lost view beacons, not the API, when only starts outnumber views', async () => {
+    const { c } = await client({ backend: { formAnalytics: async () => analytics({ views: 3, starts: 10, submissions: 2, completionRate: 20 }) } });
+    const warnings = structured<{ warnings: string[] }>(await c.callTool({ name: 'get_form_analytics', arguments: { form_id: 'form-1' } })).warnings;
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('more starts than views');
+    expect(warnings[0]).toContain('lost view beacon');
+    expect(warnings[0]).not.toContain('created through the API');
+  });
+
+  it('blames responses created through the API, not lost views, when only submissions outnumber starts', async () => {
+    const { c } = await client({ backend: { formAnalytics: async () => analytics({ views: 30, starts: 10, submissions: 23, completionRate: 100 }) } });
+    const warnings = structured<{ warnings: string[] }>(await c.callTool({ name: 'get_form_analytics', arguments: { form_id: 'form-1' } })).warnings;
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('created through the API');
+    expect(warnings[0]).not.toContain('lost view beacon');
+  });
+
+  it('counts the span of an epoch-ms window in local days, as the API does', async () => {
+    const day = 86_400_000;
+    // 365 days and 23 hours in UTC ms, but 367 calendar days (2025-01-01 to 2026-01-02).
+    const from = Date.parse('2025-01-01T10:00:00Z');
+    const to = Date.parse('2026-01-02T09:00:00Z');
+    const trends = Array.from({ length: 366 }, (_, i) => ({ t: to - i * day, views: 0, starts: 0, submissions: 0, completionRate: null, timeToComplete: null }));
+    const { c } = await client({ backend: { formAnalytics: async () => analytics({ trends, range: { from, to, timeZone: 'UTC' } }) } });
+    const out = structured<{ daily_truncated: boolean }>(
+      await c.callTool({ name: 'get_form_analytics', arguments: { form_id: 'form-1', from: String(from), to: String(to), include_daily: true } }),
+    );
+    expect(out.daily_truncated).toBe(true);
+  });
+
   it('says nothing when the funnel adds up', async () => {
     const { c } = await client();
     expect(structured(await c.callTool({ name: 'get_form_analytics', arguments: { form_id: 'form-1' } })).warnings).toBeUndefined();
@@ -467,6 +498,31 @@ describe('a problem the form already had says so', () => {
     expect(out.warnings.join(' ')).toContain('config.steps.0.hideWhen.field: No step has the key "gone"');
     expect(out.warnings.join(' ')).toContain('already in the form before this edit');
     expect(h.calls.some((x) => x.method === 'updateForm')).toBe(true);
+  });
+
+  it('names what the save changes, and says "saved as it was" only for what the API stores untouched', () => {
+    const stored = config(
+      [
+        step('a', { extra: 1 }),
+        step('a'),
+        step('c', { goto: [{ values: ['x'], target: 'c' }, { values: ['y'], target: 'a' }] }),
+        { key: 'pick', type: 'multiple_choice', question: 'Pick?', options: [{ label: 'X', value: 'x' }, { label: 'X2', value: 'x' }] },
+      ],
+      { outcomes: [{ id: 'hot', minScore: 5, maxScore: 1, label: 'Hot' }, { id: 'hot', minScore: 0, label: 'Hot too' }] },
+    );
+    const issues = reviewConfig(stored).issues;
+    const { refuse, carried } = splitInherited(issues, stored, stored);
+    expect(refuse).toEqual([]);
+    const about = (path: string) => carried.find((w) => w.startsWith(`${path}:`))!;
+    expect(about('config.steps.0.extra')).toContain('the draft does not keep "extra"');
+    expect(about('config.steps.1.key')).toContain('the draft stores this step with the key "a_2"');
+    expect(about('config.steps.3.options.1.value')).toContain('with the value "x_2"');
+    expect(about('config.outcomes.1.id')).toContain('the draft stores this outcome with the id "hot_2"');
+    expect(about('config.steps.2.goto.0.target')).toContain('this rule is removed from the draft');
+    // Stored untouched: a jump backwards and min above max only never fire.
+    expect(about('config.steps.2.goto.1.target')).toContain('is saved as it was');
+    expect(about('config.outcomes.0.maxScore')).toContain('is saved as it was');
+    for (const w of carried.filter((x) => x.includes('saving changes it'))) expect(w).not.toContain('saved as it was');
   });
 });
 
