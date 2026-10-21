@@ -46,20 +46,36 @@ const active = () => host.querySelector('[data-active="true"]')?.getAttribute('d
 const tick = (ms = MCP_ROTATE_MS) => act(async () => void vi.advanceTimersByTime(ms));
 
 describe('McpLogos', () => {
-  it('stacks the three logos as masks of the text color, hidden from screen readers', async () => {
+  it('draws the three logos as inline SVG, hidden from screen readers', async () => {
     await mount();
     const stack = host.querySelector<HTMLElement>('[data-testid="mcp-logos"]')!;
     expect(stack.getAttribute('aria-hidden')).toBe('true');
-    const logos = [...stack.querySelectorAll<HTMLElement>('.mcp-logos__logo')];
+    const logos = [...stack.querySelectorAll<SVGElement>('.mcp-logos__logo')];
     expect(logos.map((l) => l.dataset.logo)).toEqual(['claude', 'openai', 'cursor']);
-    expect(logos[0]!.style.maskImage).toBe('url(/mcp/logos/claude.svg)');
+    for (const logo of logos) {
+      expect(logo.tagName.toLowerCase()).toBe('svg');
+      expect(logo.getAttribute('viewBox')).toBe('0 0 24 24');
+      expect(logo.querySelector('path')?.getAttribute('d')).toMatch(/^M/i);
+    }
     expect(host.querySelectorAll('.is-active')).toHaveLength(1);
+  });
+
+  // A session replay rebuilds the DOM on the replay tool's own origin. A URL in
+  // an inline style (a mask, a background) is fetched again from there, where a
+  // relative path does not exist and a cross-origin mask is refused without
+  // CORS, so the icon drew as a hole in every recording.
+  it('loads nothing: no url() in any inline style and no external reference', async () => {
+    await mount();
+    for (const el of host.querySelectorAll<HTMLElement>('[style]')) {
+      expect(el.getAttribute('style')).not.toMatch(/url\(/i);
+    }
+    expect(host.innerHTML).not.toMatch(/url\(|\bhref=|\bsrc=/i);
   });
 
   it('paints Claude in its brand orange and leaves ChatGPT and Cursor on the text color', async () => {
     await mount();
     const color = (logo: string) =>
-      host.querySelector<HTMLElement>(`[data-logo="${logo}"]`)!.style.backgroundColor.toLowerCase();
+      host.querySelector<SVGElement>(`[data-logo="${logo}"]`)!.style.color.toLowerCase();
     expect(['#d97757', 'rgb(217, 119, 87)']).toContain(color('claude'));
     // No inline color: the stylesheet's currentColor applies, so they follow the theme and the row state.
     expect(color('openai')).toBe('');
