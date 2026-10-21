@@ -78,13 +78,17 @@ app's workspace switcher lets them (see
   email leaves the staff domains, or a domain dropped from the list, reaches
   none of those workspaces on the next call (the directory keeps who a person
   is for at most a minute), and is back to the person rules above: the
-  uniform `NOT_FOUND`.
+  uniform `NOT_FOUND`. The web app applies the same rule on every request,
+  on the email its session token carries: the grant drops out of the
+  switcher, is never the home workspace, and opening it answers
+  `WORKSPACE_FORBIDDEN`.
 - **Finding a workspace.** `list_my_workspaces` without `search` lists only
   their own workspaces. With `search` (at least 3 letters or digits) it also
   searches every workspace: the ones dForms already knows (by workspace name,
   a member's email or a form name) that are still live upstream, and the
   identity service's live workspaces (by workspace or account name, ignoring
-  case, spaces and punctuation). At most 20, never the full list, and only
+  case, accents, spaces and punctuation, so `jose` finds `JOSÉ`). At most
+  20, never the full list, and only
   workspaces a call could enter. Each result carries `id`, `name`,
   `account_name` (when known; names repeat), `role` and `access` (`member`,
   or `staff` for a workspace they would enter through a grant). A workspace
@@ -107,7 +111,14 @@ app's workspace switcher lets them (see
   membership is always entered as that member, by either id in any letter
   case; one where the identity service names them a member but dForms has
   not seen it yet answers `MEMBERSHIP_NOT_SYNCED` (open it once in dForms),
-  never a grant.
+  never a grant. A membership of theirs that is not active (disabled by the
+  workspace owner, or still an invitation) is never turned into a grant
+  either: the call answers `MEMBERSHIP_NOT_ACTIVE` and the row stays as it
+  was. A pending invitation by email is never adopted as the grant.
+- **No API keys.** A staff access grant never holds a working API key: one
+  cannot be created from a grant (`STAFF_ACCESS_NO_KEYS`), and a key whose
+  member is a grant row answers `INVALID_API_KEY`. A key carries no person
+  to judge staff by, so it would outlive the grant.
 - **Said and logged.** Every result of such a call names the workspace with
   `access: 'staff'` and starts `In workspace "<name>" (staff access):`. The
   audit line carries `via: 'staff_grant'`, and the API logs one more line per

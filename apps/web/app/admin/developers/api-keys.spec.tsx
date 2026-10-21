@@ -266,6 +266,21 @@ describe('ApiKeysPanel: create', () => {
     expect($$('[data-testid="api-key-row"]')).toHaveLength(1);
   });
 
+  it('turns the create button off for staff access, with the reason, and says it if a create is tried anyway', async () => {
+    await mount({ keys: [], viewer: { ...admin, accessGrant: 'staff' } });
+    expect($<HTMLButtonElement>('[data-testid="api-key-create"]')?.disabled).toBe(true);
+    expect($('[data-testid="api-keys-staff-access"]')?.textContent).toBe(m.staffAccess);
+    await act(async () => root.unmount());
+    host.remove();
+
+    actions.createApiKeyAction.mockResolvedValue({ ok: false, code: 'STAFF_ACCESS' });
+    await mount({ keys: [] });
+    expect($<HTMLButtonElement>('[data-testid="api-key-create"]')?.disabled).toBe(false);
+    expect($('[data-testid="api-keys-staff-access"]')).toBeNull();
+    await createNamed('Support');
+    expect($('[role="alert"]')?.textContent).toBe(m.staffAccess);
+  });
+
   it('does not send a blank name', async () => {
     await mount({ keys: [] });
     await click($('[data-testid="api-key-create"]'));

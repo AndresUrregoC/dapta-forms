@@ -27,6 +27,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import postgres from 'postgres';
 import type { ServerEnv } from '@quill/config/env';
+import { SEARCH_FOLD_FROM, SEARCH_FOLD_TO, foldSearchText } from '@quill/mcp';
 import { PersonRefused, type EstateWorkspace, type Person, type PersonDirectory } from './person-directory';
 
 /** Where the identity service's database is, and the read-only role to read it as. */
@@ -171,12 +172,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // eslint-disable-next-line no-control-regex
 const NEEDLE = /^[^\x00-\x2f\x3a-\x60\x7b-\x7f]{3,100}$/;
 /**
- * The names are normalized the same way in SQL: every ASCII character that is
- * not a letter or a digit is dropped (letters are lowercased first). Listed
- * by code point, not as `[:alnum:]`, so it does not depend on the database's
- * locale: an accented letter is kept on both sides.
+ * The names are normalized the same way in SQL: lowercased, folded with the
+ * same table the needle was (`translate`, so `JOSÉ` and `José` read `jose`
+ * even under collation `C`, where `lower` leaves `É` alone, and with no
+ * extension such as `unaccent`, which the identity database does not have),
+ * then every ASCII character that is not a letter or a digit is dropped, and
+ * any combining mark (a decomposed accent). Listed by code point, not as
+ * `[:alnum:]`, so it does not depend on the database's locale.
  */
-const ASCII_NON_ALNUM = '[\\x01-\\x2f\\x3a-\\x60\\x7b-\\x7f]';
+const ASCII_NON_ALNUM_OR_MARK = '[\\x01-\\x2f\\x3a-\\x60\\x7b-\\x7f\\u0300-\\u036f]';
 const MAX_SEARCH_RESULTS = 20;
 
 function workspaceOf(row: WorkspaceRow): EstateWorkspace {
@@ -258,8 +262,10 @@ export function createIamPersonDirectory(config: IamDirectoryConfig, options: Ia
     LEFT JOIN ${schema}.accounts a ON a.id = w.account_id
     WHERE w.deleted_at IS NULL
       AND w.is_active IS NOT FALSE
-      AND (regexp_replace(lower(w.name), ${ASCII_NON_ALNUM}, '', 'g') LIKE '%' || ${needle}::text || '%'
-        OR regexp_replace(lower(coalesce(a.name, '')), ${ASCII_NON_ALNUM}, '', 'g') LIKE '%' || ${needle}::text || '%')
+      AND (regexp_replace(translate(lower(w.name), ${SEARCH_FOLD_FROM}::text, ${SEARCH_FOLD_TO}::text), ${ASCII_NON_ALNUM_OR_MARK}, '', 'g')
+            LIKE '%' || ${needle}::text || '%'
+        OR regexp_replace(translate(lower(coalesce(a.name, '')), ${SEARCH_FOLD_FROM}::text, ${SEARCH_FOLD_TO}::text), ${ASCII_NON_ALNUM_OR_MARK}, '', 'g')
+            LIKE '%' || ${needle}::text || '%')
     ORDER BY w.created_at DESC
     LIMIT ${limit}::int`;
   const membership = (workspaceId: string, userId: string) => sql<{ one: number }[]>`
@@ -289,8 +295,12 @@ export function createIamPersonDirectory(config: IamDirectoryConfig, options: Ia
       // The needle arrives normalized; anything else (a LIKE wildcard, an
       // empty string that would match everything) is refused here too.
       if (!NEEDLE.test(needle)) return [];
+      // Folded here too (idempotent), so a needle with an accent still meets
+      // the folded names.
+      const folded = foldSearchText(needle);
+      if (!NEEDLE.test(folded)) return [];
       const bounded = Math.max(1, Math.min(MAX_SEARCH_RESULTS, Math.floor(limit)));
-      return (await timed(workspacesMatching(needle, bounded))).map(workspaceOf);
+      return (await timed(workspacesMatching(folded, bounded))).map(workspaceOf);
     },
     async personOf(subject) {
       let rows = await timed(byUser(subject));

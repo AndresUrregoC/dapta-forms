@@ -26,16 +26,72 @@ export const STAFF_SEARCH_MIN_CHARS = 3;
 /** A staff search never returns more than this many workspaces. */
 export const STAFF_SEARCH_MAX_RESULTS = 20;
 
+/** Letters that do not decompose under NFD but read as one plain letter. */
+const FOLD_EXTRA: Readonly<Record<string, string>> = {
+  ø: 'o', Ø: 'o', đ: 'd', Đ: 'd', ð: 'd', Ð: 'd', ł: 'l', Ł: 'l', ħ: 'h', Ħ: 'h', ı: 'i', ŧ: 't', Ŧ: 't', ς: 'σ',
+};
+/** Latin (with Extended-A/B and Additional), Greek (and Extended) and Cyrillic. */
+const FOLD_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x00c0, 0x024f],
+  [0x0370, 0x03ff],
+  [0x0400, 0x052f],
+  [0x1e00, 0x1fff],
+];
+const COMBINING_MARKS = /[\u0300-\u036f]/g;
+
+function buildFoldTable(): { from: string; to: string } {
+  let from = '';
+  let to = '';
+  for (const [lo, hi] of FOLD_RANGES) {
+    for (let cp = lo; cp <= hi; cp += 1) {
+      const ch = String.fromCharCode(cp);
+      if (!/\p{L}/u.test(ch)) continue;
+      const base = (FOLD_EXTRA[ch] ?? ch.normalize('NFD').replace(COMBINING_MARKS, '')).toLowerCase();
+      if (base.length === 1 && base !== ch) {
+        from += ch;
+        to += base;
+      }
+    }
+  }
+  return { from, to };
+}
+
+const FOLD_TABLE = buildFoldTable();
 /**
- * A workspace search as it is compared: lowercased, then every ASCII
- * character that is not a letter or a digit dropped (spaces, punctuation,
- * symbols), so "Call Center" finds "callcenter's workspace" and a search can
- * never carry a LIKE wildcard. Letters beyond ASCII (accents, other scripts)
- * are kept, so a host can apply the same rule in SQL whatever its locale.
+ * The fold table, one character of `SEARCH_FOLD_FROM` to the character at the
+ * same place in `SEARCH_FOLD_TO`: every accented Latin letter to its plain
+ * lowercase letter (`É` and `é` to `e`, `Ø` to `o`), and every upper-case
+ * Greek and Cyrillic letter to its lower case. A host's SQL applies it with
+ * `translate(lower(name), FROM, TO)`, so a search folds the same way in a
+ * database whose collation lowercases ASCII only (collation `C`) and needs no
+ * extension (`unaccent`).
+ */
+export const SEARCH_FOLD_FROM = FOLD_TABLE.from;
+export const SEARCH_FOLD_TO = FOLD_TABLE.to;
+const FOLD = new Map([...SEARCH_FOLD_FROM].map((ch, i) => [ch, SEARCH_FOLD_TO[i]!] as const));
+
+/**
+ * Text folded for a search: lowercased, the fold table applied, and any
+ * combining mark left (a decomposed accent) dropped. So "José", "JOSÉ" and
+ * "Jose" plus a combining accent all fold to "jose". Idempotent.
+ */
+export function foldSearchText(text: string): string {
+  let out = '';
+  for (const ch of text.toLowerCase()) out += FOLD.get(ch) ?? ch;
+  return out.normalize('NFD').replace(COMBINING_MARKS, '').normalize('NFC');
+}
+
+/**
+ * A workspace search as it is compared: folded (`foldSearchText`: lowercased,
+ * accents dropped), then every ASCII character that is not a letter or a
+ * digit dropped (spaces, punctuation, symbols), so "Call Center" finds
+ * "callcenter's workspace", "jose" finds "José", and a search can never carry
+ * a LIKE wildcard. A host applies the same rule to the names in SQL with the
+ * fold table (`SEARCH_FOLD_FROM`, `SEARCH_FOLD_TO`), whatever its locale.
  */
 export function normalizeWorkspaceSearch(text: string | undefined): string {
   // eslint-disable-next-line no-control-regex
-  return (text ?? '').toLowerCase().replace(/[\x00-\x2f\x3a-\x60\x7b-\x7f]/g, '');
+  return foldSearchText(text ?? '').replace(/[\x00-\x2f\x3a-\x60\x7b-\x7f]/g, '');
 }
 
 /** What staff do to pick a workspace: search, confirm with the user, then name it. */

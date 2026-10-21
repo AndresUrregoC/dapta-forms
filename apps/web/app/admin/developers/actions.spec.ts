@@ -73,6 +73,8 @@ describe('createApiKeyAction', () => {
     await expect(createApiKeyAction('a')).resolves.toEqual({ ok: false, code: 'INVALID' });
     createApiKey.mockRejectedValueOnce(new ApiError(403, 'no', 'FORBIDDEN'));
     await expect(createApiKeyAction('a')).resolves.toEqual({ ok: false, code: 'FORBIDDEN' });
+    createApiKey.mockRejectedValueOnce(new ApiError(403, 'staff', 'STAFF_ACCESS_NO_KEYS'));
+    await expect(createApiKeyAction('a')).resolves.toEqual({ ok: false, code: 'STAFF_ACCESS' });
     createApiKey.mockRejectedValueOnce(new ApiError(500, 'boom'));
     await expect(createApiKeyAction('a')).resolves.toEqual({ ok: false, code: 'FAILED' });
     createApiKey.mockRejectedValueOnce(new Error('network'));

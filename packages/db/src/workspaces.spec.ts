@@ -33,6 +33,7 @@ import {
   projectRoster,
   rebindLegacyAccount,
   searchProjectedAccounts,
+  StaffGrantRefused,
 } from './workspaces';
 
 let db: Db;
@@ -371,6 +372,125 @@ describe('grantStaffAccess (both dialects)', () => {
     ]);
     const g = await db.get<{ status: string }>(sql`SELECT status FROM member WHERE id = ${memberId}`);
     expect(g!.status).toBe('active');
+  });
+});
+
+describe('grantStaffAccess never overrides a membership (both dialects)', () => {
+  const staff = () => ({ externalId: `staff-${randomUUID()}`, email: `s-${randomUUID().slice(0, 8)}@example.test`, displayName: 'S' });
+
+  it('refuses, and leaves untouched, a real membership the owner disabled', async () => {
+    const wsId = `ws-${randomUUID()}`;
+    const s = staff();
+    await projectMemberships(db, s, [
+      { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c', workspaceUserId: 'wu-s', role: 'member', active: true },
+    ]);
+    await ids([wsId]);
+    const row = await db.get<{ id: string; account_id: string }>(sql`SELECT id, account_id FROM member WHERE external_id = ${s.externalId}`);
+    await db.run(sql`UPDATE member SET status = 'disabled' WHERE id = ${row!.id}`);
+
+    await expect(grantStaffAccess(db, s, { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c' })).rejects.toBeInstanceOf(
+      StaffGrantRefused,
+    );
+    const after = await db.get<{ role: string; status: string; access_grant: string | null }>(
+      sql`SELECT role, status, access_grant FROM member WHERE id = ${row!.id}`,
+    );
+    expect(after).toEqual({ role: 'member', status: 'disabled', access_grant: null });
+  });
+
+  it('refuses an active real membership and a pending one alike: only a grant row is ever reused', async () => {
+    for (const status of ['active', 'invited'] as const) {
+      const wsId = `ws-${randomUUID()}`;
+      const s = staff();
+      await projectMemberships(db, s, [
+        { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c', workspaceUserId: 'wu-s', role: 'member', active: true },
+      ]);
+      await ids([wsId]);
+      await db.run(sql`UPDATE member SET status = ${status} WHERE external_id = ${s.externalId}`);
+      await expect(grantStaffAccess(db, s, { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c' })).rejects.toBeInstanceOf(
+        StaffGrantRefused,
+      );
+      const after = await db.get<{ role: string; status: string; access_grant: string | null }>(
+        sql`SELECT role, status, access_grant FROM member WHERE external_id = ${s.externalId}`,
+      );
+      expect(after).toEqual({ role: 'member', status, access_grant: null });
+    }
+  });
+
+  it('never adopts a pending invitation by email: the invite stays a member invite, the grant is its own row', async () => {
+    const wsId = `ws-${randomUUID()}`;
+    const owner = { externalId: `own-${randomUUID()}`, email: `o-${randomUUID().slice(0, 8)}@example.test`, displayName: 'O' };
+    await projectMemberships(db, owner, [
+      { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c', workspaceUserId: 'wu-o', role: 'owner', active: true },
+    ]);
+    await ids([wsId]);
+    const accountId = created[created.length - 1]!;
+    const s = staff();
+    const inviteId = randomUUID();
+    await db.run(
+      sql`INSERT INTO member (id, account_id, email, role, status, created_at)
+          VALUES (${inviteId}, ${accountId}, ${s.email.toUpperCase()}, 'member', 'invited', ${Date.now()})`,
+    );
+
+    const granted = await grantStaffAccess(db, s, { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c' });
+    expect(granted.memberId).not.toBe(inviteId);
+    const invite = await db.get<{ external_id: string | null; role: string; status: string; access_grant: string | null }>(
+      sql`SELECT external_id, role, status, access_grant FROM member WHERE id = ${inviteId}`,
+    );
+    expect(invite).toEqual({ external_id: null, role: 'member', status: 'invited', access_grant: null });
+    const grant = await db.get<{ role: string; access_grant: string | null }>(sql`SELECT role, access_grant FROM member WHERE id = ${granted.memberId}`);
+    expect(grant).toEqual({ role: 'admin', access_grant: 'staff' });
+  });
+
+  it('a membership projection still adopts an invitation (only grants do not)', async () => {
+    const wsId = `ws-${randomUUID()}`;
+    const owner = { externalId: `own-${randomUUID()}`, email: `o-${randomUUID().slice(0, 8)}@example.test`, displayName: 'O' };
+    await projectMemberships(db, owner, [
+      { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c', workspaceUserId: 'wu-o', role: 'owner', active: true },
+    ]);
+    await ids([wsId]);
+    const accountId = created[created.length - 1]!;
+    const p = staff();
+    const inviteId = randomUUID();
+    await db.run(
+      sql`INSERT INTO member (id, account_id, email, role, status, created_at)
+          VALUES (${inviteId}, ${accountId}, ${p.email}, 'member', 'invited', ${Date.now()})`,
+    );
+    await projectMemberships(db, p, [
+      { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c', workspaceUserId: 'wu-p', role: 'member', active: true },
+    ], { pruneMissing: false });
+    const adopted = await db.get<{ external_id: string | null; status: string }>(sql`SELECT external_id, status FROM member WHERE id = ${inviteId}`);
+    expect(adopted).toEqual({ external_id: p.externalId, status: 'active' });
+  });
+
+  it('a grant that becomes a real membership loses the API keys it held', async () => {
+    const wsId = `ws-${randomUUID()}`;
+    const s = staff();
+    const { accountId, memberId } = await grantStaffAccess(db, s, { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c' });
+    await ids([wsId]);
+    const keyId = randomUUID();
+    await db.run(
+      sql`INSERT INTO api_key (id, account_id, member_id, name, prefix, last4, key_hash, created_at)
+          VALUES (${keyId}, ${accountId}, ${memberId}, 'k', ${`p${keyId.slice(0, 8)}`}, 'abcd', ${`h${keyId}`}, ${Date.now()})`,
+    );
+    await projectMemberships(db, s, [
+      { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c', workspaceUserId: 'wu-s', role: 'member', active: true },
+    ], { pruneMissing: false });
+    const row = await db.get<{ access_grant: string | null }>(sql`SELECT access_grant FROM member WHERE id = ${memberId}`);
+    expect(row!.access_grant).toBeNull();
+    const key = await db.get<{ revoked_at_ms: number | string | null }>(sql`SELECT revoked_at_ms FROM api_key WHERE id = ${keyId}`);
+    expect(key!.revoked_at_ms).not.toBeNull();
+    await db.run(sql`DELETE FROM api_key WHERE id = ${keyId}`);
+  });
+
+  it('pickHomeAccount lands on a grant only when asked to include grants', async () => {
+    const wsId = `ws-${randomUUID()}`;
+    const s = staff();
+    const { accountId } = await grantStaffAccess(db, s, { workspaceId: wsId, workspaceName: 'Cust', iamAccountId: 'acc-c' });
+    await ids([wsId]);
+    expect((await pickHomeAccount(db, s.externalId, wsId))?.accountId).toBe(accountId);
+    expect((await pickHomeAccount(db, s.externalId, null))?.accountId).toBe(accountId);
+    expect(await pickHomeAccount(db, s.externalId, wsId, { includeGrants: false })).toBeNull();
+    expect(await pickHomeAccount(db, s.externalId, null, { includeGrants: false })).toBeNull();
   });
 });
 

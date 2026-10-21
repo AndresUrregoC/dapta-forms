@@ -11,6 +11,14 @@
  */
 
 /**
+ * Why staff access refuses a workspace where the person holds a membership
+ * that is not active (`StaffGrantRefused`): the web app's switcher and the
+ * MCP door say the same.
+ */
+export const MEMBERSHIP_NOT_ACTIVE_MESSAGE =
+  'You have a membership in this workspace that is not active: its owner disabled or removed it, or it is still an invitation. Staff access never replaces a membership.';
+
+/**
  * The identity service's workspace id behind a local account's
  * `external_id`, or null for an account the identity service does not own
  * (none, or a local-only `local:`/`dev:`/`legacy:` id). Only such a
@@ -22,18 +30,23 @@ export function upstreamWorkspaceIdOf(externalId: string | null | undefined): st
 }
 
 /**
- * True when `email`'s domain (after the last `@`, trimmed, lowercased) is
- * exactly one of `domains` (lowercase, no `@`). No email, an email without a
- * domain, or no domains listed: false, so an unset list makes nobody staff,
- * never everybody, and `x@notexample.com` is never staff of `example.com`.
+ * One local part, one `@`, one domain, no whitespace or control character
+ * anywhere. Anything else (`evil@x.com@example.com`, `@example.com`, a line
+ * break) is not an address this rule judges, so it is never staff.
+ */
+// eslint-disable-next-line no-control-regex
+const EMAIL_SHAPE = /^[^@\s\x00-\x1f\x7f]+@([^@\s\x00-\x1f\x7f]+)$/;
+
+/**
+ * True when `email` (trimmed) is a single `local@domain` and its domain,
+ * lowercased, is exactly one of `domains` (lowercase, no `@`). No email, an
+ * email of any other shape, or no domains listed: false, so an unset list
+ * makes nobody staff, never everybody, and `x@notexample.com` is never staff
+ * of `example.com`.
  */
 export function isStaffEmail(email: string | null | undefined, domains: readonly string[] | undefined): boolean {
   if (!domains?.length || !email) return false;
-  const at = email.lastIndexOf('@');
-  if (at < 0) return false;
-  const domain = email
-    .slice(at + 1)
-    .trim()
-    .toLowerCase();
-  return domain.length > 0 && domains.includes(domain);
+  const match = EMAIL_SHAPE.exec(email.trim());
+  if (!match) return false;
+  return domains.includes(match[1]!.toLowerCase());
 }

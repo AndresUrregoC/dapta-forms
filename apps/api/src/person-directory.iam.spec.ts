@@ -14,6 +14,7 @@ import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import postgres from 'postgres';
 import { isPostgresUrl } from '@quill/config/env';
+import { normalizeWorkspaceSearch as normalize } from '@quill/mcp';
 import { PersonRefused } from './person-directory';
 import { createIamPersonDirectory, type IamDirectoryConfig, type IamPersonDirectory } from './person-directory.iam';
 
@@ -72,11 +73,11 @@ describe.skipIf(!onPostgres)('the identity-service person directory, on Postgres
       );
       CREATE TABLE ${schema}.accounts (
         id uuid PRIMARY KEY,
-        name text
+        name text COLLATE "C"
       );
       CREATE TABLE ${schema}.workspaces (
         id uuid PRIMARY KEY,
-        name text NOT NULL,
+        name text COLLATE "C" NOT NULL,
         account_id uuid REFERENCES ${schema}.accounts (id),
         is_active boolean,
         created_at timestamptz NOT NULL DEFAULT now(),
@@ -245,11 +246,20 @@ describe.skipIf(!onPostgres)('the identity-service person directory, on Postgres
     expect(await d.searchWorkspaces(`bulk${tag}`, 500)).toHaveLength(20);
   });
 
-  it('keeps accented letters on both sides, whatever the database locale', async () => {
+  it('folds accents and case on both sides, even under collation C where lower() leaves É alone', async () => {
     const d = directory();
     const tag = randomUUID().replace(/-/g, '').slice(0, 6);
     const ws = await workspace(`Peñalosa & Hijos ${tag}`);
-    expect((await d.searchWorkspaces(`peñalosahijos${tag}`, 20)).map((w) => w.id)).toEqual([ws.id]);
+    for (const needle of [`penalosahijos${tag}`, `peñalosahijos${tag}`]) {
+      expect((await d.searchWorkspaces(needle, 20)).map((w) => w.id)).toEqual([ws.id]);
+    }
+    const upper = await workspace(`JOSÉ ${tag}`);
+    const lower = await workspace(`Agencia ${tag}`, { account: `José María ${tag}`, age: 1 });
+    const decomposed = await workspace(`Jose\u0301 Ltd ${tag}`, { age: 2 });
+    const found = (await d.searchWorkspaces(`jose`, 20)).map((w) => w.id);
+    for (const id of [upper.id, lower.id, decomposed.id]) expect(found).toContain(id);
+    const greek = await workspace(`ΑΘΉΝΑ ${tag}`);
+    expect((await d.searchWorkspaces(normalize(`αθηνα ${tag}`), 20)).map((w) => w.id)).toEqual([greek.id]);
   });
 
   it('says whether a person holds a live membership in a workspace', async () => {

@@ -75,7 +75,13 @@ export default async function DeveloperKeysPage() {
       <ApiKeysPanel
         initialKeys={keys}
         loadError={loadError}
-        viewer={{ memberId: me.memberId, role: me.role, displayName: me.displayName, email: me.email }}
+        viewer={{
+          memberId: me.memberId,
+          role: me.role,
+          displayName: me.displayName,
+          email: me.email,
+          accessGrant: me.accessGrant,
+        }}
         m={m.developers.keys}
         locale={locale}
         timeZone={me.timezone ?? 'UTC'}

@@ -595,6 +595,48 @@ describe('staff of the deployment', () => {
     expect(h.staffLog).toEqual([]);
   });
 
+  it('never turns a membership the owner disabled, or a pending one, into a grant: it refuses and leaves the row as it was', async () => {
+    for (const status of ['disabled', 'invited']) {
+      const { h, globexUpstream } = await staffDeployment();
+      const p = await staffPerson(h);
+      const member = await join(h, p, h.other.accountId, 'member', { status });
+      const c = await signIn(h, p.subject);
+      for (const id of [h.other.accountId, globexUpstream]) {
+        const text = errorText(await c.callTool({ name: 'list_forms', arguments: { workspace_id: id } }));
+        expect(text).toMatch(/^MEMBERSHIP_NOT_ACTIVE: You have a membership in this workspace that is not active/);
+      }
+      const row = await h.db.get<{ access_grant: string | null; role: string; status: string }>(
+        sql`SELECT access_grant, role, status FROM member WHERE id = ${member}`,
+      );
+      expect(row).toEqual({ access_grant: null, role: 'member', status });
+      expect(h.staffLog).toEqual([]);
+    }
+  });
+
+  it('never adopts a pending invitation by email as the grant: the invite stays a member invite', async () => {
+    const { h } = await staffDeployment();
+    const p = await staffPerson(h);
+    const invite = randomUUID();
+    await h.db.run(
+      sql`INSERT INTO member (id, account_id, handle, email, role, status, created_at)
+          VALUES (${invite}, ${h.other.accountId}, ${`i-${invite.slice(0, 8)}`}, ${p.email}, 'member', 'invited', ${Date.now()})`,
+    );
+    const c = await signIn(h, p.subject);
+    const listed = structured<{ workspace: Record<string, unknown> }>(
+      await c.callTool({ name: 'list_forms', arguments: { workspace_id: h.other.accountId } }),
+    );
+    expect(listed.workspace).toMatchObject({ id: h.other.accountId, access: 'staff' });
+    const row = await h.db.get<{ external_id: string | null; role: string; status: string; access_grant: string | null }>(
+      sql`SELECT external_id, role, status, access_grant FROM member WHERE id = ${invite}`,
+    );
+    expect(row).toEqual({ external_id: null, role: 'member', status: 'invited', access_grant: null });
+    const grant = await h.db.get<{ id: string }>(
+      sql`SELECT id FROM member WHERE account_id = ${h.other.accountId} AND external_id = ${p.personId} AND access_grant = 'staff'`,
+    );
+    expect(grant?.id).toBeDefined();
+    expect(grant!.id).not.toBe(invite);
+  });
+
   it('refuses, and grants nothing, where the identity service names staff a member dForms has not seen yet', async () => {
     const { h, initrode } = await staffDeployment();
     const p = await staffPerson(h);

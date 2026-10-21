@@ -5,8 +5,10 @@
  * plus `via: 'api_key'` and `apiKeyId`.
  *
  * In order:
- *   1. unknown or revoked key, or a member who is no longer active in the
- *      key's workspace: 401 `INVALID_API_KEY`;
+ *   1. unknown or revoked key, a member who is no longer active in the key's
+ *      workspace, or a member that is a staff access grant (a grant lives
+ *      only while its person is staff, and a key carries no person to judge
+ *      that by, so a grant never holds a working key): 401 `INVALID_API_KEY`;
  *   2. the key fixes the workspace: an `x-quill-workspace` naming another one
  *      is a 403 `WORKSPACE_FORBIDDEN`, never a quiet switch;
  *   3. 120 calls a minute per key (the public limiter, keyed by key id): 429
@@ -88,7 +90,7 @@ export class ApiKeyAuthenticator {
     expected?: { accountId: string; memberId: string },
   ): Promise<HostPrincipal> {
     const row = await findApiKeyPrincipal(this.db, keyHash);
-    if (!row || row.memberStatus !== 'active') invalidKey();
+    if (!row || row.memberStatus !== 'active' || row.accessGrant !== null) invalidKey();
     if (expected && (expected.accountId !== row.accountId || expected.memberId !== row.memberId)) invalidKey();
     noteApiKeyCall(req, row.keyId, row.accountId);
 

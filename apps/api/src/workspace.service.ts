@@ -26,7 +26,6 @@ import {
 import type { Db } from '@quill/db';
 import {
   createLocalWorkspace,
-  findMembership,
   getAccountByExternalId,
   searchProjectedAccounts,
   getAccountMember,
@@ -35,12 +34,12 @@ import {
   grantStaffAccess,
   humanHasCompletedOnboarding,
   listMembers,
-  listWorkspacesForIdentity,
   projectRoster,
   removeMember,
   renameAccount,
   setMemberStatus,
   sql,
+  StaffGrantRefused,
   wouldOrphanWorkspace,
   type AccessGrant,
   type AccountRole,
@@ -53,10 +52,10 @@ import {
 } from '@quill/db';
 import { AUTH_PROVIDER, DB, WORKSPACE_PROJECTION } from './tokens';
 import type { AuthProvider, HostPrincipal, ReqLike, UpstreamIdentity } from './auth.provider';
-import { AuthService } from './auth.service';
+import { AuthService, membershipFor, workspacesFor } from './auth.service';
 import { apiKeyFromRequest } from './api-keys';
 import { inProcessPrincipalOf } from './in-process-principal';
-import { upstreamWorkspaceIdOf } from './staff';
+import { MEMBERSHIP_NOT_ACTIVE_MESSAGE, upstreamWorkspaceIdOf } from './staff';
 import { assertAdmin, assertCanManageTarget, assertNotSelf, assertOwner } from './permissions';
 import {
   IAM_ADMIN_ROLE_NAME,
@@ -280,13 +279,14 @@ export class WorkspaceService {
 
   /**
    * The caller is about to open `accountId`. Verifies membership (from the
-   * home identity, exactly like the header check) and remembers the choice
-   * upstream so the Dapta app opens the same workspace next time.
+   * home identity, exactly like the header check: a staff access grant counts
+   * only while the person is staff now) and remembers the choice upstream so
+   * the Dapta app opens the same workspace next time.
    */
   async enter(req: ReqLike, accountId: string): Promise<{ ok: true }> {
     const home = await this.provider.resolveHost(req);
     const identity = await getMemberIdentity(this.db, home.accountId, home.memberId);
-    const membership = identity ? await findMembership(this.db, identity, accountId) : null;
+    const membership = identity ? await membershipFor(this.db, identity, accountId, home.staff === true) : null;
     if (!membership) {
       throw new ForbiddenException({
         error: 'WORKSPACE_FORBIDDEN',
@@ -298,11 +298,14 @@ export class WorkspaceService {
     return { ok: true };
   }
 
-  /** Every workspace the caller can enter — the projection, never upstream directly. */
+  /**
+   * Every workspace the caller can enter: the projection, never upstream
+   * directly. Staff access grants only while the person is staff now.
+   */
   async list(req: ReqLike): Promise<WorkspaceRow[]> {
     const home = await this.provider.resolveHost(req);
     const identity = await getMemberIdentity(this.db, home.accountId, home.memberId);
-    return identity ? listWorkspacesForIdentity(this.db, identity) : [];
+    return identity ? workspacesFor(this.db, identity, home.staff === true) : [];
   }
 
   // --- Staff: the whole estate ----------------------------------------------
@@ -441,13 +444,22 @@ export class WorkspaceService {
       if (!local) throw new BadRequestException({ error: 'WORKSPACE_NOT_VISIBLE', message: 'Try refreshing.' });
       accountId = local.id;
     } else {
-      accountId = (
-        await grantStaffAccess(this.db, identity, {
-          workspaceId: ws.id,
-          workspaceName: ws.name,
-          iamAccountId: ws.account_id ?? null,
-        })
-      ).accountId;
+      try {
+        accountId = (
+          await grantStaffAccess(this.db, identity, {
+            workspaceId: ws.id,
+            workspaceName: ws.name,
+            iamAccountId: ws.account_id ?? null,
+          })
+        ).accountId;
+      } catch (err) {
+        // A membership of theirs that is not active (disabled by the owner,
+        // or still an invitation): staff access never replaces it.
+        if (err instanceof StaffGrantRefused) {
+          throw new ForbiddenException({ error: err.code, message: MEMBERSHIP_NOT_ACTIVE_MESSAGE });
+        }
+        throw err;
+      }
       this.log.log(`staff grant: ${up.email ?? up.sub} entered workspace ${ws.id} as admin`);
     }
     await this.projection.rememberLastWorkspace(up, accountId);

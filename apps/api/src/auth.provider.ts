@@ -42,6 +42,14 @@ export interface ReqLike {
 export interface ResolvedHost {
   accountId: string;
   memberId: string;
+  /**
+   * True only when the provider proved, on THIS request, that the person is
+   * staff of the deployment (the email its token carries is on
+   * `IAM_STAFF_DOMAINS`, `isStaffEmail`). Absent or false: every row they
+   * hold through a staff access grant (`member.access_grant = 'staff'`) is
+   * ignored, because grant rows are never revoked and outlive staff status.
+   */
+  staff?: boolean;
 }
 
 /**
@@ -55,9 +63,15 @@ export interface ResolvedHost {
 export type PrincipalVia = 'session' | 'api_key' | 'mcp_connection';
 
 /** The authenticated host, enriched with the account role for authorization. */
-export interface HostPrincipal extends ResolvedHost {
+export interface HostPrincipal extends Omit<ResolvedHost, 'staff'> {
   role: AccountRole;
   via: PrincipalVia;
+  /**
+   * `'staff'` when the member acting is a staff access grant row, never
+   * present otherwise. Such a principal exists only while the person is staff
+   * on this request (a session) or this call (MCP); it never holds an API key.
+   */
+  accessGrant?: 'staff';
   /** The `api_key.id` the request authenticated with; set only when `via` is `'api_key'`. */
   apiKeyId?: string;
   /**

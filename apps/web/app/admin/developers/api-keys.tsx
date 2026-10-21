@@ -44,6 +44,11 @@ export interface ApiKeysViewer {
   role: AccountRole;
   displayName: string | null;
   email: string | null;
+  /**
+   * `'staff'` when they are in this workspace through a staff access grant,
+   * which never holds an API key: the create button is off, with the reason.
+   */
+  accessGrant?: 'staff' | null;
 }
 
 /**
@@ -87,6 +92,7 @@ export function ApiKeysPanel({
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const toast = useToast();
   const showCreator = viewer.role === 'owner' || viewer.role === 'admin';
+  const staffAccess = viewer.accessGrant === 'staff';
 
   const onCreated = (created: CreatedApiKey) => {
     const row: ApiKey = {
@@ -162,8 +168,18 @@ export function ApiKeysPanel({
               {m.title}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">{showCreator ? m.subtitleAdmin : m.subtitle}</p>
+            {staffAccess ? (
+              <p data-testid="api-keys-staff-access" className="mt-2 max-w-prose text-sm text-foreground">
+                {m.staffAccess}
+              </p>
+            ) : null}
           </div>
-          <Button data-testid="api-key-create" onClick={() => setCreating(true)} className="shrink-0">
+          <Button
+            data-testid="api-key-create"
+            onClick={() => setCreating(true)}
+            disabled={staffAccess}
+            className="shrink-0"
+          >
             <i aria-hidden className="pi pi-plus" style={{ fontSize: 13 }} />
             {m.create}
           </Button>
@@ -278,7 +294,7 @@ function Cell({ label, testId, children }: { label: string; testId?: string; chi
   );
 }
 
-type CreateError = 'INVALID' | 'KEY_LIMIT' | 'FORBIDDEN' | 'FAILED';
+type CreateError = 'INVALID' | 'KEY_LIMIT' | 'FORBIDDEN' | 'STAFF_ACCESS' | 'FAILED';
 
 /**
  * Two steps in one dialog: name the key, then see it once. Unmounted while
@@ -364,6 +380,7 @@ function CreateKeyDialogBody({
     INVALID: m.errorInvalid,
     KEY_LIMIT: m.errorLimit,
     FORBIDDEN: m.errorForbidden,
+    STAFF_ACCESS: m.staffAccess,
     FAILED: m.errorFailed,
   };
 
