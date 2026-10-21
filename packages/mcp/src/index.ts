@@ -14,10 +14,13 @@ export * from './backend';
 export * from './parity-backend';
 export {
   LIST_WORKSPACES_HINT,
+  SEARCH_FOLD_FROM,
+  SEARCH_FOLD_TO,
   STAFF_SEARCH_MAX_RESULTS,
   STAFF_SEARCH_MIN_CHARS,
   STAFF_WORKSPACE_HINT,
   bucketOf,
+  foldSearchText,
   normalizeWorkspaceSearch,
   openDFormsOnce,
   resolveWorkspace,
