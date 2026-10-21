@@ -101,6 +101,24 @@ describe('RemoteJwks', () => {
     expect(await warm.keyFor('kid-a')).not.toBeNull();
     expect(await warm.keyFor('kid-unknown')).toBeNull();
   });
+
+  it('retries an issuer that is down at most once a short while, not once per request', async () => {
+    const { state, fetchImpl } = issuer([KEY_A]);
+    state.down = true;
+    const c = clock();
+    const cold = new RemoteJwks('https://issuer.example.test/jwks', { fetch: fetchImpl, now: c.now, refetchCooldownMs: COOLDOWN });
+    for (let i = 0; i < 10; i++) await expect(cold.keyFor('kid-a')).rejects.toBeInstanceOf(IssuerUnavailable);
+    expect(state.fetches).toBe(1);
+
+    state.down = false;
+    const warm = new RemoteJwks('https://issuer.example.test/jwks', { fetch: fetchImpl, now: c.now, refetchCooldownMs: COOLDOWN, maxAgeMs: 60_000 });
+    expect(await warm.keyFor('kid-a')).not.toBeNull();
+    state.down = true;
+    c.advance(120_000);
+    const before = state.fetches;
+    for (let i = 0; i < 10; i++) expect(await warm.keyFor(`kid-junk-${i}`)).toBeNull();
+    expect(state.fetches - before).toBe(1);
+  });
 });
 
 describe('verifyRs256', () => {

@@ -17,7 +17,7 @@ import { GUIDE_PARTS, formGuide, type GuidePart } from './guide/guide';
 import { LEAD_CONFIG } from './guide/examples';
 import { markInherited, reviewConfig, splitInherited } from './config-check';
 import { ToolFailure, untrusted, validationFailure } from './support';
-import { STAFF_SEARCH_MAX_RESULTS, STAFF_SEARCH_MIN_CHARS, normalizeWorkspaceSearch, openDFormsOnce } from './workspace';
+import { STAFF_SEARCH_MAX_RESULTS, STAFF_SEARCH_MIN_CHARS, normalizeWorkspaceId, normalizeWorkspaceSearch, openDFormsOnce } from './workspace';
 
 /**
  * The tool catalog. Small and task-shaped on purpose: what an agent needs to
@@ -307,7 +307,7 @@ const whoami: ToolDef = {
         'True when the person signed in is staff of this deployment: they can act in any workspace, must send workspace_id on every call, and you confirm the workspace with the user before reading or changing anything in it.',
       ),
   }),
-  async run(_args: z.infer<typeof whoamiInput>, { credential, caller, backend, appUrl }) {
+  async run(args: z.infer<typeof whoamiInput>, { credential, caller, backend, appUrl }) {
     const workspaces = workspacesOf(credential);
     const person = isConnection(credential) ? { id: credential.personId, email: credential.email } : null;
     const key = isConnection(credential) ? null : { prefix: credential.label };
@@ -330,7 +330,13 @@ const whoami: ToolDef = {
     const others = workspaces.filter((w) => w.id !== me.accountId);
     return {
       data: {
-        workspace: { id: me.accountId, name: me.accountName, code: me.accountCode, time_zone: me.timezone },
+        // The id the agent sent, like every other tool's `workspace.id`.
+        workspace: {
+          id: args.workspace_id === undefined ? me.accountId : normalizeWorkspaceId(args.workspace_id),
+          name: me.accountName,
+          code: me.accountCode,
+          time_zone: me.timezone,
+        },
         member: { id: me.memberId, name: me.displayName, email: me.email, role: me.role, status: me.status, locale: me.locale },
         key,
         person,

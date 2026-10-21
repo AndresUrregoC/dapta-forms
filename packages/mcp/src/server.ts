@@ -4,7 +4,7 @@ import type { RateLimiter } from './rate-limit';
 import { ToolFailure, argsHash, describeError, toFailure, type ErrorDescriptor } from './support';
 import { CATALOG } from './catalog';
 import { actedIn, type ToolDef, type ToolResult } from './tools';
-import { resolveWorkspace } from './workspace';
+import { normalizeWorkspaceId, resolveWorkspace } from './workspace';
 
 export const MCP_SERVER_NAME = 'dforms';
 export const MCP_SERVER_VERSION = '1.0.0';
@@ -131,7 +131,7 @@ export class FormsMcpServer {
             // Echo the id the agent sent: a staff search can hand out the
             // identity provider's id, which differs from ours, and an agent
             // that compares ids would think it landed somewhere else.
-            workspace: { id: named ?? caller.accountId, name: caller.workspaceName, ...(staff ? { access: 'staff' as const } : {}) },
+            workspace: { id: named === undefined ? caller.accountId : normalizeWorkspaceId(named), name: caller.workspaceName, ...(staff ? { access: 'staff' as const } : {}) },
           },
           summary: `In workspace "${caller.workspaceName}"${staff ? ' (staff access)' : ''}: ${result.summary}`,
         };

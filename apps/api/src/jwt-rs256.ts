@@ -152,7 +152,10 @@ export class RemoteJwks {
     }
     const cached = this.keys.get(kid);
     if (cached) return cached;
-    if (!fetched && (now - this.lastMissRefetch >= cooldown || now - this.fetchedAt >= cooldown)) {
+    // While the issuer is down `fetchedAt` stays old, so without this every
+    // request with an unknown kid would fetch and wait for the timeout.
+    const failingRecently = this.attemptedAt > this.fetchedAt && now - this.attemptedAt < minRetry;
+    if (!fetched && !failingRecently && (now - this.lastMissRefetch >= cooldown || now - this.fetchedAt >= cooldown)) {
       this.lastMissRefetch = now;
       await this.refresh();
     }

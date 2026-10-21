@@ -5,7 +5,7 @@
  * door), never a throw, except an issuer whose keys cannot be read with none
  * cached: `IssuerUnavailable` (a 503).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { IssuerUnavailable, createMcpOAuth, type McpOAuth } from './mcp-oauth';
 import { startFakeIdentityProvider, type FakeIdentityProvider } from './fake-identity-provider';
 
@@ -96,5 +96,35 @@ describe('the MCP OAuth adapter', () => {
     await expect(offline.verify(idp.token('user_A', RESOURCE))).rejects.toBeInstanceOf(IssuerUnavailable);
     // Garbage is still just garbage: refused before any key is looked up.
     expect(await offline.verify('a.b.c')).toBeNull();
+  });
+});
+
+describe('the authorization server metadata while AuthKit is down', () => {
+  it('serves the stale copy, and reads AuthKit again only once in a while instead of on every request', async () => {
+    let fetches = 0;
+    let down = false;
+    const fetchImpl = (async () => {
+      fetches += 1;
+      if (down) throw new TypeError('fetch failed');
+      return new Response(JSON.stringify({ issuer: 'https://issuer.example.test' }), { headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    let t = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => t);
+    try {
+      const as = createMcpOAuth(
+        { provider: 'workos', issuer: 'https://issuer.example.test', resource: RESOURCE, resourceMetadataUrl: `${RESOURCE}/meta` },
+        { fetch: fetchImpl },
+      )!;
+      expect(await as.authorizationServerMetadata()).toEqual({ issuer: 'https://issuer.example.test' });
+      down = true;
+      t += 11 * 60_000;
+      for (let i = 0; i < 10; i++) expect(await as.authorizationServerMetadata()).toEqual({ issuer: 'https://issuer.example.test' });
+      expect(fetches).toBe(2);
+      t += 31_000;
+      await as.authorizationServerMetadata();
+      expect(fetches).toBe(3);
+    } finally {
+      clock.mockRestore();
+    }
   });
 });
