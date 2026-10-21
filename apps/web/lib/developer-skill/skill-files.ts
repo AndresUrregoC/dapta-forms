@@ -112,7 +112,8 @@ Pick the \`type\` that matches what the step asks. \`name\`, \`email\` and \`pho
 1. **Create:** \`POST /v1/forms\` with \`{ "name", "config" }\`. The config is live at once: the form answers at its \`publicUrl\` right away.
 2. **Edit:** \`PUT /v1/forms/{id}\` with \`{ "config", "expectedUpdatedAt" }\` saves a draft (\`draftConfig\`). The public form does not change yet. When the form already has a draft, start from \`draftConfig\`, not \`config\`.
 3. **Publish:** \`POST /v1/forms/{id}/publish\` with \`{ "expectedUpdatedAt" }\` makes the draft live.
-4. **Revert:** \`POST /v1/forms/{id}/revert\`, with no body, puts the previously published version back live and answers 200 with the form. Calling it again undoes the revert. Every form carries \`previousPublishedAt\`: when the version a revert would bring back went live (epoch ms), or \`null\` when there is nothing to go back to, in which case the revert answers 409 \`NOTHING_TO_REVERT\`.
+4. **Discard:** \`POST /v1/forms/{id}/discard-draft\` with \`{ "expectedUpdatedAt" }\` throws the pending draft away and answers 200 with the form, \`draftConfig: null\`. The live form does not change. Use it to undo a draft you saved by mistake; a revert is not that, it changes what is live.
+5. **Revert:** \`POST /v1/forms/{id}/revert\`, with no body, puts the previously published version back live and answers 200 with the form. Calling it again undoes the revert. Every form carries \`previousPublishedAt\`: when the version a revert would bring back went live (epoch ms), or \`null\` when there is nothing to go back to, in which case the revert answers 409 \`NOTHING_TO_REVERT\`.
 
 Tell the user what you changed, and give them the \`publicUrl\` and the \`editorUrl\`.
 
@@ -130,7 +131,7 @@ Tell the user what you changed, and give them the \`publicUrl\` and the \`editor
 - \`recipes/quiz-with-scoring.md\`: a scored quiz with result ranges.
 - \`recipes/gate-a-step-by-score.md\`: show a step, such as a booking page, only above a score.
 - \`recipes/edit-a-step.md\`: change one question without losing the rest.
-- \`recipes/publish-and-revert.md\`: publish a draft and roll it back.
+- \`recipes/publish-and-revert.md\`: publish a draft, discard it, or roll back a publish.
 - \`recipes/responses-with-filters.md\`: read responses with filters and pagination.
 - \`recipes/analytics-and-csv.md\`: funnel metrics and the CSV export.
 `;
@@ -156,6 +157,7 @@ Base URL: \`${apiUrl}\`. Every request carries \`Authorization: Bearer $DFORMS_A
 | POST | \`/v1/forms\` | Create. Body \`{ "name", "slug"?, "config"?, "folderId"? }\`. 201 with the form. The config is live at once. |
 | PUT | \`/v1/forms/{id}\` | Edit. Body \`{ "name"?, "config"?, "expectedUpdatedAt"? }\`. \`config\` replaces the whole draft and must carry \`steps\`. It ignores \`destinations\` inside the config: use the destinations route. |
 | POST | \`/v1/forms/{id}/publish\` | Publish the draft. Body \`{ "expectedUpdatedAt"? }\`. No draft: returns the form unchanged. |
+| POST | \`/v1/forms/{id}/discard-draft\` | Throw the pending draft away. Body \`{ "expectedUpdatedAt"? }\`. 200 with the form, \`draftConfig\` null; the live config, \`publishedAt\` and the version a revert brings back do not change. No draft: returns the form unchanged. |
 | POST | \`/v1/forms/{id}/revert\` | Put the previously published version back live. No body; 200 with the form. 409 \`NOTHING_TO_REVERT\` when there is none (\`previousPublishedAt\` is null). The pending draft and the destinations are left as they are. |
 | PUT | \`/v1/forms/{id}/slug\` | Change the public URL segment. Body \`{ "slug" }\`. The old slug keeps redirecting. 409 \`SLUG_TAKEN\` or \`SLUG_INVALID\`. |
 | POST | \`/v1/forms/{id}/duplicate\` | Copy a form. 201 with the copy. |
@@ -410,6 +412,17 @@ curl -sS -X POST "${apiUrl}/v1/forms/$FORM_ID/publish" \\
 ~~~
 
 The answer is the form with the new \`config\`, \`draftConfig: null\` and a new \`publishedAt\`. Check the \`publicUrl\` and hand it to the user as is.
+
+To throw a draft away instead of publishing it (a draft saved by mistake), discard it. The live form does not change:
+
+~~~bash
+curl -sS -X POST "${apiUrl}/v1/forms/$FORM_ID/discard-draft" \\
+  -H "Authorization: Bearer $DFORMS_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  --data '{"expectedUpdatedAt": 1767225600000}'
+~~~
+
+It answers 200 with the form and \`draftConfig: null\`. With no draft pending it changes nothing.
 
 If the published version is wrong, put the previous one back. Check first that the form's \`previousPublishedAt\` is not null: it is when the version a revert brings back went live (epoch ms). The call takes no body:
 
