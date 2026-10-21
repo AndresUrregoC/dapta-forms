@@ -123,7 +123,8 @@ describe.skipIf(!hasOpenssl)('TLS to the identity database', () => {
   it('completes the handshake with a certificate the CA signed for the host it dialled', async () => {
     const db = await database('right-host');
     await lookUp(config(db.port, pem['trusted-ca.crt']!));
-    expect(db.handshakes()).toBe(1);
+    // At least one: the client may dial again after the stand-in hangs up.
+    expect(db.handshakes()).toBeGreaterThan(0);
   });
 
   it('refuses a certificate another CA signed', async () => {
