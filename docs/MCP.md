@@ -255,7 +255,7 @@ All optional; unset (or blank) means the safe default. See
 | `MCP_WRITE_RATE_LIMIT_CAPACITY` / `MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC` | API | `20` / `0.2` |
 | `MCP_TOOL_TIMEOUT_MS` | API | `20000` |
 | `MCP_PUBLIC_URL` | web (runtime); API with `MCP_OAUTH_PROVIDER` (required) | `<PUBLIC_API_URL>/mcp` on the web |
-| `MCP_OAUTH_PROVIDER` | API and web (runtime) | unset (API keys only; the MCP page shows the key guide alone) |
+| `MCP_OAUTH_PROVIDER` | API and web (runtime; the web shows the chat path only with `MCP_PUBLIC_URL` set too) | unset (API keys only; the MCP page shows the key guide alone) |
 | `WORKOS_AUTHKIT_DOMAIN` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
 | `IAM_DB_HOST`, `IAM_DB_NAME`, `IAM_DB_SCHEMA`, `IAM_DB_USER`, `IAM_DB_PASS` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
 | `IAM_DB_PORT` | API | `5432` |

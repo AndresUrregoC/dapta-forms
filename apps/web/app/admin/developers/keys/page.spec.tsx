@@ -248,20 +248,20 @@ describe('DevelopersPage', () => {
         expect(html).not.toContain(`>${m.subtitle}<`);
       });
 
-      it('with OAuth on and no public MCP address, says so on the chat path instead of printing a URL nobody can reach', async () => {
+      it('with the provider set but no MCP_PUBLIC_URL, offers no chat path: the address it would derive is not the audience the API checks', async () => {
         process.env.MCP_OAUTH_PROVIDER = 'workos';
-        apiUrl.value = null;
         me.mockResolvedValue(caller('member'));
         listApiKeys.mockResolvedValue({ keys });
         const html = await render();
-        const m = getMessages('en').admin.developers.guide;
-        const chat = section(html, 'mcp-path-chat');
-        expect(decode(chat)).toContain(m.mcpUnavailable);
-        expect(chat).not.toContain('data-testid="mcp-chat-url"');
+        const m = getMessages('en').admin.developers;
+        expect(html).not.toContain('data-testid="mcp-path-chat"');
+        expect(html).toContain(m.subtitle);
+        expect(decode(html)).toContain(m.guide.chatNote);
       });
 
       it('with OAuth on, speaks Spanish to a Spanish reader on both paths', async () => {
         process.env.MCP_OAUTH_PROVIDER = 'workos';
+        process.env.MCP_PUBLIC_URL = 'https://mcp.forms.example.com/mcp';
         locale.value = 'es';
         me.mockResolvedValue(caller('member'));
         listApiKeys.mockResolvedValue({ keys });

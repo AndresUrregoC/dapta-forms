@@ -48,10 +48,16 @@ const MCP_OAUTH_PROVIDERS = ['workos'] as const;
  * self-hosted default: the page shows the key guide alone, exactly as before.
  * A value the API would not accept fails closed for the same reason: the page
  * never offers a sign-in that cannot work.
+ *
+ * It also needs `MCP_PUBLIC_URL`, which the API requires with the provider on
+ * and checks every token's audience against. Without it the page would show
+ * the address it derives from the public API (`publicMcpUrl`), a URL whose
+ * tokens the API would refuse, so the chat path stays off instead.
  */
 export function mcpOauthEnabled(env: Record<string, string | undefined> = process.env): boolean {
   const value = env.MCP_OAUTH_PROVIDER?.trim().toLowerCase();
-  return !!value && (MCP_OAUTH_PROVIDERS as readonly string[]).includes(value);
+  if (!value || !(MCP_OAUTH_PROVIDERS as readonly string[]).includes(value)) return false;
+  return cleanPublicUrl(env.MCP_PUBLIC_URL) !== null;
 }
 
 /** The single entry Cursor stores under `mcpServers.dforms`. */

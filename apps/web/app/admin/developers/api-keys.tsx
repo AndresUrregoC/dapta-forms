@@ -33,9 +33,9 @@ export interface ApiKeysGuide {
   /**
    * The chat path (Claude.ai, ChatGPT), only when this deployment's MCP takes
    * a sign-in; null otherwise, and the key guide stands alone as before. `url`
-   * is null when the deployment has no public MCP address.
+   * is `MCP_PUBLIC_URL`, the audience the API checks every token against.
    */
-  chat: { url: string | null } | null;
+  chat: { url: string } | null;
 }
 
 /** The person looking at the page, as `/v1/me` describes them in this workspace. */

@@ -82,7 +82,8 @@ export default async function DeveloperKeysPage() {
         guide={{
           m: m.developers.guide,
           mcp: mcpUrl ? mcpSnippets(mcpUrl) : null,
-          chat: oauth ? { url: mcpUrl } : null,
+          // On only with MCP_PUBLIC_URL set, so the address is the API's token audience.
+          chat: oauth && mcpUrl ? { url: mcpUrl } : null,
           skill: {
             // Read at request time like the docs page does: the route answers 503
             // without a public API address, so the button would only fail.

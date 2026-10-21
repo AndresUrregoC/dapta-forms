@@ -15,13 +15,13 @@ type ChatApp = GuideMessages['chat']['claude'];
  *
  * Three steps, like the key guide next to it: copy the URL, add it as a
  * connector (both chat apps side by side, so nobody has to pick one to read
- * the steps), ask it for something. `url` is this environment's MCP address,
- * read on the server; null when the deployment has none, and then the step
- * says so instead of printing an address nobody can reach.
+ * the steps), ask it for something. `url` is this environment's
+ * `MCP_PUBLIC_URL`, read on the server: the page offers this path only with
+ * it set, because it is the audience the API checks every token against.
  *
  * Nothing here shows as done: a sign-in leaves no trace the page can read.
  */
-export function ChatGuide({ m, copy, url }: { m: GuideMessages; copy: CopyLabels; url: string | null }) {
+export function ChatGuide({ m, copy, url }: { m: GuideMessages; copy: CopyLabels; url: string }) {
   const c = m.chat;
   return (
     <section
@@ -36,24 +36,8 @@ export function ChatGuide({ m, copy, url }: { m: GuideMessages; copy: CopyLabels
 
       <ol className="mt-6 flex flex-col">
         <Step n={1} title={c.urlTitle} done={false} doneLabel={m.stepDone} testId="chat-step-url">
-          {url === null ? (
-            <p data-testid="mcp-chat-unavailable" className="text-sm text-muted-foreground">
-              {m.mcpUnavailable}
-            </p>
-          ) : (
-            <>
-              <p className="mb-3 text-sm text-muted-foreground">{c.urlBody}</p>
-              <CodePanel
-                label={c.urlLabel}
-                code={url}
-                language="text"
-                copyLabel={c.copyUrl}
-                m={copy}
-                wrap
-                testId="mcp-chat-url"
-              />
-            </>
-          )}
+          <p className="mb-3 text-sm text-muted-foreground">{c.urlBody}</p>
+          <CodePanel label={c.urlLabel} code={url} language="text" copyLabel={c.copyUrl} m={copy} wrap testId="mcp-chat-url" />
         </Step>
 
         <Step n={2} title={c.addTitle} done={false} doneLabel={m.stepDone} testId="chat-step-add">

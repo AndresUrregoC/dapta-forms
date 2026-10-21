@@ -379,7 +379,7 @@ describe('setup guide', () => {
     m: g,
     mcp: opts.mcp === false ? null : mcpSnippets(MCP_URL),
     skill: { available: opts.available ?? true, href: '/api/developers/skill', button: 'Download the skill', unavailable: 'Not yet' },
-    chat: opts.chat ? { url: opts.mcp === false ? null : MCP_URL } : null,
+    chat: opts.chat ? { url: MCP_URL } : null,
   });
   const step = (id: string) => $(`[data-testid="setup-step-${id}"]`)!;
 
@@ -509,12 +509,6 @@ describe('setup guide', () => {
       expect($('[data-testid="api-key-name"]')).not.toBeNull();
     });
 
-    it('says there is nothing to connect to, on both paths, without a public MCP address', async () => {
-      await mount({ keys: [], guide: guide({ chat: true, mcp: false }) });
-      expect($('[data-testid="mcp-chat-unavailable"]')?.textContent).toBe(g.mcpUnavailable);
-      expect($('[data-testid="mcp-chat-url"]')).toBeNull();
-      expect($('[data-testid="setup-mcp-unavailable"]')?.textContent).toBe(g.mcpUnavailable);
-    });
   });
 });
 
