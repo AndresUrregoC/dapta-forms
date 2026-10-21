@@ -50,6 +50,8 @@ export interface Harness {
   signIn(credentials: { clientId: string; clientSecret: string }): Promise<Client>;
   /** The fake person directory (only with `oauth` on): register who a token's subject is. */
   people: Map<string, Person>;
+  /** How many times the API asked the person directory. */
+  directoryLookups(): number;
   post(body: unknown, headers?: Record<string, string>, path?: string): Promise<Response>;
   close(): Promise<void>;
 }
@@ -105,8 +107,13 @@ async function freePort(): Promise<number> {
 }
 
 /** The person directory of the specs: a table from token subject to person (the IAM adapter is separate). */
-function tableDirectory(people: Map<string, Person>): PersonDirectory {
-  return { personOf: async (subject) => people.get(subject) ?? null };
+function tableDirectory(people: Map<string, Person>, counter: { lookups: number }): PersonDirectory {
+  return {
+    personOf: async (subject) => {
+      counter.lookups += 1;
+      return people.get(subject) ?? null;
+    },
+  };
 }
 
 export async function bootHarness(
@@ -116,6 +123,7 @@ export async function bootHarness(
   const dir = mkdtempSync(join(tmpdir(), 'forms-mcp-spec-'));
   const port = opts.oauth ? await freePort() : 0;
   const people = new Map<string, Person>();
+  const counter = { lookups: 0 };
   const oauthEnv = opts.oauth
     ? {
         MCP_OAUTH_PROVIDER: 'workos',
@@ -149,7 +157,7 @@ export async function bootHarness(
   let app: INestApplication;
   try {
     // abortOnError off: a refused boot rejects here instead of exiting the process.
-    app = await NestFactory.create(opts.oauth ? AppModule.withPersonDirectory(tableDirectory(people)) : AppModule, {
+    app = await NestFactory.create(opts.oauth ? AppModule.withPersonDirectory(tableDirectory(people, counter)) : AppModule, {
       logger: false,
       abortOnError: false,
     });
@@ -235,6 +243,7 @@ export async function bootHarness(
       return client;
     },
     people,
+    directoryLookups: () => counter.lookups,
     post: (body, headers = {}, path = '/mcp') =>
       fetch(`${base}${path}`, {
         method: 'POST',

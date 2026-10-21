@@ -10,10 +10,26 @@
  *   - `iss` and `aud` must match exactly (`aud` may be a list containing it);
  *   - `sub` and `exp` are REQUIRED: a token without an expiry would be good
  *     forever, so it is refused rather than trusted;
- *   - any failure, including the issuer being unreachable, is `null`, never a
- *     throw, so a bad token can only ever become a 401.
+ *   - a `crit` header is refused: this verifier understands no extension, and
+ *     RFC 7515 says a token naming one it does not understand is invalid;
+ *   - any failure is `null`, never a throw, so a bad token can only ever
+ *     become a 401. The one exception is `IssuerUnavailable`: the issuer's
+ *     keys could not be read and none are cached, which says nothing about
+ *     the token, so the caller answers it as an outage (a 503), not a 401.
  */
 import { createPublicKey, verify as verifySignature, type KeyObject } from 'node:crypto';
+
+/**
+ * The issuer's key set cannot be read right now and nothing is cached, so no
+ * token can be checked. Not the token's fault: a 503, never a 401 that would
+ * send the client into a login that could not succeed either.
+ */
+export class IssuerUnavailable extends Error {
+  constructor() {
+    super("The identity provider's signing keys cannot be read right now.");
+    this.name = 'IssuerUnavailable';
+  }
+}
 
 /** The claims of a verified token that callers read. */
 export interface VerifiedClaims {
@@ -54,6 +70,7 @@ export async function verifyRs256(token: string, options: Rs256Options): Promise
     const [headerPart, payloadPart, signaturePart] = parts as [string, string, string];
     const header = decodeJson(headerPart);
     if (!header || header.alg !== 'RS256' || typeof header.kid !== 'string' || header.kid === '') return null;
+    if (header.crit !== undefined) return null;
 
     const key = await options.keyFor(header.kid);
     if (!key) return null;
@@ -76,7 +93,8 @@ export async function verifyRs256(token: string, options: Rs256Options): Promise
     if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp) || claims.exp + leeway <= now) return null;
     if (claims.nbf !== undefined && (typeof claims.nbf !== 'number' || claims.nbf - leeway > now)) return null;
     return claims as VerifiedClaims;
-  } catch {
+  } catch (error) {
+    if (error instanceof IssuerUnavailable) throw error;
     return null;
   }
 }
@@ -93,13 +111,24 @@ export interface RemoteJwksOptions {
 }
 
 /**
- * An issuer's key set, fetched over HTTP and cached. A `kid` missing from the
- * cache refetches once (the issuer rotated a key in), within the cooldown.
+ * An issuer's key set, fetched over HTTP and cached.
+ *
+ * - Single flight: a request that arrives while a fetch is running waits for
+ *   it, so a cold start fetches once however many requests arrive together.
+ * - A `kid` missing from the set refetches it (the issuer rotated a key in),
+ *   but never in a lookup that has just fetched or waited for a fetch (no
+ *   double fetch on a cold start), and only once the last such refetch, or
+ *   the set itself, is a cooldown old.
+ *   So a flood of junk key ids fetches at most once a cooldown, and cannot
+ *   hold back a rotated key for longer than that: any refetch it causes loads
+ *   the current set, rotated key included.
+ * - With nothing cached and the issuer unreachable, `keyFor` throws
+ *   `IssuerUnavailable`. Once a set is cached, an outage keeps serving it.
  */
 export class RemoteJwks {
   private keys = new Map<string, KeyObject>();
   private fetchedAt = -Infinity;
-  /** When a fetch last started, so an issuer that is down is retried at most once a cooldown, not per request. */
+  /** When a fetch last started, so an issuer that is down is retried at most once a short while, not per request. */
   private attemptedAt = -Infinity;
   private lastMissRefetch = -Infinity;
   private inFlight: Promise<void> | null = null;
@@ -110,16 +139,27 @@ export class RemoteJwks {
   ) {}
 
   async keyFor(kid: string): Promise<KeyObject | null> {
-    const now = this.now();
     const cooldown = this.options.refetchCooldownMs ?? 30_000;
-    const stale = now - this.fetchedAt > (this.options.maxAgeMs ?? 10 * 60_000);
-    if (stale && now - this.attemptedAt >= Math.min(cooldown, 5_000)) await this.refresh();
+    const minRetry = Math.min(cooldown, 5_000);
+    const now = this.now();
+    let fetched = false;
+    if (this.inFlight) {
+      await this.inFlight;
+      fetched = true;
+    } else if (now - this.fetchedAt > (this.options.maxAgeMs ?? 10 * 60_000) && now - this.attemptedAt >= minRetry) {
+      await this.refresh();
+      fetched = true;
+    }
     const cached = this.keys.get(kid);
     if (cached) return cached;
-    if (now - this.lastMissRefetch < cooldown) return null;
-    this.lastMissRefetch = now;
-    await this.refresh();
-    return this.keys.get(kid) ?? null;
+    if (!fetched && (now - this.lastMissRefetch >= cooldown || now - this.fetchedAt >= cooldown)) {
+      this.lastMissRefetch = now;
+      await this.refresh();
+    }
+    const key = this.keys.get(kid);
+    if (key) return key;
+    if (this.fetchedAt === -Infinity) throw new IssuerUnavailable();
+    return null;
   }
 
   private now(): number {

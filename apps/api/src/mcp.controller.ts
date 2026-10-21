@@ -27,7 +27,7 @@ import {
 import { noteApiKeyCall } from './deprecated-hosts';
 import { API_KEY_PREFIX } from './api-keys';
 import type { McpOAuth } from './mcp-oauth';
-import type { PersonDirectory } from './person-directory';
+import { cachePersonDirectory, type PersonDirectory } from './person-directory';
 import { TokenBucketRateLimiter, clientKey, resolveTrustProxyHops } from './rate-limit';
 import { DB, ENV, MCP_OAUTH, PERSON_DIRECTORY, RATE_LIMITER } from './tokens';
 
@@ -81,6 +81,11 @@ export class McpController implements OnModuleInit {
     this.trustProxyHops = resolveTrustProxyHops(env);
     const bucket = (capacity: number, refill: number): RateLimiter =>
       env.RATE_LIMIT_ENABLED ? new TokenBucketRateLimiter(capacity, refill) : unlimited;
+    // The identity database is read before any member bucket is known, so it
+    // sits behind a per-pod cache, and a lookup the cache cannot answer takes
+    // a token keyed by the token's verified subject first: a burst of 10, then
+    // one every 6 seconds, ample for a cache that asks once a minute.
+    const people = directory ? cachePersonDirectory(directory, { limiter: bucket(10, 1 / 6) }) : null;
     this.server = new FormsMcpServer({
       backend: new ApiFormsBackend(db, () => this.resolveHandlers()),
       toolTimeoutMs: env.MCP_TOOL_TIMEOUT_MS,
@@ -100,10 +105,10 @@ export class McpController implements OnModuleInit {
       // A `dforms_` bearer takes the key path above; any other is an access
       // token of the identity provider. Off: every bearer is a key, as before.
       oauth:
-        oauth && directory
+        oauth && people
           ? {
               isApiKey: (token) => token.startsWith(API_KEY_PREFIX),
-              authenticate: (token) => authenticateMcpConnection(db, oauth, directory, token, env.PUBLIC_APP_URL),
+              authenticate: (token) => authenticateMcpConnection(db, oauth, people, token, env.PUBLIC_APP_URL),
               resourceMetadataUrl: oauth.resourceMetadataUrl,
             }
           : undefined,

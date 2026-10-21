@@ -134,8 +134,39 @@ describe('signing in', () => {
     const h = await boot();
     const unknown = await h.post(initialize('2025-06-18'), { authorization: `Bearer ${idp.token('user_unknown', `${h.base}/mcp`)}` });
     expect(unknown.status).toBe(403);
-    expect(((await unknown.json()) as { error: { message: string } }).error.message).toMatch(/Open dForms once/);
+    expect(((await unknown.json()) as { error: { message: string } }).error.message).toMatch(/open dForms once/i);
     expect(unknown.headers.get('www-authenticate')).toBeNull();
+  });
+});
+
+describe('a flood', () => {
+  it('with one valid token asks the person directory once, not per request', async () => {
+    const h = await boot();
+    const p = await person(h);
+    const auth = { authorization: `Bearer ${idp.token(p.subject, `${h.base}/mcp`)}` };
+    const codes = await Promise.all(Array.from({ length: 10 }, () => h.post(initialize('2025-06-18'), auth).then((r) => r.status)));
+    for (let i = 0; i < 10; i += 1) codes.push((await h.post(initialize('2025-06-18'), auth)).status);
+    expect(codes.every((c) => c === 200)).toBe(true);
+    expect(h.directoryLookups()).toBe(1);
+  });
+
+  it('with a token for nobody asks the directory once too, and keeps refusing', async () => {
+    const h = await boot();
+    const auth = { authorization: `Bearer ${idp.token('user_nobody', `${h.base}/mcp`)}` };
+    for (let i = 0; i < 5; i += 1) expect((await h.post(initialize('2025-06-18'), auth)).status).toBe(403);
+    expect(h.directoryLookups()).toBe(1);
+  });
+});
+
+describe('an identity provider that cannot be reached', () => {
+  it("answers a sign-in 503 with a retry while its keys cannot be read, never a login loop", async () => {
+    const down = await bootHarness({}, { oauth: { issuer: 'http://127.0.0.1:9' } });
+    open.push(down);
+    const res = await down.post(initialize('2025-06-18'), { authorization: `Bearer ${idp.token('user_x', `${down.base}/mcp`)}` });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('30');
+    expect(res.headers.get('www-authenticate')).toBeNull();
+    expect(down.directoryLookups()).toBe(0);
   });
 });
 

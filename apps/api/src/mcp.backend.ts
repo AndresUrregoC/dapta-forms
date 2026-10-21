@@ -4,6 +4,7 @@ import { summarizeAnswers, type Answers, type FormConfig as EngineConfig } from 
 import {
   BackendError,
   DoorRefusal,
+  DoorUnavailable,
   type AnalyticsQuery,
   type CreateFormInput,
   type FormAnalytics,
@@ -23,7 +24,7 @@ import { API_KEY_PREFIX, hashApiKey } from './api-keys';
 import { isKeyAllowedRoute, routeOf } from './api-key-routes';
 import type { ReqLike } from './auth.provider';
 import { inProcessRequest } from './in-process-principal';
-import type { McpOAuth } from './mcp-oauth';
+import { IssuerUnavailable, type McpOAuth } from './mcp-oauth';
 import { lookUpPerson, type PersonDirectory } from './person-directory';
 
 /**
@@ -128,7 +129,8 @@ export async function authenticateMcpKey(db: Db, token: string): Promise<McpCall
  * Resolve an access token to an MCP connection: the person it signs in, with
  * one caller per workspace where they hold an active member (each acting as
  * that member through its own in-process principal). Null when the token does
- * not verify (a 401 that points at the login again).
+ * not verify (a 401 that points at the login again), and `DoorUnavailable`
+ * (a 503) while the identity provider's keys cannot be read.
  *
  * A token that verifies but names nobody the directory knows is a
  * `DoorRefusal` (403) with a message the person can act on, because signing
@@ -151,7 +153,15 @@ export async function authenticateMcpConnection(
   token: string,
   appUrl = '',
 ): Promise<McpConnection | null> {
-  const access = await oauth.verify(token);
+  let access;
+  try {
+    access = await oauth.verify(token);
+  } catch (error) {
+    // The identity provider's keys cannot be read and none are cached: an
+    // outage, so a 503 to retry, never a 401 that would loop the login.
+    if (error instanceof IssuerUnavailable) throw new DoorUnavailable('dForms cannot check this sign-in right now. Try again in a minute.');
+    throw error;
+  }
   if (!access) return null;
   const person = await lookUpPerson(directory, access.subject);
   if (!person) {

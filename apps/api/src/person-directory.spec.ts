@@ -4,9 +4,17 @@
  * are checked at boot; and a lookup's outcome in the door's terms.
  */
 import { describe, expect, it } from 'vitest';
-import { DoorRefusal, DoorUnavailable } from '@quill/mcp';
+import { DoorRefusal, DoorThrottled, DoorUnavailable } from '@quill/mcp';
 import { loadServerEnv } from '@quill/config/env';
-import { createPersonDirectory, lookUpPerson, PersonRefused, type PersonDirectory } from './person-directory';
+import {
+  cachePersonDirectory,
+  createPersonDirectory,
+  lookUpPerson,
+  PersonRefused,
+  type Person,
+  type PersonDirectory,
+} from './person-directory';
+import { TokenBucketRateLimiter } from './rate-limit';
 import { iamDirectoryConfig } from './person-directory.iam';
 
 const OAUTH = {
@@ -92,5 +100,107 @@ describe('a lookup, in the door\'s terms', () => {
     expect(error).toBeInstanceOf(DoorUnavailable);
     expect((error as Error).message).toMatch(/try again/i);
     expect((error as Error).message).not.toContain('10.1.2.3');
+  });
+});
+
+describe('the per-pod cache in front of the directory', () => {
+  const ADA: Person = { id: 'p-ada', email: 'ada@example.com' };
+
+  /** A directory over `table` that counts its lookups; `fail` makes it unreadable. */
+  function counting(table: Record<string, Person | PersonRefused> = { user_ada: ADA }) {
+    const state = { lookups: 0, fail: false, gate: null as Promise<void> | null };
+    const directory: PersonDirectory = {
+      async personOf(subject) {
+        state.lookups += 1;
+        if (state.gate) await state.gate;
+        if (state.fail) throw new Error('connect ECONNREFUSED');
+        const found = table[subject];
+        if (found instanceof PersonRefused) throw found;
+        return found ?? null;
+      },
+    };
+    return { state, directory };
+  }
+
+  function clock() {
+    let t = 1_000_000;
+    return { now: () => t, advance: (ms: number) => (t += ms) };
+  }
+
+  const roomy = () => new TokenBucketRateLimiter(1_000, 1_000);
+
+  it('answers a flood for one subject from one lookup, concurrent requests included', async () => {
+    const { state, directory } = counting();
+    let release!: () => void;
+    state.gate = new Promise<void>((r) => (release = r));
+    const cached = cachePersonDirectory(directory, { limiter: roomy() });
+    const burst = Array.from({ length: 50 }, () => cached.personOf('user_ada'));
+    release();
+    expect(await Promise.all(burst)).toEqual(Array.from({ length: 50 }, () => ADA));
+    for (let i = 0; i < 200; i += 1) expect(await cached.personOf('user_ada')).toEqual(ADA);
+    expect(state.lookups).toBe(1);
+  });
+
+  it('keeps a person for a minute, and nobody or a refusal only briefly', async () => {
+    const blocked = new PersonRefused('This account is inactive or blocked.');
+    const { state, directory } = counting({ user_ada: ADA, user_blocked: blocked });
+    const c = clock();
+    const cached = cachePersonDirectory(directory, { limiter: roomy(), now: c.now });
+    await cached.personOf('user_ada');
+    expect(await cached.personOf('user_nobody')).toBeNull();
+    await expect(cached.personOf('user_blocked')).rejects.toBe(blocked);
+    expect(state.lookups).toBe(3);
+
+    c.advance(5_000);
+    expect(await cached.personOf('user_nobody')).toBeNull();
+    await expect(cached.personOf('user_blocked')).rejects.toBeInstanceOf(PersonRefused);
+    expect(state.lookups).toBe(3);
+
+    c.advance(10_000);
+    await cached.personOf('user_nobody');
+    await expect(cached.personOf('user_blocked')).rejects.toBeInstanceOf(PersonRefused);
+    await cached.personOf('user_ada');
+    expect(state.lookups).toBe(5);
+
+    c.advance(46_000);
+    await cached.personOf('user_ada');
+    expect(state.lookups).toBe(6);
+  });
+
+  it('never keeps an outage: the next request asks the directory again', async () => {
+    const { state, directory } = counting();
+    const cached = cachePersonDirectory(directory, { limiter: roomy() });
+    state.fail = true;
+    await expect(cached.personOf('user_ada')).rejects.toThrow();
+    state.fail = false;
+    expect(await cached.personOf('user_ada')).toEqual(ADA);
+    expect(state.lookups).toBe(2);
+  });
+
+  it('takes a token per subject before every lookup, and answers past the budget with a 429', async () => {
+    const { state, directory } = counting();
+    const c = clock();
+    const cached = cachePersonDirectory(directory, { limiter: new TokenBucketRateLimiter(2, 0.001, c.now), now: c.now });
+    expect(await cached.personOf('user_x')).toBeNull();
+    c.advance(11_000);
+    expect(await cached.personOf('user_x')).toBeNull();
+    c.advance(11_000);
+    const error = await lookUpPerson(cached, 'user_x').catch((e) => e);
+    expect(error).toBeInstanceOf(DoorThrottled);
+    expect((error as DoorThrottled).retryAfterMs).toBeGreaterThan(0);
+    expect(state.lookups).toBe(2);
+    // Another subject has a bucket of its own.
+    expect(await cached.personOf('user_ada')).toEqual(ADA);
+  });
+
+  it('holds a bounded number of subjects, dropping the oldest first', async () => {
+    const { state, directory } = counting();
+    const cached = cachePersonDirectory(directory, { limiter: roomy(), maxEntries: 3 });
+    for (const s of ['user_ada', 's1', 's2', 's3']) await cached.personOf(s);
+    expect(state.lookups).toBe(4);
+    await cached.personOf('s3');
+    expect(state.lookups).toBe(4);
+    await cached.personOf('user_ada');
+    expect(state.lookups).toBe(5);
   });
 });

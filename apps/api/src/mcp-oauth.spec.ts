@@ -2,10 +2,11 @@
  * The MCP OAuth adapter's token check, against a key pair generated here and
  * served as the issuer's JWKS: RS256 only, `iss` and `aud` exactly as
  * configured, `sub` and `exp` required. Anything else is null (a 401 at the
- * door), never a throw.
+ * door), never a throw, except an issuer whose keys cannot be read with none
+ * cached: `IssuerUnavailable` (a 503).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createMcpOAuth, type McpOAuth } from './mcp-oauth';
+import { IssuerUnavailable, createMcpOAuth, type McpOAuth } from './mcp-oauth';
 import { startFakeIdentityProvider, type FakeIdentityProvider } from './fake-identity-provider';
 
 const RESOURCE = 'https://mcp.example.test/mcp';
@@ -85,13 +86,15 @@ describe('the MCP OAuth adapter', () => {
     expect(idp.jwksFetches() - before).toBeLessThanOrEqual(1);
   });
 
-  it('refuses every token while the issuer cannot be reached, without throwing', async () => {
+  it('reports the issuer unreachable, not the token bad, while it has no keys cached', async () => {
     const offline = createMcpOAuth({
       provider: 'workos',
       issuer: 'http://127.0.0.1:9',
       resource: RESOURCE,
       resourceMetadataUrl: 'https://mcp.example.test/.well-known/oauth-protected-resource/mcp',
     })!;
-    expect(await offline.verify(idp.token('user_A', RESOURCE))).toBeNull();
+    await expect(offline.verify(idp.token('user_A', RESOURCE))).rejects.toBeInstanceOf(IssuerUnavailable);
+    // Garbage is still just garbage: refused before any key is looked up.
+    expect(await offline.verify('a.b.c')).toBeNull();
   });
 });

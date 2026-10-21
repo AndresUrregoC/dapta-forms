@@ -12,6 +12,8 @@
 import type { McpOAuthConfig } from '@quill/config/env';
 import { createWorkosAuthKit } from './mcp-oauth.workos';
 
+export { IssuerUnavailable } from './jwt-rs256';
+
 /** A token that verified: who it names, in the identity provider's terms. */
 export interface VerifiedAccess {
   /** The token's `sub`: the person, as the identity provider knows them. */
@@ -32,7 +34,11 @@ export interface McpOAuth {
   /** Where `metadata()` is published; a 401 points clients at it. */
   readonly resourceMetadataUrl: string;
   metadata(): ProtectedResourceMetadata;
-  /** The token's subject when it verifies, else null (never a throw). */
+  /**
+   * The token's subject when it verifies, else null. Throws only
+   * `IssuerUnavailable`, when the identity provider's keys cannot be read and
+   * none are cached: an outage, not a bad token.
+   */
   verify(token: string): Promise<VerifiedAccess | null>;
 }
 
