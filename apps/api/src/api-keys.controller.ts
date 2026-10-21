@@ -44,7 +44,7 @@ import { z } from 'zod';
 import { AnalyticsEffects } from './analytics-effects';
 import { generateApiKey, type MintedApiKey } from './api-keys';
 import { keyNotAllowed } from './api-key-routes';
-import { AuthService, isApiKeyPrincipal, type HostPrincipal, type ReqLike } from './auth.service';
+import { AuthService, isAgentPrincipal, type HostPrincipal, type ReqLike } from './auth.service';
 import { assertOwnsOrAdmin, isAdmin } from './permissions';
 import { DB } from './tokens';
 
@@ -82,10 +82,10 @@ export class ApiKeysController {
     @Optional() @Inject(AnalyticsEffects) private readonly productAnalytics?: AnalyticsEffects,
   ) {}
 
-  /** The session principal; a key is refused even if the guard was bypassed. */
+  /** The session principal; an agent (a key or an MCP connection) is refused even if the guard was bypassed. */
   private async session(req: ReqLike): Promise<HostPrincipal> {
     const p = await this.auth.resolveHost(req);
-    if (isApiKeyPrincipal(p)) keyNotAllowed();
+    if (isAgentPrincipal(p)) keyNotAllowed();
     return p;
   }
 

@@ -1883,6 +1883,8 @@ export interface FormsMessages {
       /** The page heading: the rail section's name, "MCP". */
       title: string;
       subtitle: string;
+      /** The subtitle when the MCP also takes a sign-in: a chat app or a key. */
+      subtitleOauth: string;
       /**
        * The setup guide above the keys: create a key, connect the agent to the
        * dForms MCP server, try it. The skill download stays as the way in for an
@@ -1932,6 +1934,34 @@ export interface FormsMessages {
         /** The way in for an agent without MCP: the API skill zip. */
         skillTitle: string;
         skillBody: string;
+        /**
+         * The chat path, shown above the key guide only when this deployment's
+         * MCP takes a sign-in (OAuth): paste the URL into Claude.ai or ChatGPT
+         * and sign in, no key. The unavailable note reuses `mcpUnavailable`.
+         */
+        chat: {
+          title: string;
+          intro: string;
+          urlTitle: string;
+          urlBody: string;
+          /** The label on the URL panel. */
+          urlLabel: string;
+          copyUrl: string;
+          addTitle: string;
+          addBody: string;
+          /** Each chat app's connector steps, in order. Product names stay in English. */
+          claude: { name: string; steps: string[] };
+          chatgpt: { name: string; steps: string[] };
+          tryTitle: string;
+          prompt: string;
+          /** A person in several workspaces: the agent asks which one. */
+          workspacesNote: string;
+        };
+        /** The key guide's heading and intro when the chat path sits above it. */
+        terminal: {
+          title: string;
+          intro: string;
+        };
       };
       keys: {
         title: string;
@@ -3971,6 +4001,7 @@ export const en: FormsMessages = {
     developers: {
       title: 'MCP',
       subtitle: 'Connect an AI agent or your own code to dForms with an API key.',
+      subtitleOauth: 'Connect an AI agent to dForms: from a chat app with your account, or from a terminal with an API key.',
       guide: {
         title: 'Connect your agent in 3 steps',
         intro:
@@ -4009,6 +4040,42 @@ export const en: FormsMessages = {
         skillTitle: 'No MCP in your agent?',
         skillBody:
           'Download the skill: a zip that teaches any agent with a terminal to use the dForms API with the same key.',
+        chat: {
+          title: 'Connect Claude.ai or ChatGPT',
+          intro:
+            'No key needed: add the dForms MCP as a connector and sign in with the account you use for dForms. Your agent then works in your workspaces, with your role.',
+          urlTitle: 'Copy the URL',
+          urlBody: 'The address of the dForms MCP server. Your chat app asks for it once.',
+          urlLabel: 'MCP URL',
+          copyUrl: 'Copy URL',
+          addTitle: 'Add it as a connector',
+          addBody: 'Follow the steps for your chat app. Claude Desktop uses the same connectors as Claude.ai.',
+          claude: {
+            name: 'Claude.ai',
+            steps: [
+              'Open Settings, then Connectors.',
+              'Click Add custom connector, name it dForms and paste the URL.',
+              'Click Connect and sign in with the account you use for dForms.',
+            ],
+          },
+          chatgpt: {
+            name: 'ChatGPT',
+            steps: [
+              'Open Settings, then Apps, and turn on Developer mode under Advanced settings.',
+              'Click Create app, name it dForms, paste the URL and choose OAuth.',
+              'Sign in with the account you use for dForms when ChatGPT asks.',
+            ],
+          },
+          tryTitle: 'Ask it for something',
+          prompt:
+            'Use dForms: tell me which workspaces I can work in, then create a contact form with name, email and message and give me its link.',
+          workspacesNote: 'In several workspaces? Your agent asks which one to use and tells you where each change happened.',
+        },
+        terminal: {
+          title: 'Connect a terminal agent',
+          intro:
+            'Claude Code, Codex and Cursor connect with an API key, then create, edit and publish forms and read responses and analytics for you.',
+        },
       },
       keys: {
         title: 'API keys',
@@ -6193,6 +6260,7 @@ export const es: FormsMessages = {
     developers: {
       title: 'MCP',
       subtitle: 'Conecta un agente de IA o tu propio código a dForms con una llave de API.',
+      subtitleOauth: 'Conecta un agente de IA a dForms: desde un chat con tu cuenta o desde una terminal con una llave de API.',
       guide: {
         title: 'Conecta tu agente en 3 pasos',
         intro:
@@ -6231,6 +6299,42 @@ export const es: FormsMessages = {
         skillTitle: '¿Tu agente no tiene MCP?',
         skillBody:
           'Descarga el skill: un zip que le enseña a cualquier agente con terminal a usar la API de dForms con la misma llave.',
+        chat: {
+          title: 'Conecta Claude.ai o ChatGPT',
+          intro:
+            'Sin llave: agrega el MCP de dForms como conector y entra con la cuenta que usas en dForms. Tu agente trabaja en tus workspaces, con tu rol.',
+          urlTitle: 'Copia la URL',
+          urlBody: 'La dirección del servidor MCP de dForms. Tu chat te la pide una sola vez.',
+          urlLabel: 'URL del MCP',
+          copyUrl: 'Copiar URL',
+          addTitle: 'Agrégalo como conector',
+          addBody: 'Sigue los pasos de tu chat. Claude Desktop usa los mismos conectores que Claude.ai.',
+          claude: {
+            name: 'Claude.ai',
+            steps: [
+              'Abre Configuración y luego Conectores.',
+              'Haz clic en Agregar conector personalizado, ponle dForms de nombre y pega la URL.',
+              'Haz clic en Conectar y entra con la cuenta que usas en dForms.',
+            ],
+          },
+          chatgpt: {
+            name: 'ChatGPT',
+            steps: [
+              'Abre Configuración, luego Apps, y prende el modo desarrollador en Configuración avanzada.',
+              'Haz clic en Crear app, ponle dForms de nombre, pega la URL y elige OAuth.',
+              'Entra con la cuenta que usas en dForms cuando ChatGPT te lo pida.',
+            ],
+          },
+          tryTitle: 'Pídele algo',
+          prompt:
+            'Usa dForms: dime en qué workspaces puedo trabajar, créame un form de contacto con nombre, email y mensaje y dame su link.',
+          workspacesNote: '¿Estás en varios workspaces? Tu agente te pregunta en cuál trabajar y te dice dónde hizo cada cambio.',
+        },
+        terminal: {
+          title: 'Conecta un agente de terminal',
+          intro:
+            'Claude Code, Codex y Cursor se conectan con una llave de API y desde ahí crean, editan y publican forms y leen respuestas y analítica por ti.',
+        },
       },
       keys: {
         title: 'Llaves de API',

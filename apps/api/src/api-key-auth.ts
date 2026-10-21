@@ -23,7 +23,7 @@
 import { ForbiddenException, HttpException, HttpStatus, Logger, UnauthorizedException } from '@nestjs/common';
 import { findApiKeyPrincipal, touchApiKeyLastUsed, type Db } from '@quill/db';
 import type { ServerEnv } from '@quill/config/env';
-import { hashApiKey, isMcpRequest } from './api-keys';
+import { hashApiKey } from './api-keys';
 import { header, type HostPrincipal, type ReqLike } from './auth.provider';
 import { noteApiKeyCall } from './deprecated-hosts';
 import { NoopRateLimiter, TokenBucketRateLimiter, type RateLimiter } from './rate-limit';
@@ -74,8 +74,22 @@ export class ApiKeyAuthenticator {
   ) {}
 
   async resolve(req: ReqLike, key: string): Promise<HostPrincipal> {
-    const row = await findApiKeyPrincipal(this.db, hashApiKey(key));
+    return this.resolveHash(req, hashApiKey(key));
+  }
+
+  /**
+   * The same steps for a key known by its hash: the MCP's in-process
+   * principal carries the hash, never the key. `expected` is the member and
+   * workspace that principal names; a key that resolves to any other is a 401.
+   */
+  async resolveHash(
+    req: ReqLike,
+    keyHash: string,
+    expected?: { accountId: string; memberId: string },
+  ): Promise<HostPrincipal> {
+    const row = await findApiKeyPrincipal(this.db, keyHash);
     if (!row || row.memberStatus !== 'active') invalidKey();
+    if (expected && (expected.accountId !== row.accountId || expected.memberId !== row.memberId)) invalidKey();
     noteApiKeyCall(req, row.keyId, row.accountId);
 
     const requested = header(req, WORKSPACE_HEADER)?.trim();
@@ -107,7 +121,6 @@ export class ApiKeyAuthenticator {
       role: row.role,
       via: 'api_key',
       apiKeyId: row.keyId,
-      ...(isMcpRequest(req) ? { channel: 'mcp' as const } : {}),
     };
   }
 

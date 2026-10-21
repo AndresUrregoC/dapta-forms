@@ -154,6 +154,7 @@ describe("findApiKeyPrincipal", () => {
     expect(await findApiKeyPrincipal(db, hash)).toMatchObject({
       keyId: r.value.id,
       accountId,
+      accountName: "Test",
       memberId: bob,
       role: "member",
       memberStatus: "active",

@@ -60,6 +60,8 @@ export interface ApiKeyRecord {
 export interface ApiKeyPrincipalRow {
   keyId: string;
   accountId: string;
+  /** The key's workspace name, so an agent can be told where it acts. */
+  accountName: string;
   memberId: string;
   role: AccountRole;
   memberStatus: string;
@@ -225,9 +227,10 @@ export async function findApiKeyPrincipal(
   keyHash: string,
 ): Promise<ApiKeyPrincipalRow | null> {
   const r = await db.get<Record<string, unknown>>(
-    sql`SELECT k.id, k.account_id, k.member_id, k.last_used_at_ms, m.role, m.status
+    sql`SELECT k.id, k.account_id, k.member_id, k.last_used_at_ms, m.role, m.status, a.name AS account_name
         FROM api_key k
         JOIN member m ON m.id = k.member_id AND m.account_id = k.account_id
+        JOIN account a ON a.id = k.account_id
         WHERE k.key_hash = ${keyHash} AND k.revoked_at_ms IS NULL
         LIMIT 1`,
   );
@@ -235,6 +238,7 @@ export async function findApiKeyPrincipal(
   return {
     keyId: String(r.id),
     accountId: String(r.account_id),
+    accountName: String(r.account_name ?? ""),
     memberId: String(r.member_id),
     role: ((r.role as AccountRole | null) ?? "member") as AccountRole,
     memberStatus: String(r.status ?? "active"),

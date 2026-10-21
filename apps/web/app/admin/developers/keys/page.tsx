@@ -4,7 +4,7 @@ import { getMessages } from '@quill/shared';
 import { adminApi, type ApiKey } from '@/lib/admin-api';
 import { getLocale } from '@/lib/locale';
 import { publicApiUrl } from '@/lib/developer-skill/public-api-url';
-import { mcpSnippets, publicMcpUrl } from '@/lib/developer-skill/mcp-connect';
+import { mcpOauthEnabled, mcpSnippets, publicMcpUrl } from '@/lib/developer-skill/mcp-connect';
 import { PageHeader } from '@/components/ui/page-header';
 import { buttonVariants } from '@/components/ui/button';
 import { ApiKeysPanel } from '../api-keys';
@@ -14,7 +14,10 @@ export const dynamic = 'force-dynamic';
 
 /**
  * MCP, API keys: a three-step guide (create a key, connect the agent to the
- * dForms MCP server, try it) above the workspace's keys. The MCP address is
+ * dForms MCP server, try it) above the workspace's keys. When this deployment's
+ * MCP also takes a sign-in (`MCP_OAUTH_PROVIDER`, see `mcpOauthEnabled`), a
+ * chat path comes first (Claude.ai and ChatGPT: paste the URL, sign in, no key)
+ * and the key guide becomes the path for terminal agents. The MCP address is
  * read from the server's runtime environment on every request (`publicMcpUrl`),
  * never from a build-time variable, and every snippet names the key's
  * environment variable, never a key. The skill zip, the same as on the API
@@ -41,6 +44,9 @@ export default async function DeveloperKeysPage() {
   ]);
 
   const mcpUrl = publicMcpUrl();
+  // Runtime, like the address: one image serves every environment, and only
+  // some of them have the sign-in switched on.
+  const oauth = mcpOauthEnabled();
 
   let keys: ApiKey[] = [];
   let loadError = false;
@@ -54,7 +60,7 @@ export default async function DeveloperKeysPage() {
     <div className="mx-auto max-w-5xl px-6 py-10 sm:px-8">
       <PageHeader
         title={m.developers.title}
-        subtitle={m.developers.subtitle}
+        subtitle={oauth ? m.developers.subtitleOauth : m.developers.subtitle}
         action={
           <Link
             href="/admin/developers/docs"
@@ -76,6 +82,8 @@ export default async function DeveloperKeysPage() {
         guide={{
           m: m.developers.guide,
           mcp: mcpUrl ? mcpSnippets(mcpUrl) : null,
+          // On only with MCP_PUBLIC_URL set, so the address is the API's token audience.
+          chat: oauth && mcpUrl ? { url: mcpUrl } : null,
           skill: {
             // Read at request time like the docs page does: the route answers 503
             // without a public API address, so the button would only fail.

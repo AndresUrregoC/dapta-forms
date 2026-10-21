@@ -38,6 +38,17 @@ export const GUIDE_LIFECYCLE: readonly string[] = [
   'revert_form: puts the previously published version back live. Calling it again undoes the revert. It only works when get_form shows previous_published_at.',
 ];
 
+/** Which workspace a call acts in, for each way of connecting. */
+export const GUIDE_WORKSPACES: readonly string[] = [
+  'Connected with an API key: the key belongs to one workspace and every call acts there. Leave workspace_id out; a different workspace_id is refused with WORKSPACE_MISMATCH.',
+  'Signed in as a person (a chat connector such as Claude.ai or ChatGPT): you may reach several workspaces. Call list_my_workspaces before the first call that reads or changes forms.',
+  'One workspace: use it without asking; workspace_id is optional.',
+  'Several workspaces: ask the user which one by its name (never pick one yourself, never ask for an id), then send its id as workspace_id on every call of the conversation. A call without it answers WORKSPACE_REQUIRED: ask the user and repeat the call with workspace_id.',
+  'If the user asks to switch workspace, use the new id from then on and say so. Form ids belong to one workspace: a form from another workspace answers NOT_FOUND.',
+  'Every result names the workspace it acted in (`workspace`). If it is not the one the user means, stop and ask before you go on.',
+  'No workspace yet (NO_WORKSPACE): the person has never opened dForms with this account. Tell them to open it once, then try again.',
+];
+
 export const GUIDE_STEP_TYPES: ReadonlyArray<{ type: string; use_for: string }> = [
   { type: 'name', use_for: "The person's name. Collects first and last name. Always this type for a name, never text." },
   { type: 'email', use_for: 'An email address.' },
@@ -83,6 +94,7 @@ export interface FormGuide {
   lifecycle?: readonly string[];
   step_types?: ReadonlyArray<{ type: string; use_for: string }>;
   logic?: readonly string[];
+  workspaces?: readonly string[];
   config_schema?: Record<string, unknown>;
   examples?: ReadonlyArray<{ name: string; what: string; config: unknown }>;
 }
@@ -93,7 +105,7 @@ export function formGuide(part: GuidePart = 'all'): FormGuide {
   return {
     part,
     ...(all || part === 'rules'
-      ? { rules: GUIDE_RULES, lifecycle: GUIDE_LIFECYCLE, step_types: GUIDE_STEP_TYPES, logic: GUIDE_LOGIC }
+      ? { rules: GUIDE_RULES, workspaces: GUIDE_WORKSPACES, lifecycle: GUIDE_LIFECYCLE, step_types: GUIDE_STEP_TYPES, logic: GUIDE_LOGIC }
       : {}),
     ...(all || part === 'config_schema' ? { config_schema: formConfigJsonSchema() } : {}),
     ...(all || part === 'examples' ? { examples: GUIDE_EXAMPLES } : {}),

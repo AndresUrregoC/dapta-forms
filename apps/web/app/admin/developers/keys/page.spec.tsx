@@ -195,6 +195,88 @@ describe('DevelopersPage', () => {
       expect(html).not.toContain('claude mcp add');
     });
 
+    describe('the two paths: a chat app with a sign-in, a terminal agent with a key', () => {
+      const section = (html: string, id: string) => {
+        const start = html.indexOf(`data-testid="${id}"`);
+        if (start < 0) return '';
+        const open = html.lastIndexOf('<section', start);
+        return html.slice(open, html.indexOf('</section>', start) + '</section>'.length);
+      };
+
+      afterEach(() => {
+        delete process.env.MCP_OAUTH_PROVIDER;
+      });
+
+      it('with OAuth off, shows the key guide alone, as before: no chat path, and the note that chat apps cannot connect yet', async () => {
+        me.mockResolvedValue(caller('member'));
+        listApiKeys.mockResolvedValue({ keys });
+        const html = await render();
+        const m = getMessages('en').admin.developers;
+        expect(html).not.toContain('data-testid="mcp-path-chat"');
+        expect(html).toContain(m.subtitle);
+        expect(decode(section(html, 'setup-guide'))).toContain(m.guide.title);
+        expect(decode(html)).toContain(m.guide.chatNote);
+        expect(html).not.toContain(m.guide.terminal.title);
+      });
+
+      it('with OAuth on, puts the chat path first with the URL of this environment, then the key guide for terminal agents, then the keys', async () => {
+        process.env.MCP_OAUTH_PROVIDER = 'workos';
+        process.env.MCP_PUBLIC_URL = 'https://mcp.forms.example.com/mcp';
+        me.mockResolvedValue(caller('member'));
+        listApiKeys.mockResolvedValue({ keys });
+        const html = await render();
+        const m = getMessages('en').admin.developers;
+        const at = (id: string) => html.indexOf(`data-testid="${id}"`);
+        expect(at('mcp-path-chat')).toBeGreaterThan(-1);
+        expect(at('mcp-path-chat')).toBeLessThan(at('setup-guide'));
+        expect(at('setup-guide')).toBeLessThan(at('api-keys'));
+
+        const chat = decode(section(html, 'mcp-path-chat'));
+        expect(chat).toContain(m.guide.chat.title);
+        expect(chat).toContain('https://mcp.forms.example.com/mcp');
+        // Both chat apps, each with its own steps, both on screen at once.
+        for (const step of [...m.guide.chat.claude.steps, ...m.guide.chat.chatgpt.steps]) expect(chat).toContain(step);
+        // No key on this path: nothing to export, no header to send.
+        expect(chat).not.toContain('DFORMS_API_KEY');
+
+        const terminal = decode(section(html, 'setup-guide'));
+        expect(terminal).toContain(m.guide.terminal.title);
+        expect(terminal).toContain('claude mcp add --transport http dforms https://mcp.forms.example.com/mcp');
+        // The "chat apps cannot connect yet" note would now be false.
+        expect(decode(html)).not.toContain(m.guide.chatNote);
+        expect(html).toContain(m.subtitleOauth);
+        expect(html).not.toContain(`>${m.subtitle}<`);
+      });
+
+      it('with the provider set but no MCP_PUBLIC_URL, offers no chat path: the address it would derive is not the audience the API checks', async () => {
+        process.env.MCP_OAUTH_PROVIDER = 'workos';
+        me.mockResolvedValue(caller('member'));
+        listApiKeys.mockResolvedValue({ keys });
+        const html = await render();
+        const m = getMessages('en').admin.developers;
+        expect(html).not.toContain('data-testid="mcp-path-chat"');
+        expect(html).toContain(m.subtitle);
+        expect(decode(html)).toContain(m.guide.chatNote);
+      });
+
+      it('with OAuth on, speaks Spanish to a Spanish reader on both paths', async () => {
+        process.env.MCP_OAUTH_PROVIDER = 'workos';
+        process.env.MCP_PUBLIC_URL = 'https://mcp.forms.example.com/mcp';
+        locale.value = 'es';
+        me.mockResolvedValue(caller('member'));
+        listApiKeys.mockResolvedValue({ keys });
+        const html = await render();
+        const es = getMessages('es').admin.developers;
+        const chat = decode(section(html, 'mcp-path-chat'));
+        expect(chat).toContain(es.guide.chat.title);
+        expect(chat).toContain(es.guide.chat.claude.steps[0]);
+        expect(chat).toContain(es.guide.chat.chatgpt.steps[0]);
+        expect(decode(section(html, 'setup-guide'))).toContain(es.guide.terminal.title);
+        expect(html).toContain(es.subtitleOauth);
+        expect(decode(html)).not.toContain(es.guide.chatNote);
+      });
+    });
+
     it('speaks Spanish to a Spanish reader', async () => {
       locale.value = 'es';
       me.mockResolvedValue(caller('member'));

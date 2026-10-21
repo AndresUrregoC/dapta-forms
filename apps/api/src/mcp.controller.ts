@@ -6,6 +6,7 @@ import type { ServerEnv } from '@quill/config/env';
 import {
   FormsMcpServer,
   McpDoor,
+  isConnection,
   unlimited,
   type DoorRequest,
   type DoorResponse,
@@ -18,13 +19,17 @@ import {
   ApiFormsBackend,
   MCP_ANALYTICS_HANDLERS,
   MCP_FORM_HANDLERS,
+  authenticateMcpConnection,
   authenticateMcpKey,
   keyAllowedRoutes,
   type McpHandlers,
 } from './mcp.backend';
 import { noteApiKeyCall } from './deprecated-hosts';
+import { API_KEY_PREFIX } from './api-keys';
+import type { McpOAuth } from './mcp-oauth';
+import { cachePersonDirectory, type PersonDirectory } from './person-directory';
 import { TokenBucketRateLimiter, clientKey, resolveTrustProxyHops } from './rate-limit';
-import { DB, ENV, RATE_LIMITER } from './tokens';
+import { DB, ENV, MCP_OAUTH, PERSON_DIRECTORY, RATE_LIMITER } from './tokens';
 
 function csv(value: string | undefined): string[] {
   return (value ?? '')
@@ -69,14 +74,24 @@ export class McpController implements OnModuleInit {
     // The public per-IP bucket: requests without a valid key are charged to it.
     @Inject(RATE_LIMITER) ipLimiter: RateLimiter,
     @Inject(ModuleRef) private readonly moduleRef: ModuleRef,
+    // MCP connections over OAuth: both null unless MCP_OAUTH_PROVIDER is set.
+    @Inject(MCP_OAUTH) oauth: McpOAuth | null,
+    @Inject(PERSON_DIRECTORY) directory: PersonDirectory | null,
   ) {
     this.trustProxyHops = resolveTrustProxyHops(env);
     const bucket = (capacity: number, refill: number): RateLimiter =>
       env.RATE_LIMIT_ENABLED ? new TokenBucketRateLimiter(capacity, refill) : unlimited;
+    // The identity database is read before any member bucket is known, so it
+    // sits behind a per-pod cache, and a lookup the cache cannot answer takes
+    // a token keyed by the token's verified subject first: a burst of 10, then
+    // one every 6 seconds, ample for a cache that asks once a minute.
+    const people = directory ? cachePersonDirectory(directory, { limiter: bucket(10, 1 / 6) }) : null;
     this.server = new FormsMcpServer({
       backend: new ApiFormsBackend(db, () => this.resolveHandlers()),
       toolTimeoutMs: env.MCP_TOOL_TIMEOUT_MS,
       writeLimiter: bucket(env.MCP_WRITE_RATE_LIMIT_CAPACITY, env.MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC),
+      // Named to a signed-in person with no workspace yet: open dForms once there.
+      appUrl: env.PUBLIC_APP_URL,
       // Class and code only: a stack or a message can quote the request's data.
       onInternalError: (tool, requestId, error) => this.logger.error(`tool ${tool} failed (${requestId}): ${errorLabel(error)}`),
       onTransportError: (error) => this.logger.warn(`mcp transport: ${errorLabel(error)}`),
@@ -87,8 +102,20 @@ export class McpController implements OnModuleInit {
       allowedOrigins: csv(env.MCP_ALLOWED_ORIGINS),
       allowedHosts: csv(env.MCP_ALLOWED_HOSTS),
       authenticate: (token) => authenticateMcpKey(db, token),
+      // A `dforms_` bearer takes the key path above; any other is an access
+      // token of the identity provider. Off: every bearer is a key, as before.
+      oauth:
+        oauth && people
+          ? {
+              isApiKey: (token) => token.startsWith(API_KEY_PREFIX),
+              authenticate: (token) => authenticateMcpConnection(db, oauth, people, token, env.PUBLIC_APP_URL),
+              resourceMetadataUrl: oauth.resourceMetadataUrl,
+            }
+          : undefined,
       // A key call on a deprecated API host is logged by key id, like REST.
-      onAuthenticated: (req, caller) => noteApiKeyCall(req, caller.credentialId, caller.accountId),
+      onAuthenticated: (req, credential) => {
+        if (!isConnection(credential)) noteApiKeyCall(req, credential.credentialId, credential.accountId);
+      },
       keyLimiter: bucket(env.MCP_RATE_LIMIT_CAPACITY, env.MCP_RATE_LIMIT_REFILL_PER_SEC),
       ipLimiter,
     });

@@ -139,6 +139,11 @@ export function keyNotAllowed(): never {
  * Applied app-wide. Lets every request through untouched unless it carries an
  * API key; with a key, refuses any admin route outside the allowlist. A
  * handler whose route cannot be read is refused too (fail closed).
+ *
+ * The MCP calls its handlers in process, never through Nest's pipeline, so
+ * this guard never runs for an in-process principal; `keyAllowedRoutes`
+ * (mcp.backend.ts) makes the same check for every handler the MCP can call,
+ * at boot.
  */
 @Injectable()
 export class ApiKeyRouteGuard implements CanActivate {

@@ -16,8 +16,17 @@ describe('formGuide', () => {
     expect(all.examples).toBe(GUIDE_EXAMPLES);
     expect(Object.keys(formGuide('examples')).sort()).toEqual(['examples', 'part']);
     expect(Object.keys(formGuide('config_schema')).sort()).toEqual(['config_schema', 'part']);
-    expect(Object.keys(formGuide('rules')).sort()).toEqual(['lifecycle', 'logic', 'part', 'rules', 'step_types']);
+    expect(Object.keys(formGuide('rules')).sort()).toEqual(['lifecycle', 'logic', 'part', 'rules', 'step_types', 'workspaces']);
     expect(GUIDE_PARTS).toContain('all');
+  });
+
+  it('tells an agent how to choose a workspace, for an API key and for a person signed in', () => {
+    const text = formGuide('rules').workspaces!.join(' ');
+    expect(text).toContain('list_my_workspaces');
+    expect(text).toContain('workspace_id');
+    expect(text).toMatch(/API key/);
+    expect(text).toMatch(/WORKSPACE_REQUIRED/);
+    expect(text).toMatch(/never pick one yourself/);
   });
 
   it('names every step type the engine knows, and no other', () => {

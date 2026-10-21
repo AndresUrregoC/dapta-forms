@@ -10,23 +10,70 @@
  *
  * The caller's identity reaches the backend as an opaque `McpCaller.context`:
  * whatever the host's authenticator put there (forms-api: what it needs to act
- * as the key's member). The package never reads it, logs it or returns it.
+ * as one member in one workspace). The package never reads it, logs it or
+ * returns it.
+ *
+ * Two kinds of credential reach the door. An API key is an `McpCaller`: one
+ * member in one workspace, fixed by the key. An MCP connection (a person
+ * signed in through OAuth) is an `McpConnection`: a person with one
+ * `McpCaller` per workspace where they hold an active member, and each tool
+ * call names the one it acts in.
  */
 
-/** Who is calling, as the host's authenticator resolved it at the door. */
+/** One member in one workspace: who a tool call acts as. */
 export interface McpCaller {
   /** The workspace every call acts in. Always from the credential, never from an argument. */
   accountId: string;
+  /** That workspace's name, as its members see it. Every result names the workspace it acted in. */
+  workspaceName: string;
   /** The member the credential acts as. */
   memberId: string;
   /** That member's role in the workspace (`owner`, `admin`, `member`). */
   role: string;
-  /** Stable id of the credential (an API key id), for rate-limit buckets. */
+  /**
+   * Stable id of the rate-limit bucket: the API key's id, or for an MCP
+   * connection its member (so one person's clients share one budget).
+   */
   credentialId: string;
-  /** The credential's public label (the key prefix, `dforms_ab12c`). The only identity that reaches a log. */
+  /**
+   * The credential's public label: the key prefix (`dforms_ab12c`), or for an
+   * MCP connection the person it signed in as. Never a secret: it reaches logs.
+   */
   label: string;
+  /**
+   * The person an MCP connection signed in as, in the terms members are keyed
+   * by. Absent for an API key.
+   */
+  personId?: string;
   /** Host-defined, opaque to this package: how the backend acts as this caller. */
   context: unknown;
+}
+
+/**
+ * An MCP connection: a person signed in through OAuth, who may act in every
+ * workspace where they hold an active member. The host resolves it again on
+ * every request, so a member removed or disabled drops out of `workspaces` on
+ * the next call.
+ */
+export interface McpConnection {
+  /** The person, in the terms members are keyed by. */
+  personId: string;
+  /** The person's email, when the host knows it. */
+  email: string | null;
+  /** The connection's public label (`oauth:<person>`). Never a secret: it reaches logs. */
+  label: string;
+  /**
+   * One caller per workspace the person may act in now, in a stable order (by
+   * workspace name). Empty when they have no active member anywhere yet.
+   */
+  workspaces: McpCaller[];
+}
+
+/** Who the door let in: an API key (one workspace) or an MCP connection (a person). */
+export type McpCredential = McpCaller | McpConnection;
+
+export function isConnection(credential: McpCredential): credential is McpConnection {
+  return 'workspaces' in credential;
 }
 
 /** One problem with a write, as the host's validator reports it. */

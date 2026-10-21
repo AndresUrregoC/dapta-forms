@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { bootHarness, capped, errorText, initialize, structured, type Harness, type HarnessOptions } from './__tests__/harness';
-import { hostnameOf, mcpCorsPolicy, normalizeOrigin } from './door';
+import type { McpCaller, McpConnection } from './backend';
+import { DoorRefusal, DoorThrottled, DoorUnavailable, hostnameOf, mcpCorsPolicy, normalizeOrigin, type McpDoorOAuth } from './door';
 
 const open: Harness[] = [];
 async function boot(opts: HarnessOptions = {}) {
@@ -176,10 +177,138 @@ describe('credentials', () => {
     expect(seen[0]!.credentialId).toEqual(expect.any(String));
   });
 
-  it('builds the challenge through the OAuth seam when one is given', async () => {
-    const h = await boot({ door: { challenge: () => 'Bearer resource_metadata="https://mcp.example.test/.well-known/oauth-protected-resource"' } });
+});
+
+const METADATA = 'https://mcp.example.test/.well-known/oauth-protected-resource/mcp';
+
+/** One workspace of a connection, as a host's OAuth side resolves it: the person acting as one member. */
+function workspaceCaller(over: Partial<McpCaller> = {}): McpCaller {
+  return {
+    accountId: 'acct-1',
+    workspaceName: 'Acme',
+    memberId: 'member-owner',
+    role: 'owner',
+    credentialId: 'member:member-owner',
+    label: 'oauth:person-1',
+    personId: 'person-1',
+    context: {},
+    ...over,
+  };
+}
+
+/** A connection: person-1 with these workspaces (one, in Acme, by default). */
+function connection(workspaces: McpCaller[] = [workspaceCaller()]): McpConnection {
+  return { personId: 'person-1', email: 'ada@example.test', label: 'oauth:person-1', workspaces };
+}
+
+/** The door's OAuth side over a fixed table of access tokens, recording what it was asked. */
+function oauthSide(tokens: Record<string, McpConnection | DoorRefusal | DoorUnavailable | DoorThrottled> = {}) {
+  const asked: string[] = [];
+  const oauth: McpDoorOAuth = {
+    isApiKey: (t) => t.startsWith('dforms_'),
+    resourceMetadataUrl: METADATA,
+    async authenticate(t) {
+      asked.push(t);
+      const found = tokens[t];
+      if (found instanceof DoorRefusal || found instanceof DoorUnavailable || found instanceof DoorThrottled) throw found;
+      return found ?? null;
+    },
+  };
+  return { oauth, asked };
+}
+
+describe('MCP connections (the OAuth side of the door)', () => {
+  it('points a request without a credential at the protected-resource metadata', async () => {
+    const h = await boot({ door: { oauth: oauthSide().oauth } });
     const res = await h.post(initialize('2025-06-18'));
-    expect(res.headers.get('www-authenticate')).toContain('resource_metadata=');
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toBe(`Bearer resource_metadata="${METADATA}"`);
+    expect(((await res.json()) as { error: { message: string } }).error.message).toMatch(/sign in/i);
+  });
+
+  it('sends an API key down the key path only, and a dead key never invites a login', async () => {
+    const { oauth, asked } = oauthSide();
+    const h = await boot({ door: { oauth } });
+    expect((await h.post(initialize('2025-06-18'), { authorization: `Bearer ${h.key()}` })).status).toBe(200);
+    const dead = await h.post(initialize('2025-06-18'), { authorization: 'Bearer dforms_revoked' });
+    expect(dead.status).toBe(401);
+    expect(dead.headers.get('www-authenticate')).toContain('invalid_token');
+    expect(dead.headers.get('www-authenticate')).not.toContain('resource_metadata');
+    expect(((await dead.json()) as { error: { message: string } }).error.message).toContain('API key');
+    expect(asked).toEqual([]);
+  });
+
+  it('sends any other bearer to the OAuth side, and runs the tools as the caller it resolves', async () => {
+    const { oauth, asked } = oauthSide({ 'access-token-1': connection() });
+    const h = await boot({ door: { oauth } });
+    const c = await h.connect('access-token-1');
+    const who = structured<{ key: unknown; member: { role: string } }>(await c.callTool({ name: 'whoami', arguments: {} }));
+    expect(who.key).toBeNull();
+    expect(h.calls[0]).toMatchObject({ method: 'whoami', caller: { personId: 'person-1', memberId: 'member-owner' } });
+    expect(asked.every((t) => t === 'access-token-1')).toBe(true);
+  });
+
+  it('answers a token it cannot verify with 401 invalid_token that points at the login again', async () => {
+    const h = await boot({ door: { oauth: oauthSide().oauth } });
+    const res = await h.post(initialize('2025-06-18'), { authorization: 'Bearer eyJ.not.verified' });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toBe(`Bearer error="invalid_token", resource_metadata="${METADATA}"`);
+    expect(((await res.json()) as { error: { message: string } }).error.message).toMatch(/sign in again/i);
+  });
+
+  it('answers a refusal with 403 and its message, charged to the client address', async () => {
+    const refusal = new DoorRefusal('Open dForms once to create your workspace, then connect again.');
+    const h = await boot({ door: { oauth: oauthSide({ 'no-workspace': refusal }).oauth, ipLimiter: capped(1) } });
+    const res = await h.post(initialize('2025-06-18'), { authorization: 'Bearer no-workspace' });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { message: string } }).error.message).toBe(refusal.message);
+    expect((await h.post(initialize('2025-06-18'), { authorization: 'Bearer no-workspace' })).status).toBe(429);
+  });
+
+  it('answers a sign-in that cannot be checked right now with 503 and a retry, never a login loop', async () => {
+    const outage = new DoorUnavailable('dForms cannot check this sign-in right now. Try again in a minute.');
+    const h = await boot({ door: { oauth: oauthSide({ 'directory-down': outage }).oauth, ipLimiter: capped(1) } });
+    const res = await h.post(initialize('2025-06-18'), { authorization: 'Bearer directory-down' });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('30');
+    expect(res.headers.get('www-authenticate')).toBeNull();
+    expect(((await res.json()) as { error: { message: string } }).error.message).toBe(outage.message);
+    expect((await h.post(initialize('2025-06-18'), { authorization: 'Bearer directory-down' })).status).toBe(429);
+  });
+
+  it('answers a sign-in looked up too often with 429 and a delay, never a login loop', async () => {
+    const h = await boot({ door: { oauth: oauthSide({ flood: new DoorThrottled(2_500) }).oauth } });
+    const res = await h.post(initialize('2025-06-18'), { authorization: 'Bearer flood' });
+    expect(res.status).toBe(429);
+    expect(res.headers.get('retry-after')).toBe('3');
+    expect(res.headers.get('www-authenticate')).toBeNull();
+  });
+
+  it('answers any credential that is not a plain bearer with the OAuth challenge, so the client can sign in', async () => {
+    const { oauth, asked } = oauthSide();
+    const h = await boot({ door: { oauth } });
+    for (const authorization of ['Bearer', 'Basic abc', 'Bearer a b', 'Token xyz']) {
+      const res = await h.post(initialize('2025-06-18'), { authorization });
+      expect(res.status, authorization).toBe(401);
+      expect(res.headers.get('www-authenticate'), authorization).toBe(`Bearer error="invalid_token", resource_metadata="${METADATA}"`);
+    }
+    expect(asked).toEqual([]);
+  });
+
+  it('writes the person and the member to the audit line, never the token', async () => {
+    const h = await boot({ door: { oauth: oauthSide({ 'access-token-1': connection() }).oauth } });
+    const c = await h.connect('access-token-1');
+    await c.callTool({ name: 'list_forms', arguments: {} });
+    const line = JSON.parse(h.audit[0]!) as Record<string, unknown>;
+    expect(line).toMatchObject({ caller: 'oauth:person-1', personId: 'person-1', memberId: 'member-owner', accountId: 'acct-1' });
+    expect(h.audit[0]).not.toContain('access-token-1');
+  });
+
+  it('without an OAuth side, every bearer is a key and nothing points at a login', async () => {
+    const h = await boot();
+    const res = await h.post(initialize('2025-06-18'), { authorization: 'Bearer eyJ.not.a.key' });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('www-authenticate')).toBe('Bearer realm="dforms", error="invalid_token"');
   });
 });
 
@@ -336,5 +465,84 @@ describe('audit', () => {
     const c = await h.connect(key);
     await c.callTool({ name: 'whoami', arguments: {} });
     expect(h.calls[0]).toMatchObject({ method: 'whoami', caller: { accountId: 'acct-1', role: 'admin', label: key.slice(0, 12) } });
+  });
+});
+
+describe('an MCP connection with several workspaces', () => {
+  const acme = workspaceCaller();
+  const globex = workspaceCaller({ accountId: 'acct-2', workspaceName: 'Globex', memberId: 'member-g', role: 'member', credentialId: 'member:member-g' });
+  const toolCall = (name: string, args: Record<string, unknown>) => ({
+    jsonrpc: '2.0',
+    id: 2,
+    method: 'tools/call',
+    params: { name, arguments: args },
+  });
+
+  it('asks for workspace_id, runs as the member of the workspace named, and says which one', async () => {
+    const h = await boot({ door: { oauth: oauthSide({ t: connection([acme, globex]) }).oauth } });
+    const c = await h.connect('t');
+    const required = errorText(await c.callTool({ name: 'list_forms', arguments: {} }));
+    expect(required).toMatch(/^WORKSPACE_REQUIRED: You are a member of 2 dForms workspaces/);
+    expect(required).toContain('list_my_workspaces');
+    expect(h.calls).toEqual([]);
+    const listed = structured<{ workspace: { id: string; name: string } }>(
+      await c.callTool({ name: 'list_forms', arguments: { workspace_id: 'acct-2' } }),
+    );
+    expect(listed.workspace).toEqual({ id: 'acct-2', name: 'Globex' });
+    expect(h.calls[0]).toMatchObject({ method: 'listForms', caller: { accountId: 'acct-2', memberId: 'member-g' } });
+    expect(errorText(await c.callTool({ name: 'list_forms', arguments: { workspace_id: 'acct-9' } }))).toMatch(/^NOT_FOUND/);
+    const mine = structured<{ workspaces: unknown[] }>(await c.callTool({ name: 'list_my_workspaces', arguments: {} }));
+    expect(mine.workspaces).toEqual([
+      { id: 'acct-1', name: 'Acme', role: 'owner' },
+      { id: 'acct-2', name: 'Globex', role: 'member' },
+    ]);
+  });
+
+  it('takes the door token from the member of the workspace a call names, and the person for the rest', async () => {
+    const h = await boot({ door: { oauth: oauthSide({ t: connection([acme, globex]) }).oauth, keyLimiter: capped(1) } });
+    const auth = { authorization: 'Bearer t' };
+    expect((await h.post(toolCall('list_forms', { workspace_id: 'acct-1' }), auth)).status).toBe(200);
+    expect((await h.post(toolCall('list_forms', { workspace_id: 'acct-1' }), auth)).status).toBe(429);
+    expect((await h.post(toolCall('list_forms', { workspace_id: 'acct-2' }), auth)).status).toBe(200);
+    expect((await h.post(initialize('2025-06-18'), auth)).status).toBe(200);
+    expect((await h.post(toolCall('list_my_workspaces', {}), auth)).status).toBe(429);
+  });
+
+  it('takes the write token from the member of the workspace named', async () => {
+    const h = await boot({ door: { oauth: oauthSide({ t: connection([acme, globex]) }).oauth }, writeLimiter: capped(1) });
+    const c = await h.connect('t');
+    const create = (workspace_id: string) =>
+      c.callTool({ name: 'create_form', arguments: { name: 'x', config: { version: 1, steps: [] }, workspace_id } });
+    structured(await create('acct-1'));
+    expect(errorText(await create('acct-1'))).toMatch(/^RATE_LIMITED: Too many writes by this member/);
+    structured(await create('acct-2'));
+  });
+
+  it('lets a person with no workspace in, and answers NO_WORKSPACE on a tool that needs one', async () => {
+    const h = await boot({ door: { oauth: oauthSide({ t: connection([]) }).oauth } });
+    const c = await h.connect('t');
+    const who = structured<{ workspace: unknown; workspaces: unknown[]; person: { id: string } }>(
+      await c.callTool({ name: 'whoami', arguments: {} }),
+    );
+    expect(who).toMatchObject({ workspace: null, workspaces: [], person: { id: 'person-1' } });
+    expect(errorText(await c.callTool({ name: 'get_form', arguments: { form_id: 'form-1' } }))).toMatch(/^NO_WORKSPACE.*open dForms once/);
+    expect(h.calls).toEqual([]);
+  });
+});
+
+describe('an API key and workspace_id', () => {
+  it("refuses another workspace, accepts its own, and audits the key's workspace", async () => {
+    const h = await boot();
+    const c = await h.connect(h.key());
+    expect(errorText(await c.callTool({ name: 'get_form', arguments: { form_id: 'form-1', workspace_id: 'acct-2' } }))).toMatch(
+      /^WORKSPACE_MISMATCH/,
+    );
+    expect(h.calls).toEqual([]);
+    const own = structured<{ workspace: { id: string } }>(
+      await c.callTool({ name: 'get_form', arguments: { form_id: 'form-1', workspace_id: 'acct-1' } }),
+    );
+    expect(own.workspace.id).toBe('acct-1');
+    structured(await c.callTool({ name: 'get_form_guide', arguments: { part: 'rules' } }));
+    expect(JSON.parse(h.audit.at(-1)!)).toMatchObject({ tool: 'get_form_guide', accountId: 'acct-1' });
   });
 });

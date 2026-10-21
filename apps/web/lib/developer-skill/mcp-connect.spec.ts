@@ -5,6 +5,7 @@ import {
   codexConfigToml,
   cursorDeeplink,
   cursorMcpJson,
+  mcpOauthEnabled,
   mcpSnippets,
   publicMcpUrl,
 } from './mcp-connect';
@@ -33,6 +34,35 @@ describe('publicMcpUrl', () => {
     expect(publicMcpUrl({ NEXT_PUBLIC_MCP_URL: 'https://baked.example.com/mcp', PUBLIC_API_URL: 'https://api.example.com' })).toBe(
       'https://api.example.com/mcp',
     );
+  });
+});
+
+describe('mcpOauthEnabled', () => {
+  const PUBLIC = { MCP_PUBLIC_URL: 'https://mcp.example.com/mcp' };
+
+  it('is on when the web mirrors the API adapter, whatever the case or the spaces', () => {
+    expect(mcpOauthEnabled({ ...PUBLIC, MCP_OAUTH_PROVIDER: 'workos' })).toBe(true);
+    expect(mcpOauthEnabled({ ...PUBLIC, MCP_OAUTH_PROVIDER: ' WorkOS ' })).toBe(true);
+  });
+
+  it('is off without MCP_PUBLIC_URL, the token audience the API requires: the address derived from the API would not match it', () => {
+    expect(mcpOauthEnabled({ MCP_OAUTH_PROVIDER: 'workos' })).toBe(false);
+    expect(mcpOauthEnabled({ MCP_OAUTH_PROVIDER: 'workos', MCP_PUBLIC_URL: '  ', PUBLIC_API_URL: 'https://api.example.com' })).toBe(false);
+  });
+
+  it('is off when unset or blank, the way a self-hosted install runs', () => {
+    expect(mcpOauthEnabled({})).toBe(false);
+    expect(mcpOauthEnabled({ MCP_OAUTH_PROVIDER: '' })).toBe(false);
+    expect(mcpOauthEnabled({ MCP_OAUTH_PROVIDER: '   ' })).toBe(false);
+  });
+
+  it('fails closed on a value the API would not accept, so the page never offers a sign-in that cannot work', () => {
+    expect(mcpOauthEnabled({ ...PUBLIC, MCP_OAUTH_PROVIDER: 'true' })).toBe(false);
+    expect(mcpOauthEnabled({ ...PUBLIC, MCP_OAUTH_PROVIDER: 'workso' })).toBe(false);
+  });
+
+  it('never reads a build-time NEXT_PUBLIC_ variable', () => {
+    expect(mcpOauthEnabled({ NEXT_PUBLIC_MCP_OAUTH_PROVIDER: 'workos' })).toBe(false);
   });
 });
 
