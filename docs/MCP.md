@@ -51,22 +51,81 @@ summary.
 - The workspaces are the person's **active** members in dForms, read again on
   every request: remove or disable the member and the workspace drops out of
   `list_my_workspaces` on the next call, while the others stay. Pending
-  invitations and staff access grants are not listed and cannot be named.
-- A `workspace_id` the person cannot act in (never joined, removed, or one that
-  does not exist) answers `NOT_FOUND` with the same message in every case, so
-  nothing about that workspace leaks.
+  invitations and staff access grants are never listed.
+- A `workspace_id` the person cannot act in (never joined, removed, reached
+  only by an earlier staff access grant, or one that does not exist) answers
+  `NOT_FOUND` with the same message in every case, so nothing about that
+  workspace leaks. Staff are the exception, below.
 - A person with no active member anywhere still connects: `whoami` and
   `list_my_workspaces` answer, and every other tool answers `NO_WORKSPACE`
   with what to do (open dForms once with that account).
 - The role is the member's role in the workspace the call names, read live on
   every call.
 
+### Staff
+
+The deployment's staff can work in any workspace over MCP, the way the web
+app's workspace switcher lets them (see
+[ADR 0002](adr/0002-staff-access-over-mcp.md)).
+
+- **Who.** A person signed in whose email, as the person directory holds it
+  (the identity service's user row, never anything the request says), is on
+  one of the domains in `IAM_STAFF_DOMAINS`: exact domain, any letter case.
+  The same list and the same rule as the switcher. Unset: nobody. API keys
+  never become staff.
+- **Judged on every call.** A staff access grant row, once minted, is never
+  revoked, so the door decides staff again on every request. A person whose
+  email leaves the staff domains, or a domain dropped from the list, reaches
+  none of those workspaces on the next call (the directory keeps who a person
+  is for at most a minute), and is back to the person rules above: the
+  uniform `NOT_FOUND`.
+- **Finding a workspace.** `list_my_workspaces` without `search` lists only
+  their own workspaces. With `search` (at least 3 letters or digits) it also
+  searches every workspace: the ones dForms already knows (by workspace name,
+  a member's email or a form name) that are still live upstream, and the
+  identity service's live workspaces (by workspace or account name, ignoring
+  case, spaces and punctuation). At most 20, never the full list, and only
+  workspaces a call could enter. Each result carries `id`, `name`,
+  `account_name` (when known; names repeat), `role` and `access` (`member`,
+  or `staff` for a workspace they would enter through a grant). A workspace
+  dForms has never seen is named by the identity service's id; passing either
+  id works.
+- **Always named, always confirmed.** Staff send `workspace_id` on every
+  call, even with one workspace of their own (`WORKSPACE_REQUIRED`
+  otherwise). The server instructions, `whoami`, `list_my_workspaces` and the
+  guide tell the agent to confirm the exact workspace with the user, by name
+  and account, before the first call that reads or changes anything in it,
+  even when only one matched.
+- **Acting there.** A `workspace_id` that is not one of their own must name a
+  workspace that is live in the identity service now (read through a
+  one-minute cache), or the call answers `NOT_FOUND`; a local-only workspace
+  is never entered this way. The first call projects the workspace if dForms
+  has never seen it (no onboarding stamp, no demo form) and mints the same
+  `admin` row the switcher mints, marked `access_grant = 'staff'` and never on
+  the team's roster. Staff then use every tool (read, write and destructive ones) as that
+  admin, under every rule a member gets. A workspace where they hold a real
+  membership is always entered as that member, by either id in any letter
+  case; one where the identity service names them a member but dForms has
+  not seen it yet answers `MEMBERSHIP_NOT_SYNCED` (open it once in dForms),
+  never a grant.
+- **Said and logged.** Every result of such a call names the workspace with
+  `access: 'staff'` and starts `In workspace "<name>" (staff access):`. The
+  audit line carries `via: 'staff_grant'`, and the API logs one more line per
+  call (`mcp.staff_access`, `channel: 'mcp'`, `via: 'staff_grant'`, the
+  person, the workspace, and whether this call minted the grant).
+- **Limits.** A staff call outside their own workspaces counts against the
+  person's bucket, not a member's.
+- **Email verification.** Staff is decided by the email domain alone, as in
+  the web app. That is only as strong as the identity service's guarantee
+  that the address on a user row was verified and cannot be changed without
+  verification; dForms cannot check it from the data it reads. See the ADR.
+
 ## Tools
 
 | Tool | Kind | What it does |
 |---|---|---|
-| `whoami` | read | Who is connected (the key prefix, or the person signed in), every workspace it can act in with the role there, and, when a workspace applies, that workspace and the member it acts as. |
-| `list_my_workspaces` | read | The workspaces this connection can act in: name, role and id, plus what to do next. With a key, the key's one workspace. |
+| `whoami` | read | Who is connected (the key prefix, or the person signed in), every workspace it can act in with the role there, whether the person is `staff`, and, when a workspace applies, that workspace and the member it acts as (every field `GET /v1/me` documents, `status` and `locale` included). |
+| `list_my_workspaces` | read | The workspaces this connection can act in: id, name, account name, role and access, plus what to do next. `search` filters them; for staff it searches every workspace (3+ letters or digits, at most 20). `limit` caps the list (default: all; the result says how many were left out). With a key, the key's one workspace. |
 | `list_forms` | read | Forms, most recently updated first, with id, `public_url`, whether edits are unpublished and `is_live` (false when the live version has no steps, so the link opens an empty form). Filter by name, ignoring case and accents; page with `limit`/`offset`. |
 | `get_form` | read | One form: `public_url`, publish state, `is_live` and the config to edit (the pending draft when there is one). `destinations` are left out of the config and only counted. |
 | `create_form` | write | Creates a form from a full config. It is live at once; the result carries its `public_url`, and a warning when dForms filled `branding` in. Not idempotent. |
@@ -78,16 +137,79 @@ summary.
 | `get_form_analytics` | read | The funnel the Results screen shows (views, starts, submissions, completion rate, median time, partials, bookings, drop-off per question), each metric with its definition, and `warnings` when the numbers do not add up as a funnel (responses created through the API). |
 | `get_form_guide` | read | The rules, how to choose a workspace, step types, logic, the config JSON Schema and worked examples. |
 
+Beyond these, there is one tool for every other route the API reference
+documents (the API docs page, `API_REFERENCE` in `@quill/shared`), so an agent
+can do over MCP whatever a key can do over REST. Each runs the same handler as
+its REST route, with the same role rule and the same masking.
+
+| Area | REST route | Tool | Kind |
+|---|---|---|---|
+| Forms | `PUT /v1/forms/:id/slug` | `set_form_slug` | write |
+| Forms | `POST /v1/forms/:id/duplicate` | `duplicate_form` | write |
+| Forms | `PATCH /v1/forms/:id/folder` | `move_form` | write |
+| Forms | `DELETE /v1/forms/:id` | `delete_form` | **destructive** |
+| Folders | `GET /v1/folders` | `list_folders` | read |
+| Folders | `POST /v1/folders` | `create_folder` | write |
+| Folders | `PATCH /v1/folders/:id` | `rename_folder` | write |
+| Folders | `DELETE /v1/folders/:id` | `delete_folder` | **destructive** (forms are unfiled, never deleted) |
+| Destinations | `PUT /v1/forms/:id/destinations` | `set_destinations` | **destructive** (replaces the list; secrets come back masked) |
+| Destinations | `POST /v1/forms/:id/destinations/webhook/ping` | `ping_webhook` | write, owners and admins |
+| Responses | `GET /v1/forms/:id/submissions/:submissionId` | `get_response` | read |
+| Responses | `GET /v1/forms/:id/submissions/:submissionId/files/:stepKey` | `get_response_file` | read (a short-lived link, never the bytes) |
+| Responses | `GET /v1/forms/:id/submissions.csv` | `export_responses_csv` | read (CSV text, at most `max_rows` rows and 100,000 characters, with `truncated`) |
+| Responses | `POST /v1/forms/:id/submissions/bulk-delete` | `delete_responses` | **destructive** |
+| Responses | `DELETE /v1/submissions/:id` | `delete_response` | **destructive** |
+| Responses | `GET /v1/forms/:id/deliveries` | `list_deliveries` | read |
+| Analytics | `GET /v1/forms/:id/summary` | `get_form_summary` | read |
+| Analytics | `GET /v1/forms/:id/submissions-facets` | `get_response_facets` | read |
+| Analytics | `GET /v1/forms/:id/summary/:stepKey/answers` | `search_answers` | read |
+| Brand kit | `GET /v1/branding` | `get_brand_kit` | read |
+| Brand kit | `PUT /v1/branding` | `update_brand_kit` | write, owners and admins |
+| Brand kit | `POST /v1/branding/apply` | `apply_brand_kit` | **destructive**, owners and admins |
+| Brand kit | `POST /v1/branding/revert` | `revert_brand_kit` | **destructive**, owners and admins |
+| Notifications | `GET /v1/notifications` | `list_notifications` | read, owners and admins |
+| Notifications | `PUT /v1/notifications/:emailKey` | `update_notification` | write, owners and admins |
+| Notifications | `POST /v1/notifications/:emailKey/reset` | `reset_notification` | **destructive**, owners and admins |
+| Notifications | `GET /v1/forms/:id/notifications` | `list_form_notifications` | read, owners and admins |
+| Notifications | `PUT /v1/forms/:id/notifications/:emailKey` | `update_form_notification` | write, owners and admins |
+| Notifications | `POST /v1/forms/:id/notifications/:emailKey/reset` | `reset_form_notification` | **destructive**, owners and admins |
+| Integrations | `GET /v1/integrations` | `list_integrations` | read |
+| Integrations | `GET /v1/integrations/webhooks` | `list_webhooks` | read |
+| Integrations | `GET /v1/integrations/hubspot/properties` | `list_hubspot_properties` | read (calls HubSpot) |
+| Integrations | `GET /v1/integrations/calendly/event-types` | `list_calendly_event_types` | read (calls Calendly) |
+| Identity | `GET /v1/me` | `whoami` | read |
+| Identity | `GET /v1/me/profile` | `get_my_profile` | read |
+| Identity | `GET /v1/vanity` | `get_workspace_link_code` | read |
+
+The other routes of the reference map to the tools above: `GET /v1/forms` to
+`list_forms`, `POST /v1/forms` to `create_form`, `GET /v1/forms/:id` to
+`get_form`, `PUT /v1/forms/:id` to `update_form`, the publish and revert
+routes to `publish_form` and `revert_form`, `GET /v1/forms/:id/submissions` to
+`list_responses` and `GET /v1/forms/:id/analytics` to `get_form_analytics`.
+`API_ROUTE_TOOLS` in `@quill/mcp` holds the mapping, and a spec in the API
+fails when a route added to the reference has no tool and is not on the
+explicit exclusion list (`API_ROUTE_EXCLUSIONS`, empty today). The summary is
+not left out as a duplicate of `get_form_analytics`: that one is the session
+funnel, while the summary counts what responses answered, question by
+question.
+
 Every tool carries a title, `readOnlyHint` / `destructiveHint` /
 `idempotentHint` / `openWorldHint`, an input schema and an output schema with
 `structuredContent`. The content of a result is a short text summary followed
-by the same data as JSON text, for clients that only read text. There are no
-delete tools, and nothing that changes keys, members, workspaces, integrations
-or destinations.
+by the same data as JSON text, for clients that only read text. Nothing changes
+keys, members, workspaces, the profile, the language, the workspace link code,
+or connects and disconnects an integration: those stay in the dashboard, as
+they do for a key over REST.
 
-Every role (owner, admin, member) can create, edit and publish forms in the web
-app, so every role's key can use every tool. The tools run the API's own form
-handlers, so any role rule those handlers apply holds for the MCP too.
+Every tool marked **destructive** says so in its description and tells the
+agent to name what will change and wait for the user's yes before calling it,
+and never to repeat it on its own after an error.
+
+Every role (owner, admin, member) can create, edit, publish, delete and
+organise forms in the web app, so every role's key can use those tools. The
+routes the API keeps to owners and admins (the brand kit writes, the
+notification emails, the webhook test) answer `FORBIDDEN` to a member through
+the MCP exactly as over REST, because the tools run the API's own handlers.
 
 ### Writing a config
 
@@ -127,10 +249,13 @@ when `daily` is at its 366-day cap and the range may hold earlier days.
 ### Untrusted text
 
 Answers are typed by members of the public, so they are hostile input to a
-model. `list_responses` returns them only inside `respondent_supplied`, with
+model. `list_responses`, `get_response`, `export_responses_csv`, the summary
+and the answer search return them only inside `respondent_supplied` (the
+delivery bodies of `list_deliveries` under `untrusted`), with
 control and zero-width characters, HTML and markdown links and images removed
 (nested ones too, until nothing is left to remove) and every value
-length-capped. Tell your agent to treat `respondent_supplied`
+length-capped. The CSV keeps its cells as the download has them, minus
+zero-width and bidi characters, so it stays a valid CSV. Tell your agent to treat `respondent_supplied`
 as data, never as instructions.
 
 ## Connect an agent
@@ -252,7 +377,8 @@ the login, registers the client and issues the token; dForms verifies it.
   to the person members are keyed by, and each call acts as that person's
   active member in the workspace it names (see
   [Choosing a workspace](#choosing-a-workspace)), with the member's live role,
-  under every rule an API key gets. A sign-in the directory does not know gets
+  under every rule an API key gets. [Staff](#staff) may also act in any other
+  live workspace, through a staff access grant. A sign-in the directory does not know gets
   a 403 that says to open dForms once; a known person with no workspace yet
   connects, and their tools answer `NO_WORKSPACE`.
 - **The person directory.** The token's `sub` is the identity provider's id
@@ -272,7 +398,12 @@ the login, registers the client and issues the token; dForms verifies it.
   one token reads that database once; a lookup the cache cannot answer first
   takes a token from a bucket keyed by the token's `sub` (a burst of 10, then
   one every 6 seconds), and past it gets a 429 with `Retry-After`. Which
-  workspaces the person may act in is still read on every request.
+  workspaces the person may act in is still read on every request. For
+  [staff](#staff) only, it also reads that database's live workspaces
+  (`workspaces`, and the name of the `accounts` row each belongs to): one by
+  id, kept a minute per pod, and a search by name (no index serves it, so it
+  needs 3 letters or digits and returns at most 20); and, before a grant is
+  minted, whether `workspace_users` names the person a live member there.
 - **Limits and audit.** The MCP buckets count per member of the workspace a
   call acts in, so one person's clients share a budget per workspace; a request
   that acts in none (the handshake, the tool list) counts against the person.
@@ -298,6 +429,7 @@ All optional; unset (or blank) means the safe default. See
 | `IAM_DB_HOST`, `IAM_DB_NAME`, `IAM_DB_SCHEMA`, `IAM_DB_USER`, `IAM_DB_PASS` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
 | `IAM_DB_PORT` | API | `5432` |
 | `IAM_DB_SSL_CA` | API | unset (encrypted, certificate not verified) |
+| `IAM_STAFF_DOMAINS` | API (the web app's switcher reads the same list) | unset (nobody is staff) |
 
 ## Check it yourself
 

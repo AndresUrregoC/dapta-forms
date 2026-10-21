@@ -11,7 +11,17 @@
  *   examples), shared with the web app's API skill.
  */
 export * from './backend';
-export { LIST_WORKSPACES_HINT, bucketOf, openDFormsOnce, resolveWorkspace } from './workspace';
+export * from './parity-backend';
+export {
+  LIST_WORKSPACES_HINT,
+  STAFF_SEARCH_MAX_RESULTS,
+  STAFF_SEARCH_MIN_CHARS,
+  STAFF_WORKSPACE_HINT,
+  bucketOf,
+  normalizeWorkspaceSearch,
+  openDFormsOnce,
+  resolveWorkspace,
+} from './workspace';
 export {
   DoorRefusal,
   DoorThrottled,
@@ -47,3 +57,5 @@ export {
   type ErrorDescriptor,
 } from './support';
 export { METRIC_DEFINITIONS, TOOLS, type ToolContext, type ToolDef, type ToolResult } from './tools';
+export { CATALOG } from './catalog';
+export { API_ROUTE_EXCLUSIONS, API_ROUTE_TOOLS, PARITY_TOOLS } from './parity/index';

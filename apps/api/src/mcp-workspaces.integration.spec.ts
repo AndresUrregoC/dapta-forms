@@ -4,8 +4,10 @@
  *
  * A person signed in through OAuth may act in every workspace where they hold
  * an active member. Each call names its workspace (`workspace_id`), from
- * `list_my_workspaces`; with only one, it is used without asking. An API key
- * keeps its one workspace.
+ * `list_my_workspaces`; with only one, it is used without asking. Staff of
+ * the deployment (by email domain) may also search and act in any workspace,
+ * through a staff access grant, judged again on every call. An API key keeps
+ * its one workspace.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -87,15 +89,15 @@ describe('list_my_workspaces', () => {
     const c = await signIn(h, p.subject);
     const listed = structured<Listed>(await c.callTool({ name: 'list_my_workspaces', arguments: {} }));
     expect(listed.workspaces).toEqual([
-      { id: h.accountId, name: 'Acme Inc.', role: 'admin' },
-      { id: h.other.accountId, name: 'Globex', role: 'member' },
+      { id: h.accountId, name: 'Acme Inc.', account_name: null, role: 'admin', access: 'member' },
+      { id: h.other.accountId, name: 'Globex', account_name: null, role: 'member', access: 'member' },
     ]);
     expect(listed.next_step).toMatch(/workspace_id/);
   });
 });
 
 describe('list_my_workspaces, what it leaves out', () => {
-  it('leaves out a staff access grant, a pending invitation and a disabled member', async () => {
+  it('leaves out, for a person who is not staff, a staff access grant, a pending invitation and a disabled member', async () => {
     const h = await boot();
     const p = newPerson(h);
     await join(h, p, h.accountId, 'member');
@@ -150,7 +152,11 @@ describe('a person with two workspaces and a different role in each', () => {
 
     type Who = { workspace: { id: string; name: string }; member: { id: string; role: string } };
     const inAcme = structured<Who>(await c.callTool({ name: 'whoami', arguments: { workspace_id: h.accountId } }));
-    expect(inAcme).toMatchObject({ workspace: { id: h.accountId }, member: { id: p.acmeMember, role: 'admin' } });
+    expect(inAcme).toMatchObject({ workspace: { id: h.accountId }, member: { id: p.acmeMember, role: 'admin', status: 'active', locale: null } });
+    // Every field GET /v1/me documents reaches whoami.
+    await h.db.run(sql`UPDATE member SET locale = 'es' WHERE id = ${p.acmeMember}`);
+    const localized = structured<{ member: { locale: string | null } }>(await c.callTool({ name: 'whoami', arguments: { workspace_id: h.accountId } }));
+    expect(localized.member.locale).toBe('es');
     const inGlobex = structured<Who>(await c.callTool({ name: 'whoami', arguments: { workspace_id: h.other.accountId } }));
     expect(inGlobex).toMatchObject({ workspace: { id: h.other.accountId, name: 'Globex' }, member: { id: p.globexMember, role: 'member' } });
 
@@ -330,7 +336,7 @@ describe('with an API key', () => {
     const none = structured<{ workspace: { id: string; name: string } }>(await c.callTool({ name: 'list_forms', arguments: {} }));
     expect(none.workspace).toEqual({ id: h.accountId, name: 'Acme Inc.' });
     const listed = structured<Listed>(await c.callTool({ name: 'list_my_workspaces', arguments: {} }));
-    expect(listed.workspaces).toEqual([{ id: h.accountId, name: 'Acme Inc.', role: 'admin' }]);
+    expect(listed.workspaces).toEqual([{ id: h.accountId, name: 'Acme Inc.', account_name: null, role: 'admin', access: 'member' }]);
     const who = structured<{ person: unknown; key: { prefix: string } }>(await c.callTool({ name: 'whoami', arguments: {} }));
     expect(who).toMatchObject({ person: null, key: { prefix: key.slice(0, 12) } });
   });
@@ -353,5 +359,294 @@ describe('limits', () => {
     expect((await h.post(call(h.other.accountId), auth)).status).toBe(200);
     // A request that acts in no workspace counts against the person, not a member.
     expect((await h.post(initialize('2025-06-18'), auth)).status).toBe(200);
+  });
+});
+
+// --- Staff of the deployment ------------------------------------------------
+
+const STAFF_DOMAIN = 'staff.example.com';
+
+/**
+ * A deployment with staff on `STAFF_DOMAIN`, where Globex is a workspace of
+ * the identity service (projected here already) and Initrode is one dForms
+ * has never seen.
+ */
+async function staffDeployment() {
+  const h = await boot({ IAM_STAFF_DOMAINS: STAFF_DOMAIN });
+  const globexUpstream = randomUUID();
+  await h.db.run(sql`UPDATE account SET external_id = ${globexUpstream} WHERE id = ${h.other.accountId}`);
+  h.estate.set(globexUpstream, { id: globexUpstream, name: 'Globex', accountId: randomUUID(), accountName: 'Globex Holdings' });
+  const initrode = randomUUID();
+  h.estate.set(initrode, { id: initrode, name: 'Initrode', accountId: randomUUID(), accountName: 'Initrode Group' });
+  return { h, globexUpstream, initrode };
+}
+
+/** A person on the staff domain, member of Acme only. */
+async function staffPerson(h: Harness) {
+  const subject = `user_${randomUUID().slice(0, 8)}`;
+  const personId = randomUUID();
+  const email = `${subject}@${STAFF_DOMAIN}`;
+  h.people.set(subject, { id: personId, email });
+  const acmeMember = await join(h, { personId, email }, h.accountId, 'member');
+  return { subject, personId, email, acmeMember };
+}
+
+type Found = { workspaces: Array<{ id: string; name: string; account_name: string | null; role: string; access: string }>; staff: boolean; next_step: string };
+
+describe('staff of the deployment', () => {
+  it('searches every workspace by name (3+ letters or digits, at most 20), and without search lists only their own', async () => {
+    const { h, initrode } = await staffDeployment();
+    const p = await staffPerson(h);
+    const c = await signIn(h, p.subject);
+
+    const mine = structured<Found>(await c.callTool({ name: 'list_my_workspaces', arguments: {} }));
+    expect(mine.staff).toBe(true);
+    expect(mine.workspaces.map((w) => w.id)).toEqual([h.accountId]);
+    expect(mine.next_step).toMatch(/search/);
+
+    // Accounts this database knows but no one could enter are never listed: a
+    // local-only one, and one whose workspace is gone upstream.
+    await h.db.run(
+      sql`INSERT INTO account (id, code, name, external_id, created_at) VALUES (${randomUUID()}, 'globold', 'Globex parked', ${`legacy:${randomUUID()}`}, ${Date.now()})`,
+    );
+    await h.db.run(
+      sql`INSERT INTO account (id, code, name, external_id, created_at) VALUES (${randomUUID()}, 'globgone', 'Globex gone', ${randomUUID()}, ${Date.now()})`,
+    );
+    const found = structured<Found>(await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'Glob' } }));
+    expect(found.workspaces).toEqual([{ id: h.other.accountId, name: 'Globex', account_name: 'Globex Holdings', role: 'admin', access: 'staff' }]);
+    // Found by a form's name, which only this database knows.
+    const byForm = structured<Found>(await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'secret survey' } }));
+    expect(byForm.workspaces.map((w) => w.id)).toEqual([h.other.accountId]);
+    expect(found.next_step).toMatch(/Confirm it even when only one matched/);
+    // A workspace dForms has never seen is named by the identity service's id.
+    const fresh = structured<Found>(await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'initrode group' } }));
+    expect(fresh.workspaces).toEqual([{ id: initrode, name: 'Initrode', account_name: 'Initrode Group', role: 'admin', access: 'staff' }]);
+    // Its own workspace comes back as a member, never a grant.
+    const own = structured<Found>(await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'acme' } }));
+    expect(own.workspaces).toEqual([{ id: h.accountId, name: 'Acme Inc.', account_name: null, role: 'member', access: 'member' }]);
+
+    expect(errorText(await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'gl' } }))).toMatch(/^SEARCH_TOO_SHORT/);
+    for (let i = 0; i < 25; i += 1) {
+      const id = randomUUID();
+      h.estate.set(id, { id, name: `Bulk ${i}`, accountId: null, accountName: null });
+    }
+    const many = structured<Found>(await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'bulk', limit: 50 } }));
+    expect(many.workspaces).toHaveLength(20);
+    // Nothing is granted by looking.
+    expect(await h.db.get(sql`SELECT id FROM member WHERE external_id = ${p.personId} AND access_grant = 'staff'`)).toBeUndefined();
+  });
+
+  it('always asks staff for workspace_id, even with one workspace of their own', async () => {
+    const { h } = await staffDeployment();
+    const p = await staffPerson(h);
+    const c = await signIn(h, p.subject);
+    const text = errorText(await c.callTool({ name: 'list_forms', arguments: {} }));
+    expect(text).toMatch(/^WORKSPACE_REQUIRED: You are staff/);
+    expect(text).toContain('confirm it with the user');
+    const who = structured<{ staff: boolean; workspace: unknown }>(await c.callTool({ name: 'whoami', arguments: {} }));
+    expect(who).toMatchObject({ staff: true, workspace: null });
+    // Named, its own workspace acts as its member.
+    const acme = structured<{ workspace: Record<string, unknown> }>(await c.callTool({ name: 'list_forms', arguments: { workspace_id: h.accountId } }));
+    expect(acme.workspace).toEqual({ id: h.accountId, name: 'Acme Inc.' });
+  });
+
+  it('reads and writes in a customer workspace as an admin through a staff access grant, and logs every such call', async () => {
+    const { h, globexUpstream } = await staffDeployment();
+    const p = await staffPerson(h);
+    const c = await signIn(h, p.subject);
+
+    const listed = await c.callTool({ name: 'list_forms', arguments: { workspace_id: h.other.accountId } });
+    expect(structured<{ workspace: unknown; forms: Array<{ id: string }> }>(listed)).toMatchObject({
+      workspace: { id: h.other.accountId, name: 'Globex', access: 'staff' },
+      forms: [{ id: h.other.formId }],
+    });
+    expect((listed as { content: Array<{ text: string }> }).content[0]!.text).toMatch(/^In workspace "Globex" \(staff access\): /);
+    const grant = await h.db.get<{ id: string; role: string; status: string; access_grant: string }>(
+      sql`SELECT id, role, status, access_grant FROM member WHERE account_id = ${h.other.accountId} AND external_id = ${p.personId}`,
+    );
+    expect(grant).toMatchObject({ role: 'admin', status: 'active', access_grant: 'staff' });
+
+    // The same workspace by the identity service's id: the same grant, not a second one.
+    const who = structured<{ workspace: { id: string }; member: { id: string; role: string }; staff: boolean }>(
+      await c.callTool({ name: 'whoami', arguments: { workspace_id: globexUpstream } }),
+    );
+    expect(who).toMatchObject({ workspace: { id: h.other.accountId }, member: { id: grant!.id, role: 'admin' }, staff: true });
+
+    type Form = { form: { id: string; updated_at: number } };
+    const created = structured<Form>(
+      await c.callTool({ name: 'create_form', arguments: { name: 'Staff built', config: LEAD, workspace_id: h.other.accountId } }),
+    );
+    const updated = structured<Form>(
+      await c.callTool({
+        name: 'update_form',
+        arguments: { form_id: created.form.id, name: 'Staff edited', expected_updated_at: created.form.updated_at, workspace_id: h.other.accountId },
+      }),
+    );
+    structured(
+      await c.callTool({
+        name: 'publish_form',
+        arguments: { form_id: created.form.id, expected_updated_at: updated.form.updated_at, workspace_id: h.other.accountId },
+      }),
+    );
+    const row = await h.db.get<{ account_id: string; name: string; created_via: string }>(
+      sql`SELECT account_id, name, created_via FROM form WHERE id = ${created.form.id}`,
+    );
+    expect(row).toEqual({ account_id: h.other.accountId, name: 'Staff edited', created_via: 'mcp' });
+
+    const audit = JSON.parse(h.audit.at(-1)!) as Record<string, unknown>;
+    expect(audit).toMatchObject({ tool: 'publish_form', accountId: h.other.accountId, memberId: grant!.id, personId: p.personId, via: 'staff_grant' });
+    const lines = h.staffLog.map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(lines).toHaveLength(5);
+    expect(lines[0]).toMatchObject({ msg: 'mcp.staff_access', channel: 'mcp', via: 'staff_grant', personId: p.personId, accountId: h.other.accountId, workspaceId: globexUpstream, granted: true });
+    expect(lines.slice(1).every((l) => l.granted === false)).toBe(true);
+    // Never on the customer's roster.
+    expect(await h.db.all(sql`SELECT id FROM member WHERE account_id = ${h.other.accountId} AND external_id = ${p.personId}`)).toHaveLength(1);
+  });
+
+  it('runs the parity tools too (a read, a write, a destructive one) in a customer workspace, and a person who is not staff gets NOT_FOUND', async () => {
+    const { h, globexUpstream } = await staffDeployment();
+    const p = await staffPerson(h);
+    const c = await signIn(h, p.subject);
+    const outsider = newPerson(h);
+    h.people.set(outsider.subject, { id: outsider.personId, email: `${outsider.subject}@example.com` });
+    await join(h, outsider, h.accountId, 'owner');
+    const stranger = await signIn(h, outsider.subject);
+
+    type Folder = { folder: { id: string; name: string }; workspace: Record<string, unknown> };
+    const made = structured<Folder>(await c.callTool({ name: 'create_folder', arguments: { name: 'Staff folder', workspace_id: h.other.accountId } }));
+    expect(made.workspace).toEqual({ id: h.other.accountId, name: 'Globex', access: 'staff' });
+    expect(await h.db.get<{ account_id: string }>(sql`SELECT account_id FROM form_folder WHERE id = ${made.folder.id}`)).toEqual({ account_id: h.other.accountId });
+    const listed = structured<{ folders: Array<{ id: string }> }>(
+      await c.callTool({ name: 'list_folders', arguments: { workspace_id: globexUpstream } }),
+    );
+    expect(listed.folders.map((f) => f.id)).toContain(made.folder.id);
+
+    for (const [name, args] of [
+      ['list_folders', {}],
+      ['create_folder', { name: 'Smuggled folder' }],
+      ['delete_form', { form_id: h.other.formId }],
+    ] as const) {
+      for (const id of [h.other.accountId, globexUpstream]) {
+        expect(errorText(await stranger.callTool({ name, arguments: { ...args, workspace_id: id } })), `${name} in ${id}`).toMatch(
+          /^NOT_FOUND: No workspace of yours has this id\./,
+        );
+      }
+    }
+    expect(await h.db.get(sql`SELECT id FROM form_folder WHERE name = 'Smuggled folder'`)).toBeUndefined();
+    expect(await h.db.get(sql`SELECT id FROM form WHERE id = ${h.other.formId}`)).toBeDefined();
+
+    const gone = structured<{ deleted: { id: string } }>(
+      await c.callTool({ name: 'delete_form', arguments: { form_id: h.other.formId, workspace_id: h.other.accountId } }),
+    );
+    expect(gone.deleted.id).toBe(h.other.formId);
+    expect(await h.db.get(sql`SELECT id FROM form WHERE id = ${h.other.formId}`)).toBeUndefined();
+    expect(JSON.parse(h.audit.at(-1)!)).toMatchObject({ tool: 'delete_form', accountId: h.other.accountId, via: 'staff_grant' });
+  });
+
+  it('projects a workspace dForms has never seen on first use, and creates a form there', async () => {
+    const { h, initrode } = await staffDeployment();
+    const p = await staffPerson(h);
+    const c = await signIn(h, p.subject);
+    const created = structured<{ form: { id: string }; workspace: { id: string; name: string } }>(
+      await c.callTool({ name: 'create_form', arguments: { name: 'First in Initrode', config: LEAD, workspace_id: initrode } }),
+    );
+    const account = await h.db.get<{ id: string; name: string; onboarding_completed_at: number | null }>(
+      sql`SELECT id, name, onboarding_completed_at FROM account WHERE external_id = ${initrode}`,
+    );
+    expect(account).toMatchObject({ name: 'Initrode', onboarding_completed_at: null });
+    expect(created.workspace).toMatchObject({ id: account!.id, name: 'Initrode' });
+    expect((await h.db.get<{ account_id: string }>(sql`SELECT account_id FROM form WHERE id = ${created.form.id}`))!.account_id).toBe(account!.id);
+  });
+
+  it('answers NOT_FOUND for a workspace the identity service does not have live, or one only this database knows, and grants nothing', async () => {
+    const { h } = await staffDeployment();
+    const p = await staffPerson(h);
+    const c = await signIn(h, p.subject);
+    const localOnly = randomUUID();
+    await h.db.run(sql`INSERT INTO account (id, code, name, created_at) VALUES (${localOnly}, 'localco', 'Local Co', ${Date.now()})`);
+    for (const id of [randomUUID(), localOnly, 'not-an-id']) {
+      expect(errorText(await c.callTool({ name: 'list_forms', arguments: { workspace_id: id } }))).toMatch(/^NOT_FOUND: No live workspace has this id\./);
+    }
+    expect(await h.db.get(sql`SELECT id FROM member WHERE external_id = ${p.personId} AND access_grant = 'staff'`)).toBeUndefined();
+    expect(h.staffLog).toEqual([]);
+  });
+
+  it('enters a workspace where staff are a real member as that member, never turning it into a grant', async () => {
+    const { h, globexUpstream } = await staffDeployment();
+    const p = await staffPerson(h);
+    const member = await join(h, p, h.other.accountId, 'member');
+    const c = await signIn(h, p.subject);
+    // By the identity service's id, in any letter case.
+    for (const id of [globexUpstream, globexUpstream.toUpperCase()]) {
+      const who = structured<{ member: { id: string; role: string }; workspace: Record<string, unknown> }>(
+        await c.callTool({ name: 'whoami', arguments: { workspace_id: id } }),
+      );
+      expect(who.member).toEqual(expect.objectContaining({ id: member, role: 'member' }));
+    }
+    const row = await h.db.get<{ access_grant: string | null; role: string }>(sql`SELECT access_grant, role FROM member WHERE id = ${member}`);
+    expect(row).toEqual({ access_grant: null, role: 'member' });
+    expect(h.staffLog).toEqual([]);
+  });
+
+  it('refuses, and grants nothing, where the identity service names staff a member dForms has not seen yet', async () => {
+    const { h, initrode } = await staffDeployment();
+    const p = await staffPerson(h);
+    h.estate.get(initrode)!.members = [p.personId];
+    const c = await signIn(h, p.subject);
+    const text = errorText(await c.callTool({ name: 'list_forms', arguments: { workspace_id: initrode } }));
+    expect(text).toMatch(/^MEMBERSHIP_NOT_SYNCED/);
+    expect(text).toContain('open this workspace once in dForms');
+    expect(await h.db.get(sql`SELECT id FROM account WHERE external_id = ${initrode}`)).toBeUndefined();
+    expect(h.staffLog).toEqual([]);
+  });
+
+  it('cuts a person who is no longer staff off on the next call, although the grant row stays', async () => {
+    const { h, globexUpstream } = await staffDeployment();
+    const p = await staffPerson(h);
+    const c = await signIn(h, p.subject);
+    structured(await c.callTool({ name: 'list_forms', arguments: { workspace_id: h.other.accountId } }));
+    expect(await h.db.get(sql`SELECT id FROM member WHERE external_id = ${p.personId} AND access_grant = 'staff'`)).toBeDefined();
+
+    // The same person, now with an email off the staff domains (a new sign-in,
+    // so the directory's per-subject cache is not what answers).
+    const subject = `user_${randomUUID().slice(0, 8)}`;
+    h.people.set(subject, { id: p.personId, email: `${subject}@example.com` });
+    const after = await signIn(h, subject);
+    for (const id of [h.other.accountId, globexUpstream]) {
+      const text = errorText(await after.callTool({ name: 'list_forms', arguments: { workspace_id: id } }));
+      expect(text).toMatch(/^NOT_FOUND: No workspace of yours has this id\./);
+      expect(text).not.toContain('Globex');
+    }
+    const listed = structured<Found>(await after.callTool({ name: 'list_my_workspaces', arguments: { search: 'globex' } }));
+    expect(listed).toMatchObject({ staff: false, workspaces: [] });
+    // Back to a person with one workspace: used without asking.
+    expect(structured<{ workspace: { id: string } }>(await after.callTool({ name: 'list_forms', arguments: {} })).workspace.id).toBe(h.accountId);
+  });
+
+  it('gives nothing beyond their own workspaces to a person off the staff domains, or to anyone when no domain is set', async () => {
+    const cases = [
+      // A look-alike of the staff domain.
+      { env: { IAM_STAFF_DOMAINS: STAFF_DOMAIN }, domain: `not${STAFF_DOMAIN}` },
+      // The staff domain itself, on a deployment that lists none.
+      { env: {}, domain: STAFF_DOMAIN },
+    ];
+    for (const { env, domain } of cases) {
+      const h = await boot(env);
+      const upstream = randomUUID();
+      await h.db.run(sql`UPDATE account SET external_id = ${upstream} WHERE id = ${h.other.accountId}`);
+      h.estate.set(upstream, { id: upstream, name: 'Globex', accountId: null, accountName: null });
+      const p = newPerson(h);
+      h.people.set(p.subject, { id: p.personId, email: `${p.subject}@${domain}` });
+      await join(h, p, h.accountId, 'owner');
+      const c = await signIn(h, p.subject);
+      const found = structured<Found>(await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'globex' } }));
+      expect(found).toMatchObject({ staff: false, workspaces: [] });
+      for (const id of [h.other.accountId, upstream]) {
+        expect(errorText(await c.callTool({ name: 'get_form', arguments: { form_id: h.other.formId, workspace_id: id } }))).toMatch(
+          /^NOT_FOUND: No workspace of yours has this id\./,
+        );
+      }
+      expect(await h.db.get(sql`SELECT id FROM member WHERE access_grant = 'staff'`)).toBeUndefined();
+    }
   });
 });

@@ -11,6 +11,7 @@ import {
   createPersonDirectory,
   lookUpPerson,
   PersonRefused,
+  type EstateWorkspace,
   type Person,
   type PersonDirectory,
 } from './person-directory';
@@ -203,5 +204,57 @@ describe('the per-pod cache in front of the directory', () => {
     expect(state.lookups).toBe(4);
     await cached.personOf('user_ada');
     expect(state.lookups).toBe(5);
+  });
+});
+
+describe('the cache, for staff workspace lookups', () => {
+  const INITECH: EstateWorkspace = { id: 'ws-initech', name: 'Initech', accountId: 'acc-1', accountName: 'Initech Corp' };
+
+  function estate() {
+    const state = { byId: 0, searches: 0, fail: false };
+    const directory: PersonDirectory = {
+      personOf: async () => null,
+      async workspaceOf(id) {
+        state.byId += 1;
+        if (state.fail) throw new Error('connect ECONNREFUSED');
+        return id === INITECH.id ? INITECH : null;
+      },
+      async searchWorkspaces() {
+        state.searches += 1;
+        return [INITECH];
+      },
+    };
+    return { state, directory };
+  }
+
+  it('keeps a workspace for a minute, none briefly and an outage never; searches are never kept', async () => {
+    let t = 1_000_000;
+    const { state, directory } = estate();
+    const cached = cachePersonDirectory(directory, { limiter: new TokenBucketRateLimiter(1_000, 1_000), now: () => t });
+    expect(await Promise.all([cached.workspaceOf!('ws-initech'), cached.workspaceOf!('ws-initech')])).toEqual([INITECH, INITECH]);
+    expect(await cached.workspaceOf!('ws-gone')).toBeNull();
+    expect(state.byId).toBe(2);
+    t += 30_000;
+    expect(await cached.workspaceOf!('ws-initech')).toEqual(INITECH);
+    expect(await cached.workspaceOf!('ws-gone')).toBeNull();
+    expect(state.byId).toBe(3);
+    t += 31_000;
+    await cached.workspaceOf!('ws-initech');
+    expect(state.byId).toBe(4);
+    state.fail = true;
+    await expect(cached.workspaceOf!('ws-new')).rejects.toThrow();
+    state.fail = false;
+    expect(await cached.workspaceOf!('ws-new')).toBeNull();
+    expect(state.byId).toBe(6);
+
+    await cached.searchWorkspaces!('initech', 20);
+    await cached.searchWorkspaces!('initech', 20);
+    expect(state.searches).toBe(2);
+  });
+
+  it('offers no staff lookups when the directory has none', () => {
+    const cached = cachePersonDirectory({ personOf: async () => null }, { limiter: new TokenBucketRateLimiter(1, 1) });
+    expect(cached.workspaceOf).toBeUndefined();
+    expect(cached.searchWorkspaces).toBeUndefined();
   });
 });

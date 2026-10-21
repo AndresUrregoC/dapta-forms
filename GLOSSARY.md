@@ -18,6 +18,14 @@ _Avoid_: User, seat
 What a member may do in a workspace: owner, admin or member. Checked on every request, never cached in a credential.
 _Avoid_: Permission level
 
+**Staff**:
+A person whose email is on one of the deployment's staff domains. Staff can find and enter any workspace, as an admin, through a staff access grant. Judged again on every request, never stored.
+_Avoid_: Superuser, support user
+
+**Staff access grant**:
+The admin member row a staff person gets in a workspace they are not a member of, marked as a grant. It never shows on the team's roster, is never revoked, and works only while its holder is still staff.
+_Avoid_: Impersonation, guest membership
+
 **Respondent**:
 Someone who answers a published form. Never a member by virtue of answering.
 _Avoid_: User, lead, contact

@@ -15,8 +15,9 @@ import {
 } from '@quill/mcp';
 import { AdminCrudController } from './admin-crud.controller';
 import { AnalyticsController } from './analytics.controller';
+import { BrandingController } from './branding.controller';
+import { FormDestinationsController, IntegrationsController } from './integrations.controller';
 import {
-  ApiFormsBackend,
   MCP_ANALYTICS_HANDLERS,
   MCP_FORM_HANDLERS,
   authenticateMcpConnection,
@@ -24,6 +25,7 @@ import {
   keyAllowedRoutes,
   type McpHandlers,
 } from './mcp.backend';
+import { ApiMcpBackend, MCP_PARITY_HANDLERS, type McpParityHandlers } from './mcp.backend.parity';
 import { noteApiKeyCall } from './deprecated-hosts';
 import { API_KEY_PREFIX } from './api-keys';
 import type { McpOAuth } from './mcp-oauth';
@@ -67,6 +69,9 @@ export class McpController implements OnModuleInit {
   private readonly door: McpDoor;
   private readonly trustProxyHops: number;
   private handlers: McpHandlers | null = null;
+  private parityHandlers: McpParityHandlers | null = null;
+  /** Where each staff call outside the person's own workspaces is logged (one JSON line). A field so specs can read it. */
+  staffLogSink: (line: string) => void = (line) => this.logger.log(line);
 
   constructor(
     @Inject(ENV) env: ServerEnv,
@@ -87,7 +92,11 @@ export class McpController implements OnModuleInit {
     // one every 6 seconds, ample for a cache that asks once a minute.
     const people = directory ? cachePersonDirectory(directory, { limiter: bucket(10, 1 / 6) }) : null;
     this.server = new FormsMcpServer({
-      backend: new ApiFormsBackend(db, () => this.resolveHandlers()),
+      backend: new ApiMcpBackend(
+        db,
+        () => this.resolveHandlers(),
+        () => this.resolveParityHandlers(),
+      ),
       toolTimeoutMs: env.MCP_TOOL_TIMEOUT_MS,
       writeLimiter: bucket(env.MCP_WRITE_RATE_LIMIT_CAPACITY, env.MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC),
       // Named to a signed-in person with no workspace yet: open dForms once there.
@@ -108,7 +117,13 @@ export class McpController implements OnModuleInit {
         oauth && people
           ? {
               isApiKey: (token) => token.startsWith(API_KEY_PREFIX),
-              authenticate: (token) => authenticateMcpConnection(db, oauth, people, token, env.PUBLIC_APP_URL),
+              authenticate: (token) =>
+                authenticateMcpConnection(db, oauth, people, token, {
+                  appUrl: env.PUBLIC_APP_URL,
+                  // Staff of the deployment: the same list, and the same rule, as the web app's switcher.
+                  staffDomains: env.IAM_STAFF_DOMAINS,
+                  staffLog: (line) => this.staffLogSink(line),
+                }),
               resourceMetadataUrl: oauth.resourceMetadataUrl,
             }
           : undefined,
@@ -129,6 +144,7 @@ export class McpController implements OnModuleInit {
    */
   onModuleInit(): void {
     this.resolveHandlers();
+    this.resolveParityHandlers();
   }
 
   private resolveHandlers(): McpHandlers {
@@ -141,6 +157,25 @@ export class McpController implements OnModuleInit {
       };
     }
     return this.handlers;
+  }
+
+  /** The handlers of the rest of the API reference, checked against the API-key allowlist the same way. */
+  private resolveParityHandlers(): McpParityHandlers {
+    if (!this.parityHandlers) {
+      keyAllowedRoutes(AdminCrudController, MCP_PARITY_HANDLERS.forms);
+      keyAllowedRoutes(AnalyticsController, MCP_PARITY_HANDLERS.analytics);
+      keyAllowedRoutes(FormDestinationsController, MCP_PARITY_HANDLERS.destinations);
+      keyAllowedRoutes(BrandingController, MCP_PARITY_HANDLERS.branding);
+      keyAllowedRoutes(IntegrationsController, MCP_PARITY_HANDLERS.integrations);
+      this.parityHandlers = {
+        forms: this.moduleRef.get(AdminCrudController, { strict: false }),
+        analytics: this.moduleRef.get(AnalyticsController, { strict: false }),
+        destinations: this.moduleRef.get(FormDestinationsController, { strict: false }),
+        branding: this.moduleRef.get(BrandingController, { strict: false }),
+        integrations: this.moduleRef.get(IntegrationsController, { strict: false }),
+      };
+    }
+    return this.parityHandlers;
   }
 
   @All()
