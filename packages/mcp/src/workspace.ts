@@ -94,9 +94,13 @@ export function normalizeWorkspaceSearch(text: string | undefined): string {
   return foldSearchText(text ?? '').replace(/[\x00-\x2f\x3a-\x60\x7b-\x7f]/g, '');
 }
 
-/** What staff do to pick a workspace: search, confirm with the user, then name it. */
+/**
+ * What staff do to pick a workspace: search, confirm with the user, then name
+ * it. The message it follows already says the caller is staff, so it does not
+ * say it again.
+ */
 export const STAFF_WORKSPACE_HINT =
-  'You are staff of this deployment and can act in any workspace. Find the one the user means with list_my_workspaces(search=<part of its name>), confirm it with the user by name and account (even when only one matches), then repeat this call with its workspace_id.';
+  'Find the workspace the user means with list_my_workspaces(search=<part of its name>), confirm it with the user by name and account (even when only one matches), then repeat this call with its workspace_id.';
 
 export const LIST_WORKSPACES_HINT =
   'Call list_my_workspaces, ask the user which workspace by its name (never pick one yourself), then repeat this call with that workspace_id.';
@@ -150,7 +154,7 @@ export async function resolveWorkspace(
     if (staff) {
       const entered = await staff.enter(wanted);
       if (entered) return entered;
-      throw new ToolFailure('NOT_FOUND', 'No live workspace has this id.', STAFF_WORKSPACE_HINT);
+      throw new ToolFailure('NOT_FOUND', 'No live workspace has this id. As staff of this deployment you can act in any live one.', STAFF_WORKSPACE_HINT);
     }
     throw new ToolFailure(
       'NOT_FOUND',

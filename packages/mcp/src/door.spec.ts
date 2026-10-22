@@ -488,7 +488,7 @@ describe('an MCP connection with several workspaces', () => {
     const listed = structured<{ workspace: { id: string; name: string } }>(
       await c.callTool({ name: 'list_forms', arguments: { workspace_id: 'acct-2' } }),
     );
-    expect(listed.workspace).toEqual({ id: 'acct-2', name: 'Globex' });
+    expect(listed.workspace).toEqual({ id: 'acct-2', name: 'Globex', access: 'member' });
     expect(h.calls[0]).toMatchObject({ method: 'listForms', caller: { accountId: 'acct-2', memberId: 'member-g' } });
     expect(errorText(await c.callTool({ name: 'list_forms', arguments: { workspace_id: 'acct-9' } }))).toMatch(/^NOT_FOUND/);
     const mine = structured<{ workspaces: unknown[] }>(await c.callTool({ name: 'list_my_workspaces', arguments: {} }));
@@ -601,7 +601,8 @@ describe('an MCP connection of staff', () => {
       { id: 'acct-7', name: 'Initech', account_name: 'Initech Corp', role: 'admin', access: 'staff' },
     ]);
     expect(found.next_step).toMatch(/Confirm it even when only one matched/);
-    expect(asked).toEqual(['search:In-i:20']);
+    // One more than it shows, to know whether the list was cut.
+    expect(asked).toEqual(['search:In-i:21']);
     for (const search of ['ab', ' a-b ', '..']) {
       expect(errorText(await c.callTool({ name: 'list_my_workspaces', arguments: { search } }))).toMatch(/^SEARCH_TOO_SHORT/);
     }
@@ -626,6 +627,70 @@ describe('an MCP connection of staff', () => {
     expect(asked).toEqual(['enter:acct-7']);
     const missing = errorText(await c.callTool({ name: 'list_forms', arguments: { workspace_id: 'acct-404' } }));
     expect(missing).toMatch(/^NOT_FOUND: No live workspace has this id\./);
+  });
+
+  it('says staff once in a refusal, and gives whoami a next step and an access with or without a workspace', async () => {
+    const { conn } = staffConnection();
+    const h = await boot({ door: { oauth: oauthSide({ t: conn }).oauth } });
+    const c = await h.connect('t');
+    for (const args of [{}, { workspace_id: 'acct-404' }]) {
+      const text = errorText(await c.callTool({ name: 'list_forms', arguments: args }));
+      expect(text.match(/staff of this deployment/g)).toHaveLength(1);
+      expect(text).toContain('list_my_workspaces(search=');
+    }
+    const none = structured<{ workspace: unknown; next_step: string }>(await c.callTool({ name: 'whoami', arguments: {} }));
+    expect(none.workspace).toBeNull();
+    expect(none.next_step).toMatch(/list_my_workspaces\(search=/);
+    const mine = structured<{ workspace: { access: string }; next_step: string }>(
+      await c.callTool({ name: 'whoami', arguments: { workspace_id: 'acct-1' } }),
+    );
+    expect(mine.workspace.access).toBe('member');
+    expect(mine.next_step).toMatch(/Confirm with the user/);
+    const theirs = structured<{ workspace: { access: string } }>(await c.callTool({ name: 'whoami', arguments: { workspace_id: 'acct-7' } }));
+    expect(theirs.workspace.access).toBe('staff');
+  });
+
+  it('lists a workspace once by the id the search gives, says what it matched on, and flags a list cut at 20', async () => {
+    const asked: number[] = [];
+    const hits = Array.from({ length: 25 }, (_, i) => ({
+      id: `iam-${i}`,
+      localId: null,
+      name: `Bulk ${i}`,
+      accountName: null,
+      role: 'admin',
+      access: 'staff' as const,
+      matchedOn: 'name' as const,
+    }));
+    const access: McpStaffAccess = {
+      async search(_query, limit) {
+        asked.push(limit);
+        return [
+          // Its own workspace, found by the identity service's id: listed once, as theirs.
+          { id: 'iam-own', localId: 'acct-1', name: 'Acme', accountName: 'Acme Holdings', role: 'admin', access: 'staff', matchedOn: 'member_email' },
+          ...hits,
+        ].slice(0, limit);
+      },
+      async enter() {
+        return null;
+      },
+    };
+    const h = await boot({ door: { oauth: oauthSide({ t: { ...connection([own]), staff: access } }).oauth } });
+    const c = await h.connect('t');
+    const found = structured<{ workspaces: Array<Record<string, unknown>>; truncated: boolean; next_step: string }>(
+      await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'bulk' } }),
+    );
+    expect(found.workspaces).toHaveLength(20);
+    expect(found.workspaces[0]).toEqual({ id: 'acct-1', name: 'Acme', account_name: null, role: 'owner', access: 'member', matched_on: 'member_email' });
+    expect(found.workspaces.filter((w) => w.name === 'Acme')).toHaveLength(1);
+    expect(found.workspaces[1]).toMatchObject({ id: 'iam-0', matched_on: 'name', access: 'staff' });
+    expect(found.truncated).toBe(true);
+    expect(found.next_step).toMatch(/More workspaces matched than the 20 shown/);
+    const few = structured<{ workspaces: unknown[]; truncated: boolean; next_step: string }>(
+      await c.callTool({ name: 'list_my_workspaces', arguments: { search: 'bulk', limit: 3 } }),
+    );
+    expect(few).toMatchObject({ truncated: true });
+    expect(few.workspaces).toHaveLength(3);
+    expect(asked).toEqual([21, 4]);
   });
 });
 

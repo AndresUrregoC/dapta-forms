@@ -12,7 +12,7 @@ import { CONFIRM_FIRST, FORM_MISSING, WRITE_IDEMPOTENT, attempt, emailKeyArg, fo
 const OWNERS = 'Owners and admins only.';
 
 const TOKENS =
-  'Subject and body are plain text with {{token}} markers: {{formName}}, {{respondentName}}, {{respondentEmail}}, {{score}}, {{outcomeLabel}}, {{formLink}}, {{answers}}.';
+  'Subject and body are plain text with {{token}} markers: {{formName}}, {{respondentName}}, {{respondentEmail}}, {{score}}, {{outcomeLabel}}, {{formLink}}, {{answers}}. Any other marker is saved but reaches the inbox as written; warnings lists it.';
 
 const NO_FORM: Missing = FORM_MISSING;
 const WORKSPACE: Missing = { what: 'Notification', hint: 'email_key is submission_received or submission_confirmed.' };
@@ -41,6 +41,36 @@ function patchOf(args: NotificationPatch): NotificationPatch {
 }
 
 const settings = (views: NotificationView[]) => views as Array<Record<string, unknown>>;
+
+/** The tokens the emails fill in, when the setting read back does not list them. */
+const KNOWN_TOKENS = ['formName', 'respondentName', 'respondentEmail', 'score', 'outcomeLabel', 'formLink', 'answers'];
+/** A `{{token}}` marker, as the emails read it (spaces inside the braces allowed). */
+const TOKEN_MARKER = /\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g;
+
+const warningsOut = z
+  .array(z.string())
+  .optional()
+  .describe('What was saved but will not work as written (a {{token}} the emails do not know stays literal in the email). Tell the user.');
+
+/**
+ * A warning for each `{{token}}` in the subject or body sent that the emails
+ * do not fill in: it is saved (as over the REST API), but reaches the inbox
+ * literally. The valid tokens are the ones the saved setting lists.
+ */
+export function unknownTokenWarnings(patch: NotificationPatch, view: NotificationView): string[] {
+  const listed = (view as { tokens?: unknown }).tokens;
+  const valid = Array.isArray(listed) && listed.every((t) => typeof t === 'string') ? (listed as string[]) : KNOWN_TOKENS;
+  const unknown = new Set<string>();
+  for (const text of [patch.subject, patch.body]) {
+    if (typeof text !== 'string') continue;
+    for (const match of text.matchAll(TOKEN_MARKER)) if (!valid.includes(match[1]!)) unknown.add(match[1]!);
+  }
+  if (unknown.size === 0) return [];
+  const names = [...unknown].map((t) => `{{${t}}}`).join(', ');
+  return [
+    `${names} ${unknown.size === 1 ? 'is not a token' : 'are not tokens'} the emails fill in, so ${unknown.size === 1 ? 'it reaches' : 'they reach'} the inbox as written. Valid tokens: ${valid.map((t) => `{{${t}}}`).join(', ')}.`,
+  ];
+}
 
 // --- list_notifications -------------------------------------------------------
 
@@ -73,10 +103,15 @@ export const updateNotification: ToolDef = {
   workspace: 'required',
   annotations: WRITE_IDEMPOTENT,
   input: updateInput,
-  output: z.object({ setting: view }),
+  output: z.object({ setting: view, warnings: warningsOut }),
   async run(args: z.infer<typeof updateInput>, ctx) {
-    const v = await attempt(ctx.backend.updateNotification(actingAs(ctx), args.email_key, patchOf(args)), WORKSPACE);
-    return { data: { setting: v }, summary: `Saved the ${args.email_key} email of the workspace.` };
+    const patch = patchOf(args);
+    const v = await attempt(ctx.backend.updateNotification(actingAs(ctx), args.email_key, patch), WORKSPACE);
+    const warnings = unknownTokenWarnings(patch, v);
+    return {
+      data: { setting: v, ...(warnings.length ? { warnings } : {}) },
+      summary: `Saved the ${args.email_key} email of the workspace.${warnings.length ? ` ${warnings.join(' ')}` : ''}`,
+    };
   },
 };
 
@@ -134,10 +169,16 @@ export const updateFormNotification: ToolDef = {
   workspace: 'required',
   annotations: WRITE_IDEMPOTENT,
   input: updateFormInput,
-  output: z.object({ form_id: z.string(), setting: view }),
+  output: z.object({ form_id: z.string(), setting: view, warnings: warningsOut }),
   async run(args: z.infer<typeof updateFormInput>, ctx) {
-    const v = await attempt(ctx.backend.updateFormNotification(actingAs(ctx), args.form_id, args.email_key, patchOf(args)), NO_FORM);
-    return { data: { form_id: args.form_id, setting: v }, summary: `Saved the ${args.email_key} email of form ${args.form_id}.`, affected: [args.form_id] };
+    const patch = patchOf(args);
+    const v = await attempt(ctx.backend.updateFormNotification(actingAs(ctx), args.form_id, args.email_key, patch), NO_FORM);
+    const warnings = unknownTokenWarnings(patch, v);
+    return {
+      data: { form_id: args.form_id, setting: v, ...(warnings.length ? { warnings } : {}) },
+      summary: `Saved the ${args.email_key} email of form ${args.form_id}.${warnings.length ? ` ${warnings.join(' ')}` : ''}`,
+      affected: [args.form_id],
+    };
   },
 };
 

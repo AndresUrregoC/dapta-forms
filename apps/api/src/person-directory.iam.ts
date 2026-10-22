@@ -181,7 +181,11 @@ const NEEDLE = /^[^\x00-\x2f\x3a-\x60\x7b-\x7f]{3,100}$/;
  * `[:alnum:]`, so it does not depend on the database's locale.
  */
 const ASCII_NON_ALNUM_OR_MARK = '[\\x01-\\x2f\\x3a-\\x60\\x7b-\\x7f\\u0300-\\u036f]';
-const MAX_SEARCH_RESULTS = 20;
+/**
+ * One past the 20 a search shows (`STAFF_SEARCH_MAX_RESULTS`), so the tool can
+ * tell a list that was cut from one that ended there.
+ */
+const MAX_SEARCH_RESULTS = 21;
 
 function workspaceOf(row: WorkspaceRow): EstateWorkspace {
   return { id: row.id, name: row.name ?? 'Workspace', accountId: row.account_id, accountName: row.account_name };

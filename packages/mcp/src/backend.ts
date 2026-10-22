@@ -58,10 +58,25 @@ export interface McpCaller {
   context: unknown;
 }
 
+/** What a staff search matched a workspace on. */
+export type WorkspaceMatch = 'name' | 'account_name' | 'member_email' | 'form_name';
+
 /** One workspace a staff search found. */
 export interface StaffWorkspaceHit {
-  /** What a call passes as `workspace_id`. */
+  /**
+   * What a call passes as `workspace_id`: one id per workspace, the same
+   * before and after the host first uses it (forms-api: the identity
+   * service's workspace id, never the local id its projection mints).
+   */
   id: string;
+  /**
+   * The host's own id for the workspace when it already has one (it is what
+   * `McpCaller.accountId` holds), so the tools can tell the person's own
+   * workspaces apart. Never shown as the id to pass.
+   */
+  localId?: string | null;
+  /** Why it matched: its name, its account's name, a member's email or a form's name. */
+  matchedOn?: WorkspaceMatch;
   name: string;
   /** The account (billing) the workspace belongs to, when the host knows it: workspace names repeat. */
   accountName: string | null;

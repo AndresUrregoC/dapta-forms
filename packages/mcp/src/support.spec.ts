@@ -70,6 +70,22 @@ describe('toFailure', () => {
     expect(f.message).toContain('- (arguments) [invalid_type]');
   });
 
+  it('sends the model to get_form_guide only for a form config', () => {
+    const refusal = () =>
+      new BackendError(400, 'VALIDATION_FAILED', 'Invalid.', [
+        { path: 'radius', message: 'Invalid enum value.', code: 'invalid_enum_value' },
+        { path: 'shade', message: 'Unrecognized key.', code: 'unrecognized_keys' },
+      ]);
+    for (const tool of ['update_brand_kit', 'update_form_notification', 'set_destinations', undefined]) {
+      expect(toFailure(refusal(), 'key', tool).render(), String(tool)).not.toContain('get_form_guide');
+    }
+    for (const tool of ['create_form', 'update_form']) {
+      const text = toFailure(refusal(), 'key', tool).render();
+      expect(text).toMatch(/get_form_guide\.$/);
+      expect(text).toContain('config_schema of get_form_guide');
+    }
+  });
+
   it('lists at most 25 issues and says how many were left out', () => {
     const issues = Array.from({ length: 30 }, (_, i) => ({ path: `config.steps.${i}.question`, message: 'Required', code: 'invalid_type' }));
     const text = renderIssues(issues);

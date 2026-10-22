@@ -103,9 +103,10 @@ export const actedIn = z
     id: z.string(),
     name: z.string(),
     access: z
-      .literal('staff')
-      .optional()
-      .describe('Present when this call acted through a staff access grant: you are not a member of this workspace.'),
+      .enum(['member', 'staff'])
+      .describe(
+        'member: you acted as a member of this workspace (an API key always does). staff: you acted through a staff access grant, as an admin who is not a member here.',
+      ),
   })
   .describe('The workspace this call acted in. If it is not the one the user means, stop and ask.');
 
@@ -120,6 +121,12 @@ const workspaceItem = z.object({
   access: z
     .enum(['member', 'staff'])
     .describe('member: you are a member there. staff: you would act there as an admin through a staff access grant.'),
+  matched_on: z
+    .enum(['name', 'account_name', 'member_email', 'form_name'])
+    .optional()
+    .describe(
+      "Only in a search: what the search text matched. name or account_name: the workspace's own name or its account's. member_email: the email of one of its members. form_name: the name of one of its forms. Tell the user why a workspace with an unrelated name is listed.",
+    ),
 });
 
 type WorkspaceItem = z.infer<typeof workspaceItem>;
@@ -249,7 +256,7 @@ const warningsField = z
   .optional()
   .describe('What did not go exactly as sent, or needs the user to know. Tell the user.');
 
-/** A form's config without `destinations`: webhooks and HubSpot are managed in the dashboard, never through a config. */
+/** A form's config without `destinations`: they are read from get_form's `destinations` and changed with set_destinations, never through a config. */
 function withoutDestinations(config: Record<string, unknown>): Record<string, unknown> {
   const { destinations: _destinations, ...rest } = config;
   return rest;
@@ -275,6 +282,9 @@ const whoami: ToolDef = {
         name: z.string(),
         code: z.string().describe('The first segment of every public form link of this workspace.'),
         time_zone: z.string().nullable(),
+        access: z
+          .enum(['member', 'staff'])
+          .describe('member: you act as a member here (an API key always does). staff: through a staff access grant, as an admin who is not a member.'),
       })
       .nullable()
       .describe('The workspace this call acts in. Null when you signed in with several workspaces (or none) and named none.'),
@@ -306,6 +316,7 @@ const whoami: ToolDef = {
       .describe(
         'True when the person signed in is staff of this deployment: they can act in any workspace, must send workspace_id on every call, and you confirm the workspace with the user before reading or changing anything in it.',
       ),
+    next_step: z.string().describe('What to do next.'),
   }),
   async run(args: z.infer<typeof whoamiInput>, { credential, caller, backend, appUrl }) {
     const workspaces = workspacesOf(credential);
@@ -314,20 +325,30 @@ const whoami: ToolDef = {
     const staff = isStaffConnection(credential);
     if (!caller) {
       const who = person?.email ?? person?.id ?? 'this person';
+      const nextStep = staff
+        ? 'Before the first call that reads or changes anything, find the workspace the user means with list_my_workspaces(search=<part of its name>), confirm it with the user by name and account (even when only one matches), and send its id as workspace_id on every call, even for a workspace of your own.'
+        : workspaces.length === 0
+          ? `Ask the user to ${openDFormsOnce(appUrl)}`
+          : 'Ask the user which workspace to use, by name, and pass its id as workspace_id on every call.';
       return {
-        data: { workspace: null, member: null, key, person, workspaces, staff },
+        data: { workspace: null, member: null, key, person, workspaces, staff, next_step: nextStep },
         summary: staff
           ? `Signed in as ${who}, staff of this deployment: you can act in any workspace.${
               workspaces.length > 0 ? ` Your own: ${listed(workspaces)}.` : ''
-            } Before the first call that reads or changes anything, find the workspace the user means with list_my_workspaces(search=<part of its name>), confirm it with the user by name and account, and send its id as workspace_id on every call.`
+            } ${nextStep}`
           : workspaces.length === 0
-            ? `Signed in as ${who}, who is not an active member of any dForms workspace yet. Ask the user to ${openDFormsOnce(appUrl)}`
-            : `Signed in as ${who}, a member of ${workspaces.length} workspaces: ${listed(workspaces)}. Ask the user which one to use, by name, and pass its id as workspace_id on every call.`,
+            ? `Signed in as ${who}, who is not an active member of any dForms workspace yet. ${nextStep}`
+            : `Signed in as ${who}, a member of ${workspaces.length} workspaces: ${listed(workspaces)}. ${nextStep}`,
       };
     }
     const me = await backend.whoami(caller);
     const throughGrant = caller.access === 'staff';
     const others = workspaces.filter((w) => w.id !== me.accountId);
+    const nextStep = staff
+      ? 'Confirm with the user that this is the workspace they mean before reading or changing anything in it, and send this workspace_id on every call.'
+      : isConnection(credential)
+        ? 'Use this workspace. Send its id as workspace_id on every call when you have several.'
+        : 'This API key acts in this workspace only: leave workspace_id out.';
     return {
       data: {
         // The id the agent sent, like every other tool's `workspace.id`.
@@ -336,12 +357,14 @@ const whoami: ToolDef = {
           name: me.accountName,
           code: me.accountCode,
           time_zone: me.timezone,
+          access: throughGrant ? 'staff' : 'member',
         },
         member: { id: me.memberId, name: me.displayName, email: me.email, role: me.role, status: me.status, locale: me.locale },
         key,
         person,
         workspaces,
         staff,
+        next_step: nextStep,
       },
       summary: `Connected to workspace "${me.accountName}" as ${me.displayName ?? me.email ?? me.memberId} (${me.role}${
         throughGrant ? ', staff access: you are not a member here' : ''
@@ -383,6 +406,9 @@ const listMyWorkspaces: ToolDef = {
   output: z.object({
     workspaces: z.array(workspaceItem),
     staff: z.boolean().describe('True when you are staff of this deployment and can act in any workspace.'),
+    truncated: z
+      .boolean()
+      .describe('True when more workspaces apply than were returned (the limit, or the staff search cap): refine the search, or raise limit.'),
     next_step: z.string().describe('What to do next with these workspaces.'),
   }),
   async run(args: z.infer<typeof listMyWorkspacesInput>, { credential, appUrl }) {
@@ -407,7 +433,7 @@ const listMyWorkspaces: ToolDef = {
               : 'Ask the user which workspace to use, by name, then pass its id as workspace_id on every call. If the user switches, use the new id from then on and say so.';
       const step = more > 0 ? `${nextStep} ${more} more not shown: raise limit, or search by name.` : nextStep;
       return {
-        data: { workspaces, staff, next_step: step },
+        data: { workspaces, staff, truncated: more > 0, next_step: step },
         summary:
           workspaces.length === 0
             ? `No workspace${staff ? ' of your own' : ' yet'}. ${step}`
@@ -417,8 +443,11 @@ const listMyWorkspaces: ToolDef = {
 
     const needle = normalizeWorkspaceSearch(query);
     const lowered = query.toLowerCase();
-    const mine = own.filter((w) => w.name.toLowerCase().includes(lowered) || (needle !== '' && normalizeWorkspaceSearch(w.name).includes(needle)));
+    const mine = own
+      .filter((w) => w.name.toLowerCase().includes(lowered) || (needle !== '' && normalizeWorkspaceSearch(w.name).includes(needle)))
+      .map((w) => ({ ...w, matched_on: 'name' as const }));
     let workspaces: WorkspaceItem[];
+    let truncated = false;
     if (staffAccess) {
       if (needle.length < STAFF_SEARCH_MIN_CHARS) {
         throw new ToolFailure(
@@ -428,32 +457,52 @@ const listMyWorkspaces: ToolDef = {
         );
       }
       const max = Math.min(limit ?? STAFF_SEARCH_MAX_RESULTS, STAFF_SEARCH_MAX_RESULTS);
-      const hits = await staffAccess.search(query, max);
+      // One more than shown, to know whether the list was cut.
+      const hits = await staffAccess.search(query, max + 1);
       const byId = new Map(own.map((w) => [w.id, w]));
       const seen = new Set(mine.map((w) => w.id));
       workspaces = [...mine];
       for (const hit of hits) {
-        if (seen.has(hit.id)) continue;
-        seen.add(hit.id);
-        // A workspace of the person's own keeps its member role, whichever way it matched.
+        // A workspace of the person's own is listed once, as theirs, by the
+        // id it has in their list, whichever way it matched.
+        const mineToo = byId.get(hit.localId ?? hit.id) ?? byId.get(hit.id);
+        const id = mineToo?.id ?? hit.id;
+        if (seen.has(id)) continue;
+        seen.add(id);
         workspaces.push(
-          byId.get(hit.id) ?? { id: hit.id, name: hit.name, account_name: hit.accountName, role: hit.role, access: hit.access },
+          mineToo
+            ? { ...mineToo, ...(hit.matchedOn ? { matched_on: hit.matchedOn } : {}) }
+            : {
+                id: hit.id,
+                name: hit.name,
+                account_name: hit.accountName,
+                role: hit.role,
+                access: hit.access,
+                ...(hit.matchedOn ? { matched_on: hit.matchedOn } : {}),
+              },
         );
       }
+      truncated = workspaces.length > max || hits.length > max;
       workspaces = cut(workspaces, max);
     } else {
+      truncated = limit !== undefined && mine.length > limit;
       workspaces = cut(mine);
     }
+    const refine = truncated
+      ? staff
+        ? ` More workspaces matched than the ${workspaces.length} shown: ask the user for more of the name (or the account name) and search again.`
+        : ' More matched than shown: raise limit, or search with more of the name.'
+      : '';
     const nextStep =
-      workspaces.length === 0
+      (workspaces.length === 0
         ? staff
           ? 'Nothing matched. Ask the user for another part of the workspace name, a member email or a form name.'
           : 'None of your workspaces matched. Call list_my_workspaces without search to see them all.'
         : staff
-          ? 'Show these to the user by name and account, and ask which one they mean. Confirm it even when only one matched; never pick one yourself. Then send its id as workspace_id on every call.'
-          : 'Ask the user which workspace to use, by name, then pass its id as workspace_id on every call.';
+          ? 'Show these to the user by name and account, and ask which one they mean (matched_on says why each one matched). Confirm it even when only one matched; never pick one yourself. Then send its id as workspace_id on every call.'
+          : 'Ask the user which workspace to use, by name, then pass its id as workspace_id on every call.') + refine;
     return {
-      data: { workspaces, staff, next_step: nextStep },
+      data: { workspaces, staff, truncated, next_step: nextStep },
       summary:
         workspaces.length === 0
           ? `No workspace matched. ${nextStep}`
@@ -519,7 +568,7 @@ const getForm: ToolDef = {
   name: 'get_form',
   title: 'Get a form',
   description:
-    'One form with its public_url, publish state and config. `config` is what to edit: the unpublished draft when there is one (config_source "draft"), else the live config. To change the form, edit a copy of `config` and send all of it to update_form with expected_updated_at = updated_at. When is_live is false the public link opens an empty form: do not share it. Webhooks and HubSpot (`destinations`) are left out of the config: they are managed in the dForms dashboard.',
+    'One form with its public_url, publish state and config. `config` is what to edit: the unpublished draft when there is one (config_source "draft"), else the live config. To change the form, edit a copy of `config` and send all of it to update_form with expected_updated_at = updated_at. When is_live is false the public link opens an empty form: do not share it. Webhooks and HubSpot are left out of the config and listed apart in `destinations` (with their ids, secrets masked): change them with set_destinations, never through the config.',
   write: false,
   workspace: 'required',
   annotations: READ,
@@ -535,7 +584,12 @@ const getForm: ToolDef = {
       .describe('Only when a draft is pending: what respondents see right now.'),
     connected_destinations: z
       .number()
-      .describe('How many webhooks and HubSpot connections the form has. Managed in the dForms dashboard, never through the config.'),
+      .describe('How many webhooks and HubSpot connections the form has (the length of destinations).'),
+    destinations: z
+      .array(z.record(z.string(), z.unknown()))
+      .describe(
+        'Where responses go now (webhooks and HubSpot), as stored on the live form, each with its id; signing secrets masked. The list set_destinations starts from: send it back whole with your change, a masked secret unchanged to keep it.',
+      ),
   }),
   async run(args: z.infer<typeof getFormInput>, ctx) {
     const caller = actingAs(ctx);
@@ -543,7 +597,9 @@ const getForm: ToolDef = {
     const f = await backend.getForm(caller, args.form_id);
     const draft = isObject(f.draftConfig) ? withoutDestinations(f.draftConfig) : null;
     const live = isObject(f.config) ? f.config : {};
-    const destinations = Array.isArray(live.destinations) ? live.destinations.length : 0;
+    // Always the live config's: destinations apply to the live form at once,
+    // and a draft never holds them. Masked by the route, like REST.
+    const destinations = (Array.isArray(live.destinations) ? live.destinations : []).filter(isObject);
     return {
       data: {
         ...summaryOf(f),
@@ -551,7 +607,8 @@ const getForm: ToolDef = {
         config_source: draft ? 'draft' : 'live',
         config: draft ?? withoutDestinations(live),
         ...(draft ? { live_config: withoutDestinations(live) } : {}),
-        connected_destinations: destinations,
+        connected_destinations: destinations.length,
+        destinations,
       },
       summary: `"${f.name}"${draft ? ' has unpublished edits' : liveStepsOf(f) === 0 ? ' is empty' : ' is live'}. ${linkLine(f)}`,
       affected: [f.id],
@@ -594,7 +651,7 @@ const createForm: ToolDef = {
     const caller = actingAs(ctx);
     const { backend } = ctx;
     const review = reviewConfig(args.config);
-    if (review.issues.length) throw validationFailure(review.issues);
+    if (review.issues.length) throw validationFailure(review.issues, undefined, { config: true });
     const f = await backend.createForm(caller, {
       name: args.name,
       config: args.config,
@@ -676,13 +733,13 @@ const updateForm: ToolDef = {
       }
       if (issues.length) {
         const { refuse, carried } = splitInherited(issues, config, await readConfig());
-        if (refuse.length) throw validationFailure(refuse);
+        if (refuse.length) throw validationFailure(refuse, undefined, { config: true });
         warnings.push(...carried);
       }
       warnings.push(...review.warnings);
       if ('destinations' in config) {
         warnings.push(
-          'config.destinations was ignored: update_form never changes webhooks or HubSpot, which are managed in the dForms dashboard. Leave destinations out of the config.',
+          'config.destinations was ignored: update_form never changes webhooks or HubSpot. Leave destinations out of the config; use set_destinations, starting from get_form\'s destinations.',
         );
       }
     }
@@ -1123,7 +1180,7 @@ const getFormAnalytics: ToolDef = {
   name: 'get_form_analytics',
   title: 'Get form analytics',
   description:
-    'The funnel of one form, computed by dForms exactly as its Results screen shows it: views, starts, submissions, completion rate, median time to complete, partials, bookings and the drop-off per question, each with its definition. Report these numbers as they are; never compute another rate from them, and never read null as zero.',
+    'The funnel of one form, computed by dForms exactly as its Results screen shows it: views, starts, submissions, completion rate, median time to complete, partials, bookings and the drop-off per question, each with its definition. Report these numbers as they are; never compute another rate from them, and never read null as zero. A question is named as written, so a [placeholder] in it stays as is: it counts every respondent, whose own values differ.',
   write: false,
   workspace: 'required',
   annotations: READ,
