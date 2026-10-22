@@ -93,6 +93,10 @@ describe('proxy matcher', () => {
     '/',
     '/login',
     '/login?signedout=1',
+    '/acme/f/contact',
+    '/acme/f/contact?embed=1',
+    '/acme/jane/contact',
+    '/acme/jane/contact?embed=1&utm_source=x',
     '/acme/jane',
     '/acme/f/contact/opengraph-image',
     '/embed.js',
@@ -122,64 +126,6 @@ describe('proxy matcher', () => {
   it.each(UNTOUCHED)('never runs on %s (it keeps serving on the old host)', (url) => {
     expect(doesMatch(url)).toBe(false);
   });
-
-  // A public form page runs it only for the real-404 check below.
-  it.each(['/acme/f/contact', '/acme/f/contact?embed=1', '/acme/jane/contact?embed=1&utm_source=x'])(
-    'runs on the public form page %s',
-    (url) => {
-      expect(doesMatch(url)).toBe(true);
-    },
-  );
-});
-
-/**
- * A public form that does not exist answers a REAL 404 (the page itself cannot:
- * its loading boundary has streamed a 200 by the time it knows).
- */
-describe('proxy on a public form page', () => {
-  const fetchMock = vi.fn();
-  beforeEach(() => {
-    vi.unstubAllEnvs();
-    vi.stubEnv('PUBLIC_APP_URL', CANONICAL);
-    fetchMock.mockReset();
-    vi.stubGlobal('fetch', fetchMock);
-  });
-
-  const nav = { host: OLD, 'sec-fetch-mode': 'navigate', 'x-forwarded-for': '203.0.113.7, 10.0.0.1' };
-
-  it('a form the API does not know: 404, rewritten to the not-found screen', async () => {
-    fetchMock.mockResolvedValue(new Response('{}', { status: 404 }));
-    const res = await proxy(at('/acme/f/gone?utm_source=x', nav));
-    expect(res.status).toBe(404);
-    expect(res.headers.get('x-middleware-rewrite')).toContain('/_form-not-found');
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toMatch(/\/v1\/public\/forms\/acme\/gone$/);
-    // The visitor's chain, verbatim: the API rate-limits the visitor, not this server.
-    expect((init as RequestInit).headers).toEqual({ 'x-forwarded-for': '203.0.113.7, 10.0.0.1' });
-  });
-
-  it('a live form is served as usual, and never hops to another host', async () => {
-    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
-    expectPass(await proxy(at('/acme/f/live', nav)));
-  });
-
-  it.each([
-    ['a 5xx', () => Promise.resolve(new Response('', { status: 503 }))],
-    ['a rate limit', () => Promise.resolve(new Response('', { status: 429 }))],
-    ['a network error or timeout', () => Promise.reject(new Error('aborted'))],
-  ])('fails open on %s: the page renders as before', async (_label, answer) => {
-    fetchMock.mockImplementation(answer);
-    expectPass(await proxy(at('/acme/f/maybe', nav)));
-  });
-
-  it('checks nothing for the router, a prefetch, a fetch() or a POST', async () => {
-    expectPass(await proxy(at('/acme/f/x', { ...nav, rsc: '1' })));
-    expectPass(await proxy(at('/acme/f/x', { ...nav, 'next-router-prefetch': '1' })));
-    expectPass(await proxy(at('/acme/f/x', { host: OLD, 'sec-fetch-mode': 'cors' })));
-    expectPass(await proxy(at('/acme/f/x', nav, 'POST')));
-    expectPass(await proxy(at('/admin/forms/f1', { host: CANONICAL.replace('https://', ''), 'sec-fetch-mode': 'navigate' })));
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
 });
 
 describe('proxy on a host other than PUBLIC_APP_URL', () => {
@@ -195,49 +141,49 @@ describe('proxy on a host other than PUBLIC_APP_URL', () => {
     '/onboarding?step=3',
     '/api/auth/refresh',
     '/api/auth/refresh?reason=x',
-  ])('GET %s: 302 to the same path and query on PUBLIC_APP_URL, no cookie', async (path) => {
-    expectHop(await proxy(at(path, { host: OLD, 'sec-fetch-mode': 'navigate' })), path);
+  ])('GET %s: 302 to the same path and query on PUBLIC_APP_URL, no cookie', (path) => {
+    expectHop(proxy(at(path, { host: OLD, 'sec-fetch-mode': 'navigate' })), path);
   });
 
-  it('hops a HEAD, and a request without fetch metadata (curl, an old client)', async () => {
-    expectHop(await proxy(at('/admin/forms', { host: OLD }, 'HEAD')), '/admin/forms');
-    expectHop(await proxy(at('/admin/forms', { host: OLD })), '/admin/forms');
+  it('hops a HEAD, and a request without fetch metadata (curl, an old client)', () => {
+    expectHop(proxy(at('/admin/forms', { host: OLD }, 'HEAD')), '/admin/forms');
+    expectHop(proxy(at('/admin/forms', { host: OLD })), '/admin/forms');
   });
 
   it.each(['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])(
     'lets a %s through: a Server Action or form post from a tab opened before the move keeps working there',
-    async (method) => {
-      expectPass(await proxy(at('/admin/forms/f1/edit', { host: OLD, 'next-action': 'abc123' }, method)));
-      expectPass(await proxy(at('/onboarding', { host: OLD }, method)));
+    (method) => {
+      expectPass(proxy(at('/admin/forms/f1/edit', { host: OLD, 'next-action': 'abc123' }, method)));
+      expectPass(proxy(at('/onboarding', { host: OLD }, method)));
     },
   );
 
   it.each(['cors', 'same-origin', 'no-cors'])(
     'lets a page fetch() through (Sec-Fetch-Mode: %s): it cannot follow a cross-origin redirect',
-    async (mode) => {
-      expectPass(await proxy(at('/admin/integrations/calendly/event-types', { host: OLD, 'sec-fetch-mode': mode })));
-      expectPass(await proxy(at('/admin/forms/f1', { host: OLD, 'sec-fetch-mode': mode })));
-      expectPass(await proxy(at('/onboarding', { host: OLD, 'sec-fetch-mode': mode })));
+    (mode) => {
+      expectPass(proxy(at('/admin/integrations/calendly/event-types', { host: OLD, 'sec-fetch-mode': mode })));
+      expectPass(proxy(at('/admin/forms/f1', { host: OLD, 'sec-fetch-mode': mode })));
+      expectPass(proxy(at('/onboarding', { host: OLD, 'sec-fetch-mode': mode })));
     },
   );
 
-  it('hops the refresh for a fetch() too: it never runs its session logic on another host', async () => {
-    expectHop(await proxy(at('/api/auth/refresh', { host: OLD, 'sec-fetch-mode': 'cors' })), '/api/auth/refresh');
+  it('hops the refresh for a fetch() too: it never runs its session logic on another host', () => {
+    expectHop(proxy(at('/api/auth/refresh', { host: OLD, 'sec-fetch-mode': 'cors' })), '/api/auth/refresh');
   });
 
-  it('reads X-Forwarded-Host before Host, and a forged one can only send its sender to PUBLIC_APP_URL', async () => {
-    expectHop(await proxy(at('/admin', { 'x-forwarded-host': OLD, host: 'web:3000' })), '/admin');
-    expectPass(await proxy(at('/admin', { 'x-forwarded-host': 'app.example.com', host: 'web:3000' })));
-    const forged = await proxy(at('/admin', { 'x-forwarded-host': 'evil.example.net', host: 'app.example.com' }));
+  it('reads X-Forwarded-Host before Host, and a forged one can only send its sender to PUBLIC_APP_URL', () => {
+    expectHop(proxy(at('/admin', { 'x-forwarded-host': OLD, host: 'web:3000' })), '/admin');
+    expectPass(proxy(at('/admin', { 'x-forwarded-host': 'app.example.com', host: 'web:3000' })));
+    const forged = proxy(at('/admin', { 'x-forwarded-host': 'evil.example.net', host: 'app.example.com' }));
     expect(new URL(forged.headers.get('location')!).origin).toBe(CANONICAL);
   });
 
-  it('does not loop on the dev server answering under another name for its own address', async () => {
+  it('does not loop on the dev server answering under another name for its own address', () => {
     // `next dev` on localhost:3000 opened as 127.0.0.1:3000: Next would turn a
     // redirect to its own listen address into a relative Location.
     vi.stubEnv('PUBLIC_APP_URL', 'http://localhost:3000');
 
-    expectPass(await proxy(new NextRequest('http://localhost:3000/admin', { headers: { host: '127.0.0.1:3000' } })));
+    expectPass(proxy(new NextRequest('http://localhost:3000/admin', { headers: { host: '127.0.0.1:3000' } })));
   });
 });
 
@@ -247,23 +193,23 @@ describe('proxy where nothing changes', () => {
     vi.stubEnv('PUBLIC_APP_URL', CANONICAL);
   });
 
-  it('on the PUBLIC_APP_URL host, whatever the case or port', async () => {
+  it('on the PUBLIC_APP_URL host, whatever the case or port', () => {
     for (const host of ['app.example.com', 'APP.Example.com', 'app.example.com:443']) {
-      expectPass(await proxy(at('/admin/forms', { host, 'sec-fetch-mode': 'navigate' })));
-      expectPass(await proxy(at('/api/auth/refresh', { host, 'sec-fetch-mode': 'navigate' })));
+      expectPass(proxy(at('/admin/forms', { host, 'sec-fetch-mode': 'navigate' })));
+      expectPass(proxy(at('/api/auth/refresh', { host, 'sec-fetch-mode': 'navigate' })));
     }
   });
 
-  it('without PUBLIC_APP_URL (self-host dev), blank or unparseable', async () => {
+  it('without PUBLIC_APP_URL (self-host dev), blank or unparseable', () => {
     for (const value of ['', '   ', 'not a url']) {
       vi.stubEnv('PUBLIC_APP_URL', value);
-      expectPass(await proxy(at('/admin/forms', { host: OLD })));
-      expectPass(await proxy(at('/api/auth/refresh', { host: OLD })));
+      expectPass(proxy(at('/admin/forms', { host: OLD })));
+      expectPass(proxy(at('/api/auth/refresh', { host: OLD })));
     }
   });
 
-  it('when no host can be read', async () => {
-    expectPass(await proxy(at('/admin', {})));
+  it('when no host can be read', () => {
+    expectPass(proxy(at('/admin', {})));
   });
 });
 
@@ -297,7 +243,7 @@ describe('an old-host admin link while signed in on PUBLIC_APP_URL', () => {
     state.current = { jar: jarOf(url.hostname), headers: new Headers(headers), writes: [] };
     const req = at(`${url.pathname}${url.search}`, headers);
     if (useProxy && doesMatch(`${url.pathname}${url.search}`)) {
-      const res = await proxy(req);
+      const res = proxy(req);
       if (res.headers.get('location')) {
         expect(state.current.writes).toEqual([]);
         return res;

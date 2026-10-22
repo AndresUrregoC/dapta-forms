@@ -1,73 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { canonicalHop } from '@/lib/request-origin';
-import { serverApiUrl } from '@/lib/api-url';
-
-/** First path segments that are the app's own routes, never an account code. */
-const APP_SEGMENTS = new Set(['admin', 'api', '_next', 'file', 'login', 'onboarding', 'preview', 'mcp']);
-
-/** How long the existence check may take before the page is served as usual. */
-export const FORM_CHECK_TIMEOUT_MS = 1_500;
-
-/**
- * The `[accountCode, slug]` of a public form page (`/{code}/{anything}/{slug}`),
- * or null for every other path.
- */
-function publicFormRoute(pathname: string): [string, string] | null {
-  const parts = pathname.split('/').filter(Boolean);
-  if (parts.length !== 3) return null;
-  const [code, , slug] = parts as [string, string, string];
-  if (APP_SEGMENTS.has(code) || code.includes('.') || slug.includes('.')) return null;
-  return [code, slug];
-}
-
-/**
- * A REAL 404 for a public form that does not exist (deleted, unpublished, a
- * typo), answered before the page renders.
- *
- * The page cannot do it itself: the root and the form's own `loading.tsx` are
- * Suspense boundaries, so Next 16 has flushed a 200 before the page's
- * `notFound()` runs, and a deleted form came back as "Not found" with HTTP 200.
- * Crawlers, link checkers and uptime monitors read that as a live page.
- *
- * Only a browser navigation is checked (a document load, in a tab or an embed's
- * iframe); the router's own fetches and prefetches go straight through. The
- * check FAILS OPEN: anything but the API's explicit 404 (a timeout, a 5xx, a
- * network error, a 429) serves the page exactly as before, which still shows
- * the not-found screen when the form is gone. The visitor's `X-Forwarded-For`
- * is forwarded verbatim, so the API's per-visitor rate limit sees the visitor
- * and not this server (see `lib/forwarded-for.ts`).
- *
- * The 404 itself is a rewrite to a path no route matches, which Next answers
- * with the app's own not-found screen and a 404 status; the address bar keeps
- * the URL the visitor asked for.
- */
-async function missingFormResponse(req: NextRequest): Promise<NextResponse | null> {
-  if (req.method !== 'GET' && req.method !== 'HEAD') return null;
-  const mode = req.headers.get('sec-fetch-mode');
-  if (mode !== null && mode !== 'navigate') return null;
-  if (req.headers.get('rsc') || req.headers.get('next-router-prefetch')) return null;
-  const route = publicFormRoute(req.nextUrl.pathname);
-  if (!route) return null;
-  const [code, slug] = route;
-  try {
-    const xff = req.headers.get('x-forwarded-for');
-    const res = await fetch(
-      `${serverApiUrl}/v1/public/forms/${encodeURIComponent(code)}/${encodeURIComponent(slug)}`,
-      {
-        cache: 'no-store',
-        headers: xff ? { 'x-forwarded-for': xff } : {},
-        signal: AbortSignal.timeout(FORM_CHECK_TIMEOUT_MS),
-      },
-    );
-    if (res.status !== 404) return null;
-  } catch {
-    return null;
-  }
-  const url = req.nextUrl.clone();
-  url.pathname = '/_form-not-found';
-  url.search = '';
-  return NextResponse.rewrite(url, { status: 404 });
-}
 
 /**
  * Keeps the session pages and the session refresh on the `PUBLIC_APP_URL` host.
@@ -102,14 +34,7 @@ async function missingFormResponse(req: NextRequest): Promise<NextResponse | nul
  * logic, and on another host it could only end on a redirect to the canonical
  * host's logout.
  */
-export async function proxy(req: NextRequest): Promise<NextResponse> {
-  const missing = await missingFormResponse(req);
-  if (missing) return missing;
-  if (publicFormRoute(req.nextUrl.pathname)) return NextResponse.next();
-  return canonicalHopFor(req);
-}
-
-function canonicalHopFor(req: NextRequest): NextResponse {
+export function proxy(req: NextRequest): NextResponse {
   const fetchMode = req.headers.get('sec-fetch-mode');
   const navigation = fetchMode === null || fetchMode === 'navigate';
   if (!navigation && req.nextUrl.pathname !== '/api/auth/refresh') return NextResponse.next();
@@ -129,14 +54,5 @@ export const config = {
   // Exact paths: `/admin/:path*` is `/admin` and everything under it, the
   // wizard has no sub-pages (its `/onboarding/*.svg` logos are static files
   // that must keep loading anywhere), and the refresh is one route.
-  // The fourth entry is the public form page (`/{code}/{anything}/{slug}`),
-  // checked for a real 404 only; it never hops to another host. Three segments
-  // exactly, none with a dot (an asset), and never under one of the app's own
-  // first segments: `/api/auth/login` must not run it.
-  matcher: [
-    '/admin/:path*',
-    '/onboarding',
-    '/api/auth/refresh',
-    '/:accountCode((?!(?:admin|api|_next|file|login|onboarding|preview|mcp)/)[^/.]+)/:handle/:slug([^/.]+)',
-  ],
+  matcher: ['/admin/:path*', '/onboarding', '/api/auth/refresh'],
 };
