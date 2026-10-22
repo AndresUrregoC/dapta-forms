@@ -46,8 +46,8 @@ description: Create, edit, publish and revert dForms forms (quizzes, lead forms,
 
 - API base URL: \`${apiUrl}\`
 - dForms dashboard: ${appUrl}
-- API keys: ${appUrl}/admin/developers/keys
-- API docs, every route with an example (for a person to read): ${appUrl}/admin/developers/docs
+- Connect an AI app with the dForms MCP (no key, the person signs in): ${appUrl}/admin/developers/connect
+- What an agent can do in dForms, in plain words (for a person to read): ${appUrl}/admin/developers/tools
 
 Every path below is relative to the API base URL.
 
@@ -59,7 +59,7 @@ Send the key on every request:
 Authorization: Bearer $DFORMS_API_KEY
 ~~~
 
-- Read the key from the \`DFORMS_API_KEY\` environment variable. If it is not set, ask the user to create a key in dForms (MCP, then API keys) and set it. Never print the key, never write it to a file, never commit it.
+- Read the key from the \`DFORMS_API_KEY\` environment variable. If it is not set, ask the user for an API key their workspace already has. dForms no longer creates keys from the dashboard: if they have none, suggest connecting through the dForms MCP instead (Connect your agent, in the left menu of dForms), which needs no key. Never print the key, never write it to a file, never commit it.
 - The key belongs to one workspace and acts as the person who created it. Never send an \`x-quill-workspace\` header.
 - Check the key first with \`GET /v1/me\`. A 401 \`INVALID_API_KEY\` means the key is wrong, revoked, or its owner left the workspace: ask the user for a new one.
 
@@ -530,8 +530,10 @@ The CSV is not paginated: it has every response that matches the filters. \`ids=
 function installMd({ apiUrl, appUrl }: SkillUrls): string {
   return `# Installing the dForms API skill
 
-1. Create an API key on ${appUrl}/admin/developers/keys. It is shown once: copy it then.
-   Every route, with a curl example and its answer, is on ${appUrl}/admin/developers/docs.
+1. This skill calls the API with an API key your workspace already has. dForms no longer
+   creates keys from the dashboard: to connect Claude, ChatGPT, Claude Code, Cursor or Codex
+   without a key, use the dForms MCP connector on ${appUrl}/admin/developers/connect.
+   What an agent can do in dForms, in plain words, is on ${appUrl}/admin/developers/tools.
 2. Put it in the environment the agent runs in, never in a file you commit:
 
 ~~~bash

@@ -14,9 +14,16 @@ integration. The code is [`packages/mcp`](../packages/mcp); the API mounts it.
 
 ## Authentication
 
-Every call needs a workspace API key, the same `dforms_...` key the REST API
-takes, sent as `Authorization: Bearer dforms_...`. Members create keys in dForms
-(MCP, then API keys).
+Every call needs a credential: the person's sign-in (OAuth, see
+[Signing in](#signing-in-mcp-connections-over-oauth)), which is how the
+dashboard tells people to connect, or a workspace API key, the same
+`dforms_...` key the REST API takes, sent as `Authorization: Bearer dforms_...`.
+The dashboard has no API key screens any more: its "Connect your agent" page
+(`/admin/developers/connect`) walks Claude, ChatGPT, Claude Code, Codex,
+Cursor and OpenClaw through the sign-in, and its Tools page
+(`/admin/developers/tools`) lists what an agent can do, in plain words. Keys
+are created, listed and revoked through `/v1/api-keys` only, and existing keys
+keep working.
 
 - The key acts as the member who created it, with that member's **current**
   role, and stops working the moment it is revoked or the member leaves the
@@ -125,8 +132,8 @@ app's workspace switcher lets them (see
   either: the call answers `MEMBERSHIP_NOT_ACTIVE` and the row stays as it
   was. A pending invitation by email is never adopted as the grant.
 - **API keys, as in Dapta's own MCP.** While they are staff, staff in a
-  workspace through a grant list, create and revoke its API keys from the
-  Developers page (or `/v1/api-keys` with their session), like any admin. A
+  workspace through a grant list, create and revoke its API keys through
+  `/v1/api-keys` (their session), like any admin. A
   key is a credential of the workspace, not of the person: one they create
   acts as the grant's `admin` row, in that workspace only, and keeps working
   until someone revokes it, even after its creator stops being staff (the
@@ -168,7 +175,7 @@ app's workspace switcher lets them (see
 | `get_form_guide` | read | The rules, how to choose a workspace, step types, logic, the config JSON Schema and worked examples. |
 
 Beyond these, there is one tool for every other route the API reference
-documents (the API docs page, `API_REFERENCE` in `@quill/shared`), so an agent
+documents (`API_REFERENCE` in `@quill/shared`), so an agent
 can do over MCP whatever a key can do over REST. Each runs the same handler as
 its REST route, with the same role rule and the same masking.
 
@@ -476,7 +483,7 @@ All optional; unset (or blank) means the safe default. See
 | `MCP_WRITE_RATE_LIMIT_CAPACITY` / `MCP_WRITE_RATE_LIMIT_REFILL_PER_SEC` | API | `20` / `0.2` |
 | `MCP_TOOL_TIMEOUT_MS` | API | `20000` |
 | `MCP_PUBLIC_URL` | web (runtime); API with `MCP_OAUTH_PROVIDER` (required) | `<PUBLIC_API_URL>/mcp` on the web |
-| `MCP_OAUTH_PROVIDER` | API and web (runtime; the web shows the chat path only with `MCP_PUBLIC_URL` set too) | unset (API keys only; the MCP page shows the key guide alone) |
+| `MCP_OAUTH_PROVIDER` | API and web (runtime; the web shows the connector guide only with `MCP_PUBLIC_URL` set too) | unset (API keys only; the MCP page says the connector is not available here) |
 | `WORKOS_AUTHKIT_DOMAIN` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
 | `IAM_DB_HOST`, `IAM_DB_NAME`, `IAM_DB_SCHEMA`, `IAM_DB_USER`, `IAM_DB_PASS` | API | unset (required with `MCP_OAUTH_PROVIDER`) |
 | `IAM_DB_PORT` | API | `5432` |

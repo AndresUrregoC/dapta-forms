@@ -8,7 +8,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { McpAppLogo, McpLogos, MCP_ROTATE_MS } from './mcp-logos';
+import { McpLogos, MCP_ROTATE_MS } from './mcp-logos';
+import { AgentLogo } from './agent-logos';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -116,14 +117,26 @@ describe('McpLogos', () => {
   });
 });
 
-describe('McpAppLogo', () => {
-  it('draws each brand inline, with no file to fetch, so a session replay shows it', () => {
-    for (const logo of ['claude', 'openai', 'cursor'] as const) {
-      const html = renderToStaticMarkup(<McpAppLogo logo={logo} />);
-      expect(html).toContain('<svg');
-      expect(html).toContain('<path d="');
-      expect(html).not.toContain('url(');
+describe('AgentLogo', () => {
+  it('draws each app official mark inline, decorative unless asked for a name', () => {
+    for (const app of ['chatgpt', 'claude', 'claude-code', 'cursor', 'codex'] as const) {
+      const html = renderToStaticMarkup(<AgentLogo app={app} />);
+      expect(html).toContain(`data-agent="${app}"`);
+      expect(html).toContain('aria-hidden="true"');
+      expect(html).not.toMatch(/<img|href=/);
     }
-    expect(renderToStaticMarkup(<McpAppLogo logo="claude" />)).toContain('color:#d97757');
+    expect(renderToStaticMarkup(<AgentLogo app="claude-code" />)).toContain('#D97757');
+    expect(renderToStaticMarkup(<AgentLogo app="codex" title />)).toContain('aria-label="Codex"');
+  });
+
+  it('gives each Codex mark its own gradient id, so two on a page both draw', () => {
+    const html = renderToStaticMarkup(
+      <>
+        <AgentLogo app="codex" />
+        <AgentLogo app="codex" />
+      </>,
+    );
+    const ids = [...html.matchAll(/linearGradient[^>]*id="([^"]+)"/g)].map((m) => m[1]);
+    expect(new Set(ids).size).toBe(2);
   });
 });
