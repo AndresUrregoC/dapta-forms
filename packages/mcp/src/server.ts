@@ -24,12 +24,55 @@ export const MCP_INSTRUCTIONS = [
   'Tools marked destructive delete or replace something: say exactly what will change and wait for the user to agree before calling one, and never repeat one on your own after an error.',
 ].join(' ');
 
+/**
+ * The MCP client a request came from, as the request itself says (the server
+ * is stateless, so nothing is remembered from an earlier `initialize`). Every
+ * field is trimmed and optional: a client may send none of it.
+ */
+export interface McpClientInfo {
+  /** `clientInfo.name` from `initialize`, or the per-request `_meta` envelope. */
+  name?: string;
+  /** `clientInfo.version`, from the same place. */
+  version?: string;
+  /** The `User-Agent` header, trimmed. */
+  userAgent?: string;
+  /** The AI vendor behind the client, when a header names it (`anthropic`, `openai`). */
+  vendor?: string;
+}
+
 /** What one HTTP request knows about who is calling. Built by the door. */
 export interface McpCall {
   requestId: string;
   protocolVersion: string;
   /** An API key (one workspace) or an MCP connection (a person, a workspace per call). */
   credential: McpCredential;
+  /** The client the request came from, when it says. */
+  client?: McpClientInfo;
+}
+
+/**
+ * One finished tool call, as the host's usage reporting sees it. Built from
+ * the same facts as the audit line and nothing more: never the arguments (not
+ * even their hash), the result, an error message, or a workspace or form name.
+ */
+export interface McpToolCallEvent {
+  tool: string;
+  ok: boolean;
+  /** The failure code (`NOT_FOUND`, `TIMEOUT`, ...) when the call failed. */
+  errorCode: string | null;
+  durationMs: number;
+  protocolVersion: string;
+  client: McpClientInfo;
+  /** How the caller signed in. */
+  credentialType: 'api_key' | 'oauth';
+  /** The workspace the call acted in, null when it acted in none. */
+  accountId: string | null;
+  /** The member the call acted as, null when it acted in no workspace. */
+  memberId: string | null;
+  /** The person of an MCP connection, null for an API key. */
+  personId: string | null;
+  /** True when the call acted through a staff access grant or the person is staff of the deployment. */
+  staff: boolean;
 }
 
 /** Per-request context the door hands the SDK handler through `authInfo.extra`. */
@@ -54,6 +97,13 @@ export interface FormsMcpServerOptions {
   onInternalError?: (tool: string, requestId: string, error: ErrorDescriptor) => void;
   /** Transport-level problems the SDK reports (reporting only), described the same way. */
   onTransportError?: (error: ErrorDescriptor) => void;
+  /**
+   * Called once per finished tool call, after its audit line, for usage
+   * reporting. It must return at once: anything slow belongs in a promise the
+   * host does not hand back. A hook that throws is ignored and never changes
+   * the call's result.
+   */
+  onToolCall?: (event: McpToolCallEvent) => void;
 }
 
 const TOOL_TIMEOUT = Symbol('timeout');
@@ -234,6 +284,26 @@ export class FormsMcpServer {
       this.auditSink(JSON.stringify(line));
     } catch {
       /* logging must never break a call */
+    }
+    const hook = this.options.onToolCall;
+    if (!hook || !call) return;
+    try {
+      const connection = isConnection(call.credential) ? call.credential : null;
+      hook({
+        tool: def.name,
+        ok: !failure,
+        errorCode: failure?.code ?? null,
+        durationMs: line.latencyMs,
+        protocolVersion: line.protocolVersion,
+        client: { ...call.client },
+        credentialType: connection ? 'oauth' : 'api_key',
+        accountId: line.accountId,
+        memberId: line.memberId,
+        personId: line.personId,
+        staff: actedAs?.access === 'staff' || Boolean(connection?.staff),
+      });
+    } catch {
+      /* usage reporting must never break a call */
     }
   }
 }

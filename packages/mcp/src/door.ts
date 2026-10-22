@@ -1,7 +1,7 @@
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { McpCaller, McpConnection, McpCredential } from './backend';
 import type { RateLimiter } from './rate-limit';
-import { CALL_KEY, type FormsMcpServer, type McpCall } from './server';
+import { CALL_KEY, type FormsMcpServer, type McpCall, type McpClientInfo } from './server';
 import { bucketOf } from './workspace';
 
 /**
@@ -201,6 +201,41 @@ function protocolVersionOf(req: DoorRequest): string {
   return v.slice(0, 20);
 }
 
+/** A short printable label from client input, or undefined. Control characters are dropped, the rest cut to `max`. */
+function label(value: unknown, max: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  // eslint-disable-next-line no-control-regex
+  const clean = value.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, max);
+  return clean || undefined;
+}
+
+/**
+ * The client a request came from, from the request alone: `clientInfo` on an
+ * `initialize`, or the per-request envelope (`_meta`) a 2026-07-28 client
+ * sends with every message, plus the `User-Agent` and a vendor header. Only
+ * names and versions are read; the rest of the body is never looked at here.
+ */
+export function clientInfoOf(req: DoorRequest): McpClientInfo {
+  const params = (req.body as { params?: { clientInfo?: unknown; _meta?: Record<string, unknown> } } | undefined)?.params;
+  const meta = params?._meta?.['io.modelcontextprotocol/clientInfo'];
+  const info = (params?.clientInfo ?? meta) as { name?: unknown; version?: unknown } | undefined;
+  const userAgent = label(firstHeader(req.headers['user-agent']), 200);
+  const anthropic = label(firstHeader(req.headers['x-anthropic-client']), 64);
+  const vendor = anthropic || /\b(anthropic|claude)/i.test(userAgent ?? '')
+    ? 'anthropic'
+    : Object.keys(req.headers).some((h) => h.toLowerCase().startsWith('openai-')) || /\bopenai\b/i.test(userAgent ?? '')
+      ? 'openai'
+      : undefined;
+  const client: McpClientInfo = {};
+  const name = label(info && typeof info === 'object' ? info.name : undefined, 64);
+  const version = label(info && typeof info === 'object' ? info.version : undefined, 32);
+  if (name) client.name = name;
+  if (version) client.version = version;
+  if (userAgent) client.userAgent = userAgent;
+  if (vendor) client.vendor = vendor;
+  return client;
+}
+
 function rpcError(res: DoorResponse, status: number, code: number, message: string, headers: Record<string, string> = {}): void {
   res.writeHead(status, { 'content-type': 'application/json', ...headers });
   res.end(JSON.stringify({ jsonrpc: '2.0', error: { code, message }, id: null }));
@@ -325,7 +360,7 @@ export class McpDoor {
     const { allowed, retryAfterMs } = this.options.keyLimiter.take(`mcp-key:${bucketOf(caller, req.body)}`);
     if (!allowed) return this.tooMany(res, retryAfterMs);
 
-    const call: McpCall = { requestId: ctx.requestId, protocolVersion: protocolVersionOf(req), credential: caller };
+    const call: McpCall = { requestId: ctx.requestId, protocolVersion: protocolVersionOf(req), credential: caller, client: clientInfoOf(req) };
     // The token itself is never handed on: the SDK sees the public label, and
     // the caller travels to the tools through `extra`.
     const forwarded = req as DoorRequest & { auth?: unknown };
