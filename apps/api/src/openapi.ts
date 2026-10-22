@@ -145,7 +145,7 @@ export const openapiSpec = {
       put: {
         summary: 'Replace the workspace link page (host session only)',
         description:
-          'Body { page: { version: 1, enabled, name?, bio?, logo?, items?: [{ type: "form", formId } | { type: "link", label, url }], socials?: { instagram?, x?, youtube?, tiktok?, whatsapp? } } | null }. Socials are normalized to https links on their own network; WhatsApp is stored as digits with the country code. `logo` absent uses the brand kit logo, null shows none. `{ page: null }` removes the page. Form buttons for forms outside the workspace are dropped. Any member of the workspace may call it.',
+          'Body { page: { version: 1, enabled, name?, bio?, logo?, items?: [{ type: "form", formId } | { type: "link", label, url }], socials?: { instagram?, x?, youtube?, tiktok?, whatsapp? } } | null }. Socials are normalized to https links on their own network (a handle such as @yourbrand works too). WhatsApp must carry its country code, starting with + or 00 (a number without it is refused), and is stored as digits. `logo` absent uses the brand kit logo, null shows none. `{ page: null }` removes the page. Form buttons for forms outside the workspace are dropped. Any member of the workspace may call it.',
         security: [{ hostSession: [] }],
         responses: { '200': { description: 'Saved' }, '400': { description: 'BAD_REQUEST with issues' } },
       },

@@ -10,7 +10,7 @@ import {
 } from '@quill/db';
 import {
   linkPageEventSchema,
-  linkPageSchema,
+  parseStoredLinkPage,
   resolveLinkPage,
   type BrandKit,
   type LinkPage,
@@ -52,13 +52,13 @@ export class LinkPageService {
   async publicPage(accountCode: string): Promise<PublicLinkPage | null> {
     const row = await getLinkPageByCode(this.db, accountCode);
     if (!row) return null;
-    const parsed = linkPageSchema.safeParse(row.page);
-    if (!parsed.success || !parsed.data.enabled) return null;
+    const page = parseStoredLinkPage(row.page);
+    if (!page?.enabled) return null;
     const [forms, kit] = await Promise.all([
       listLinkPageForms(this.db, row.accountId),
       getAccountBranding(this.db, row.accountId),
     ]);
-    return resolveLinkPage(parsed.data, {
+    return resolveLinkPage(page, {
       accountCode: row.accountCode,
       accountName: row.accountName,
       forms,
@@ -75,11 +75,10 @@ export class LinkPageService {
       listLinkPageForms(this.db, accountId),
       getAccountBranding(this.db, accountId),
     ]);
-    const parsed = raw == null ? null : linkPageSchema.safeParse(raw);
     return {
       accountCode: me.accountCode,
       accountName: me.accountName,
-      page: parsed?.success ? parsed.data : null,
+      page: parseStoredLinkPage(raw),
       forms,
       brandKit: kit?.config ?? null,
     };
@@ -118,8 +117,7 @@ export class LinkPageService {
   async event(accountCode: string, raw: unknown): Promise<{ ok: true } | { error: string; message: string; status: number }> {
     const input = linkPageEventSchema.parse(raw);
     const row = await getLinkPageByCode(this.db, accountCode);
-    const parsed = row ? linkPageSchema.safeParse(row.page) : null;
-    if (!row || !parsed?.success || !parsed.data.enabled) {
+    if (!row || !parseStoredLinkPage(row.page)?.enabled) {
       return { error: 'NOT_FOUND', message: 'Page not found.', status: 404 };
     }
     if (!this.analytics?.enabled) return { ok: true };

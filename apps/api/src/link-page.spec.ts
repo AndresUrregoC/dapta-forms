@@ -21,6 +21,7 @@ import { LinkPageService } from './link-page.service';
 import { PublicController } from './public.controller';
 import { SubmissionService } from './submission.service';
 import type { ServerEnv } from '@quill/config/env';
+import { LINK_PAGE_LOGO_MAX_CHARS, LINK_PAGE_MAX_BODY_BYTES, LINK_PAGE_MAX_ITEMS } from '@quill/types';
 
 let db: Db;
 let editor: LinkPageController;
@@ -149,6 +150,28 @@ describe('workspace link page', () => {
     }
     expect(body).toMatchObject({ error: 'BAD_REQUEST' });
     expect(JSON.stringify(body)).toContain('socials.whatsapp');
+  });
+
+  it('saves a page at every limit the schema has (larger than 100 KB of JSON)', async () => {
+    const page = {
+      version: 1,
+      enabled: true,
+      name: 'N'.repeat(80),
+      bio: 'B'.repeat(280),
+      logo: `data:image/png;base64,${'A'.repeat(LINK_PAGE_LOGO_MAX_CHARS - 'data:image/png;base64,'.length)}`,
+      items: Array.from({ length: LINK_PAGE_MAX_ITEMS }, (_, i) => ({
+        type: 'link',
+        label: `Link ${i}`.padEnd(80, '.'),
+        url: `https://acme.example/${String(i).padStart(2, '0')}/${'p'.repeat(2048 - 'https://acme.example/00/'.length)}`,
+      })),
+      socials: { whatsapp: '+57 300 123 4567' },
+    };
+    const body = { page };
+    expect(JSON.stringify(body).length).toBeGreaterThan(100 * 1024);
+    expect(JSON.stringify(body).length).toBeLessThan(LINK_PAGE_MAX_BODY_BYTES);
+    const res = await editor.put(asOwner(), body);
+    expect(res.page?.items).toHaveLength(LINK_PAGE_MAX_ITEMS);
+    expect((await publicApi.linkPage(accountCode)).buttons).toHaveLength(LINK_PAGE_MAX_ITEMS);
   });
 
   it('stores WhatsApp as digits and serves the wa.me link', async () => {

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   LINK_PAGE_LOGO_MAX_CHARS,
+  LINK_PAGE_MAX_BODY_BYTES,
+  linkPageToInput,
+  parseStoredLinkPage,
   LINK_PAGE_MAX_ITEMS,
   linkPageBranding,
   linkPageSchema,
@@ -11,17 +14,50 @@ import {
   type LinkPageFormRef,
 } from './link-page';
 
+/** A page at every limit the schema has: the largest body a client can send. */
+function maxPage() {
+  return {
+    version: 1,
+    enabled: true,
+    name: 'N'.repeat(80),
+    bio: 'B'.repeat(280),
+    logo: `data:image/png;base64,${'A'.repeat(LINK_PAGE_LOGO_MAX_CHARS - 'data:image/png;base64,'.length)}`,
+    items: Array.from({ length: LINK_PAGE_MAX_ITEMS }, (_, i) => ({
+      type: 'link',
+      label: 'é'.repeat(80),
+      url: `https://acme.example/${String(i).padStart(2, '0')}/${'p'.repeat(2048 - 'https://acme.example/00/'.length)}`,
+    })),
+    socials: {
+      instagram: `https://www.instagram.com/${'a'.repeat(400)}`,
+      x: `https://x.com/${'a'.repeat(400)}`,
+      youtube: `https://www.youtube.com/@${'a'.repeat(400)}`,
+      tiktok: `https://www.tiktok.com/@${'a'.repeat(400)}`,
+      whatsapp: '+573001234567',
+    },
+  };
+}
+
 describe('whatsappDigits', () => {
   it('keeps digits only, country code first', () => {
     expect(whatsappDigits('+57 300 123 4567')).toBe('573001234567');
-    expect(whatsappDigits('(57) 300-123-4567')).toBe('573001234567');
+    expect(whatsappDigits('+57 (300) 123-4567')).toBe('573001234567');
     expect(whatsappDigits('wa.me/573001234567')).toBe('573001234567');
     expect(whatsappDigits('https://wa.me/573001234567?text=hi')).toBe('573001234567');
+  });
+
+  it('takes 00 as the international prefix, with or without a +', () => {
     expect(whatsappDigits('0057 300 123 4567')).toBe('573001234567');
+    expect(whatsappDigits('+0057 300 123 4567')).toBe('573001234567');
+  });
+
+  it('refuses a number without its country code instead of guessing one', () => {
+    expect(whatsappDigits('3001234567')).toBeNull();
+    expect(whatsappDigits('300 123 4567')).toBeNull();
+    expect(whatsappDigits('(57) 300-123-4567')).toBeNull();
   });
 
   it('refuses what wa.me cannot route', () => {
-    expect(whatsappDigits('300 123')).toBeNull();
+    expect(whatsappDigits('+57 300')).toBeNull();
     expect(whatsappDigits('call me')).toBeNull();
     expect(whatsappDigits('+1 234 567 890 123 456 7')).toBeNull();
   });
@@ -41,6 +77,26 @@ describe('normalizeSocial', () => {
     expect(normalizeSocial('youtube', '@acme')).toBe('https://www.youtube.com/@acme');
     expect(normalizeSocial('tiktok', 'tiktok.com/@acme')).toBe('https://tiktok.com/@acme');
     expect(normalizeSocial('tiktok', 'acme')).toBe('https://www.tiktok.com/@acme');
+  });
+
+  it('accepts dots where the network allows them', () => {
+    expect(normalizeSocial('instagram', '@josue.hernandez')).toBe('https://www.instagram.com/josue.hernandez');
+    expect(normalizeSocial('instagram', 'josue.hernandez')).toBe('https://www.instagram.com/josue.hernandez');
+    expect(normalizeSocial('tiktok', '@brand.co')).toBe('https://www.tiktok.com/@brand.co');
+    expect(normalizeSocial('youtube', '@acme.studio-tv_1')).toBe('https://www.youtube.com/@acme.studio-tv_1');
+  });
+
+  it('holds each handle to its network’s rules', () => {
+    expect(normalizeSocial('x', '@acme.co')).toBeNull();
+    expect(normalizeSocial('x', '@acme_hq')).toBe('https://x.com/acme_hq');
+    expect(normalizeSocial('instagram', '@acme-hq')).toBeNull();
+    expect(normalizeSocial('x', '@waytoolonghandle16')).toBeNull();
+  });
+
+  it('reads a bare domain as a link, so another site is still refused', () => {
+    expect(normalizeSocial('instagram', 'acme.com')).toBeNull();
+    expect(normalizeSocial('tiktok', 'brand.co')).toBeNull();
+    expect(normalizeSocial('instagram', 'instagram.com')).toBeNull();
   });
 
   it('refuses another network, a bare home page, credentials and script URLs', () => {
@@ -72,9 +128,34 @@ describe('linkPageSchema', () => {
     });
   });
 
-  it('refuses a social that is not that network', () => {
+  it('refuses a social that is not that network, naming the network', () => {
     const r = linkPageSchema.safeParse({ version: 1, socials: { youtube: 'https://acme.example/video' } });
     expect(r.success).toBe(false);
+    expect(r.error?.issues[0]?.message).toBe('Enter a YouTube channel link or handle, like @yourbrand.');
+    const w = linkPageSchema.safeParse({ version: 1, socials: { whatsapp: '3001234567' } });
+    expect(w.error?.issues[0]?.message).toContain('country code');
+  });
+
+  it('round-trips a stored page through linkPageToInput', () => {
+    const stored = linkPageSchema.parse({
+      version: 1,
+      enabled: true,
+      socials: { whatsapp: '+57 300 123 4567', instagram: '@acme' },
+    });
+    expect(linkPageSchema.parse(linkPageToInput(stored))).toEqual(stored);
+  });
+
+  it('reads a stored page back, WhatsApp digits included', () => {
+    const stored = linkPageSchema.parse({ version: 1, enabled: true, socials: { whatsapp: '+57 300 123 4567' } });
+    const raw = JSON.parse(JSON.stringify(stored)) as unknown;
+    expect(parseStoredLinkPage(raw)).toEqual(stored);
+    expect(parseStoredLinkPage(null)).toBeNull();
+    expect(parseStoredLinkPage({ version: 2 })).toBeNull();
+  });
+
+  it('keeps a page at every limit under the body ceiling', () => {
+    expect(new TextEncoder().encode(JSON.stringify({ page: maxPage() })).length).toBeLessThan(LINK_PAGE_MAX_BODY_BYTES);
+    expect(linkPageSchema.safeParse(maxPage()).success).toBe(true);
   });
 
   it('refuses non-http links and too many buttons', () => {

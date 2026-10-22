@@ -30,6 +30,7 @@ import { workspacePagePath } from '@/lib/public-page';
 import type { LinkPageEditorView } from '@/lib/admin-api';
 import { saveLinkPageAction } from './actions';
 import { downscaleLogo } from './logo-upload';
+import { savedBody, unpublishBody } from './unpublish';
 
 type Msgs = FormsMessages['admin']['linkPage'];
 
@@ -78,6 +79,10 @@ export function LinkPageEditor({
   const { success, error } = useToast();
   const [pending, start] = useTransition();
   const stored = initial.page;
+  // The page as it was last saved, as a body the API accepts again. Turning
+  // the page OFF writes this with `enabled: false`, never the draft: a
+  // half-typed field must not keep a page published.
+  const [lastSaved, setLastSaved] = useState<LinkPageInput | null>(() => savedBody(stored));
   const kitLogo = initial.brandKit?.logo ?? null;
 
   const [enabled, setEnabled] = useState(stored?.enabled ?? false);
@@ -171,6 +176,24 @@ export function LinkPageEditor({
     });
   }, [name, bio, logoMode, logo, rows, socials, initial]);
 
+  function persist(body: LinkPageInput, nextEnabled: boolean) {
+    start(async () => {
+      const res = await callAction(() => saveLinkPageAction(body));
+      if (res.ok) {
+        setEnabled(nextEnabled);
+        setLastSaved(body);
+        success(m.saved);
+      } else {
+        error((isTransportError(res) ? null : res.message) ?? m.error);
+      }
+    });
+  }
+
+  /** Unpublish: always possible, whatever state the draft is in. */
+  function unpublish() {
+    persist(unpublishBody(lastSaved), false);
+  }
+
   function save(nextEnabled = enabled) {
     const body = draft(nextEnabled);
     const parsed = linkPageSchema.safeParse(body);
@@ -179,15 +202,7 @@ export function LinkPageEditor({
       error(m.fixErrors);
       return false;
     }
-    start(async () => {
-      const res = await callAction(() => saveLinkPageAction(body));
-      if (res.ok) {
-        setEnabled(nextEnabled);
-        success(m.saved);
-      } else {
-        error((isTransportError(res) ? null : res.message) ?? m.error);
-      }
-    });
+    persist(body, nextEnabled);
     return true;
   }
 
@@ -248,7 +263,8 @@ export function LinkPageEditor({
           <Switch
             checked={enabled}
             onCheckedChange={(v) => {
-              save(v);
+              if (v) save(true);
+              else unpublish();
             }}
             disabled={pending}
             aria-label={m.enable}

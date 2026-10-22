@@ -11,8 +11,12 @@ social icons (Instagram, X, YouTube, TikTok, WhatsApp).
 
 `linkPageSchema` is the contract, versioned like the form config. Socials are
 normalized on the way in: a handle or a link without its scheme becomes an
-`https://` link on that network's own hosts, and a WhatsApp number is stored as
-digits with its country code and opened as a `wa.me` click-to-chat link. A form
+`https://` link on that network's own hosts (handles follow each network's
+rules, so `@your.brand` works on Instagram and TikTok). A WhatsApp number must
+be entered with its country code (`+` or `00`), is stored as digits and opens
+as a `wa.me` click-to-chat link; `parseStoredLinkPage` and `linkPageToInput`
+read a stored page back. `LINK_PAGE_MAX_BODY_BYTES` is the body ceiling the
+save route accepts, above the largest page the schema allows. A form
 button points at the form by id, so renaming its link never drops it, and a
 deleted form drops out of the page instead of leaving a broken button.
 `resolveLinkPage` decides what the page shows, for the public page and the

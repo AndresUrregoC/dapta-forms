@@ -40,28 +40,62 @@ const HANDLE_URL: Record<Exclude<LinkPageSocial, 'whatsapp'>, (handle: string) =
   tiktok: (h) => `https://www.tiktok.com/@${h}`,
 };
 
-const HANDLE = /^@?([A-Za-z0-9._-]{1,64})$/;
+/**
+ * What each network allows in a handle (the part after `@`). Instagram and
+ * TikTok take dots and underscores; X takes no dot; YouTube handles take
+ * dots, hyphens and underscores.
+ */
+const HANDLE_RULES: Record<Exclude<LinkPageSocial, 'whatsapp'>, RegExp> = {
+  instagram: /^[A-Za-z0-9._]{1,30}$/,
+  x: /^[A-Za-z0-9_]{1,15}$/,
+  youtube: /^[A-Za-z0-9._-]{3,30}$/,
+  tiktok: /^[A-Za-z0-9._]{2,24}$/,
+};
+
+/**
+ * Endings that make a dotted value read as a web address rather than a handle.
+ * `@josue.hernandez` is always a handle; without the `@`, `josue.hernandez` is
+ * a handle too, while `acme.com` is a domain and is checked as a link (and
+ * refused, unless it is the network's own).
+ */
+const DOMAIN_ENDINGS = new Set([
+  'com', 'net', 'org', 'co', 'io', 'ai', 'app', 'dev', 'me', 'tv', 'us', 'uk', 'es', 'mx', 'ar',
+  'br', 'cl', 'pe', 'de', 'fr', 'it', 'info', 'biz', 'xyz', 'site', 'shop', 'store', 'online', 'be',
+]);
+
+function looksLikeDomain(value: string): boolean {
+  const last = value.split('.').pop()?.toLowerCase() ?? '';
+  return value.includes('.') && DOMAIN_ENDINGS.has(last);
+}
 
 /**
  * E.164 allows at most 15 digits, country code included. Eight is the
- * shortest real number WITH a country code, so anything shorter is a local
- * number that `wa.me` cannot route.
+ * shortest real number WITH a country code.
  */
 const WHATSAPP_DIGITS = /^\d{8,15}$/;
 
 /**
  * A WhatsApp number as `wa.me` wants it: digits only, country code first.
  *
- * Accepts what people paste: `+57 300 123 4567`, `(57) 300-123-4567`, a
- * `wa.me/573001234567` link, or a `00` international prefix. Returns null when
- * what is left is not a plausible international number.
+ * Only an INTERNATIONAL number is accepted, because `wa.me` reads the first
+ * digits as the country code and a local number opens a chat with someone in
+ * another country. That means a leading `+` (`+57 300 123 4567`), a leading
+ * `00` (`0057 300 123 4567`, also `+0057 ...`), or a `wa.me` link, which is
+ * international by definition. A number with neither is refused, and the
+ * editor asks for the country code.
  */
 export function whatsappDigits(input: string): string | null {
-  let raw = input.trim();
+  const raw = input.trim();
   const link = /^(?:https?:\/\/)?(?:api\.)?(?:wa\.me|whatsapp\.com)\/(?:send\?phone=)?([^/?#]+)/i.exec(raw);
-  if (link) raw = link[1] ?? '';
-  let digits = raw.replace(/\D/g, '');
-  if (!raw.trim().startsWith('+') && digits.startsWith('00')) digits = digits.slice(2);
+  let digits: string;
+  if (link) {
+    digits = (link[1] ?? '').replace(/\D/g, '');
+  } else {
+    const plus = raw.startsWith('+');
+    digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('00')) digits = digits.slice(2);
+    else if (!plus) return null;
+  }
   return WHATSAPP_DIGITS.test(digits) ? digits : null;
 }
 
@@ -76,17 +110,22 @@ export function whatsappHref(digits: string): string {
  *
  * URL networks take a full URL, a URL without the scheme
  * (`instagram.com/yourbrand`, the placeholder the editor shows) or a bare
- * handle (`@yourbrand`). The stored value is always an `https://` URL on one
- * of the network's own hosts, so the public page never has to guess.
- * WhatsApp stores digits only (see `whatsappDigits`).
+ * handle (`@yourbrand`, `your.brand`). The stored value is always an
+ * `https://` URL on one of the network's own hosts, so the public page never
+ * has to guess. WhatsApp stores digits only (see `whatsappDigits`).
  */
 export function normalizeSocial(network: LinkPageSocial, input: string): string | null {
   const value = input.trim();
   if (!value) return null;
   if (network === 'whatsapp') return whatsappDigits(value);
 
-  const handle = HANDLE.exec(value);
-  if (handle && !value.includes('.')) return HANDLE_URL[network](handle[1]!);
+  if (value.startsWith('@')) {
+    const handle = value.slice(1);
+    return HANDLE_RULES[network].test(handle) ? HANDLE_URL[network](handle) : null;
+  }
+  if (!value.includes('/') && !looksLikeDomain(value)) {
+    return HANDLE_RULES[network].test(value) ? HANDLE_URL[network](value) : null;
+  }
 
   // Parsed by hand: this package compiles against ES2022 alone, with no `URL`.
   // The authority may hold no credentials and no port, only a host.
@@ -105,6 +144,18 @@ export function socialHref(network: LinkPageSocial, stored: string): string {
   return network === 'whatsapp' ? whatsappHref(stored) : stored;
 }
 
+/**
+ * The refusal for a value that does not normalize. English, like every API
+ * message; the editor shows its own localized copy from the catalog.
+ */
+export const LINK_PAGE_SOCIAL_MESSAGES: Record<LinkPageSocial, string> = {
+  instagram: 'Enter an Instagram profile link or handle, like @yourbrand.',
+  x: 'Enter an X profile link or handle, like @yourbrand.',
+  youtube: 'Enter a YouTube channel link or handle, like @yourbrand.',
+  tiktok: 'Enter a TikTok profile link or handle, like @yourbrand.',
+  whatsapp: 'Enter the WhatsApp number with its country code, starting with +, like +57 300 123 4567.',
+};
+
 /** A social field: blank or null clears it, anything else must normalize. */
 function socialField(network: LinkPageSocial) {
   return z.preprocess(
@@ -115,13 +166,7 @@ function socialField(network: LinkPageSocial) {
       .transform((v, ctx) => {
         const n = normalizeSocial(network, v);
         if (n == null) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message:
-              network === 'whatsapp'
-                ? 'WhatsApp needs a phone number with its country code.'
-                : `Not a ${network} link.`,
-          });
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: LINK_PAGE_SOCIAL_MESSAGES[network] });
           return z.NEVER;
         }
         return n;
@@ -144,10 +189,21 @@ export type LinkPageSocials = z.infer<typeof linkPageSocialsSchema>;
 
 /**
  * The longest uploaded logo kept inline. The editor downscales an upload to
- * a small square before it gets here, which lands far below this; the cap
- * keeps a whole page well under the API's request body limit.
+ * a small square before it gets here, which usually lands far below this.
+ *
+ * A page at every limit at once (this logo, 30 links of 2048 characters, a
+ * full bio and five socials) is about 160 KB of JSON, more than the API's
+ * default 100 KB body limit. So `PUT /v1/link-page` alone reads bodies up to
+ * `LINK_PAGE_MAX_BODY_BYTES`.
  */
 export const LINK_PAGE_LOGO_MAX_CHARS = 90_000;
+
+/**
+ * The request body ceiling for `PUT /v1/link-page`. Comfortably above the
+ * largest page the schema accepts, even with every label in four-byte
+ * characters, and still small.
+ */
+export const LINK_PAGE_MAX_BODY_BYTES = 256 * 1024;
 
 /** An uploaded raster image, inlined. SVG is refused: it is a document, not a picture. */
 const INLINE_LOGO = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+=*$/;
@@ -201,6 +257,37 @@ export const linkPageSchema = z.object({
 export type LinkPage = z.infer<typeof linkPageSchema>;
 /** What a client sends; `linkPageSchema` normalizes it into `LinkPage`. */
 export type LinkPageInput = z.input<typeof linkPageSchema>;
+
+/**
+ * A stored page as a body the schema accepts again. The one value that does
+ * not round-trip by itself is WhatsApp: stored as bare digits, which on input
+ * would read as a number without its country code, so it gets its `+` back.
+ */
+export function linkPageToInput(page: LinkPage): LinkPageInput {
+  const whatsapp = page.socials?.whatsapp;
+  return {
+    ...page,
+    ...(page.socials ? { socials: { ...page.socials, whatsapp: whatsapp ? `+${whatsapp}` : whatsapp } } : {}),
+  };
+}
+
+/**
+ * Read a STORED page blob back. Stored values are already canonical, except
+ * that a stored WhatsApp number is bare digits, which the input rule refuses
+ * (no country code prefix). It is read as the international number it is.
+ * Null when the blob is missing or no longer parses.
+ */
+export function parseStoredLinkPage(raw: unknown): LinkPage | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const blob = raw as { socials?: { whatsapp?: unknown } };
+  const whatsapp = blob.socials?.whatsapp;
+  const input =
+    typeof whatsapp === 'string' && /^\d+$/.test(whatsapp)
+      ? { ...blob, socials: { ...blob.socials, whatsapp: `+${whatsapp}` } }
+      : blob;
+  const parsed = linkPageSchema.safeParse(input);
+  return parsed.success ? parsed.data : null;
+}
 
 // --- What the page renders ---------------------------------------------------
 
