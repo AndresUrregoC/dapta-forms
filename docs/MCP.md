@@ -204,6 +204,8 @@ its REST route, with the same role rule and the same masking.
 | Brand kit | `PUT /v1/branding` | `update_brand_kit` | write, owners and admins |
 | Brand kit | `POST /v1/branding/apply` | `apply_brand_kit` | **destructive**, owners and admins |
 | Brand kit | `POST /v1/branding/revert` | `revert_brand_kit` | **destructive**, owners and admins |
+| Link page | `GET /v1/link-page` | `get_link_page` | read (the stored page or null, the workspace's forms, the brand kit, `public_url` and `live`) |
+| Link page | `PUT /v1/link-page` | `update_link_page` | **destructive**, open world (replaces the whole page; `page: null` deletes it and the URL answers 404 again; any member) |
 | Notifications | `GET /v1/notifications` | `list_notifications` | read, owners and admins |
 | Notifications | `PUT /v1/notifications/:emailKey` | `update_notification` | write, owners and admins |
 | Notifications | `POST /v1/notifications/:emailKey/reset` | `reset_notification` | **destructive**, owners and admins |

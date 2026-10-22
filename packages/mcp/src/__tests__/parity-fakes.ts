@@ -1,5 +1,5 @@
 import { BackendError, type McpCaller } from '../backend';
-import type { ApiParityBackend, FolderItem, NotificationView } from '../parity-backend';
+import type { ApiParityBackend, FolderItem, LinkPageView, NotificationView } from '../parity-backend';
 import { NOW, form } from './harness';
 
 /**
@@ -28,6 +28,16 @@ const notification = (emailKey: string): NotificationView => ({
   body: null,
   recipients: null,
   updatedAt: NOW,
+});
+
+const linkPage = (page: Record<string, unknown> | null): LinkPageView => ({
+  accountCode: 'acme',
+  accountName: 'Acme',
+  page,
+  forms: [{ id: 'form-1', slug: 'lead-form', name: 'Lead form', title: null }],
+  brandKit: { primaryColor: '#3DDC84' },
+  publicUrl: 'https://forms.example.test/acme',
+  live: page?.enabled === true,
 });
 
 export function parityFakes(): ApiParityBackend {
@@ -197,6 +207,13 @@ export function parityFakes(): ApiParityBackend {
     revertBrandKit: async (c, ids) => {
       needAdmin(c);
       return { reverted: ids.filter((id) => id === 'form-1') };
+    },
+
+    getLinkPage: async () => linkPage(null),
+    updateLinkPage: async (_c, page) => {
+      const items = (page?.items ?? []) as Array<{ type: string; formId?: string }>;
+      for (const item of items) if (item.type === 'form') needForm(item.formId ?? '');
+      return linkPage(page);
     },
 
     listNotifications: async (c) => {

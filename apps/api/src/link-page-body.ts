@@ -1,8 +1,8 @@
 import { LINK_PAGE_MAX_BODY_BYTES } from '@quill/types';
 
 /**
- * A JSON body reader for `PUT /v1/link-page` alone, mounted in `main.ts`
- * before Nest's own parser.
+ * A JSON body reader for `PUT /v1/link-page` and the MCP endpoint
+ * (`POST /mcp`) alone, mounted in `main.ts` before Nest's own parser.
  *
  * Nest parses every JSON body with body-parser's default 100 KB ceiling, and
  * a link page at the schema's limits (an inlined logo plus 30 long links) is
@@ -11,6 +11,11 @@ import { LINK_PAGE_MAX_BODY_BYTES } from '@quill/types';
  * body, up to `LINK_PAGE_MAX_BODY_BYTES`, and marks it parsed (`_body`), which
  * makes the global parser step aside for that request. Every other request
  * passes through untouched.
+ *
+ * The MCP endpoint reads the same page through `update_link_page`, inside a
+ * JSON-RPC envelope, so it takes the page's ceiling plus room for the
+ * envelope (`MCP_MAX_BODY_BYTES`): the largest page REST accepts is accepted
+ * through the MCP too.
  */
 interface BodyReq {
   method?: string;
@@ -30,11 +35,29 @@ interface BodyRes {
 }
 
 export const LINK_PAGE_BODY_PATH = '/v1/link-page';
+export const MCP_BODY_PATH = '/mcp';
 
-export function isLinkPageWrite(req: Pick<BodyReq, 'method' | 'url' | 'headers'>): boolean {
-  const path = (req.url ?? '').split('?')[0]?.replace(/\/+$/, '');
-  const type = String(req.headers['content-type'] ?? '').toLowerCase();
-  return req.method === 'PUT' && path === LINK_PAGE_BODY_PATH && type.startsWith('application/json');
+/** The MCP's ceiling: a whole link page plus its JSON-RPC envelope. */
+export const MCP_MAX_BODY_BYTES = LINK_PAGE_MAX_BODY_BYTES + 16 * 1024;
+
+type Head = Pick<BodyReq, 'method' | 'url' | 'headers'>;
+
+const pathOf = (req: Head) => (req.url ?? '').split('?')[0]?.replace(/\/+$/, '');
+const isJson = (req: Head) => String(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json');
+
+export function isLinkPageWrite(req: Head): boolean {
+  return req.method === 'PUT' && pathOf(req) === LINK_PAGE_BODY_PATH && isJson(req);
+}
+
+export function isMcpPost(req: Head): boolean {
+  return req.method === 'POST' && pathOf(req) === MCP_BODY_PATH && isJson(req);
+}
+
+/** The ceiling this reader applies to a request, or null when it leaves the request to the global parser. */
+export function largeBodyLimit(req: Head, limit: number = LINK_PAGE_MAX_BODY_BYTES): number | null {
+  if (isLinkPageWrite(req)) return limit;
+  if (isMcpPost(req)) return limit + (MCP_MAX_BODY_BYTES - LINK_PAGE_MAX_BODY_BYTES);
+  return null;
 }
 
 function refuse(res: BodyRes, status: number, error: string, message: string): void {
@@ -45,7 +68,8 @@ function refuse(res: BodyRes, status: number, error: string, message: string): v
 
 export function linkPageBodyParser(limit: number = LINK_PAGE_MAX_BODY_BYTES) {
   return (req: BodyReq, res: BodyRes, next: (err?: unknown) => void): void => {
-    if (req._body || !isLinkPageWrite(req)) {
+    const max = req._body ? null : largeBodyLimit(req, limit);
+    if (max === null) {
       next();
       return;
     }
@@ -55,9 +79,9 @@ export function linkPageBodyParser(limit: number = LINK_PAGE_MAX_BODY_BYTES) {
     req.on('data', (chunk: Buffer) => {
       if (done) return;
       size += chunk.length;
-      if (size > limit) {
+      if (size > max) {
         done = true;
-        refuse(res, 413, 'PAYLOAD_TOO_LARGE', 'The page is larger than this endpoint accepts.');
+        refuse(res, 413, 'PAYLOAD_TOO_LARGE', 'The body is larger than this endpoint accepts.');
         req.destroy?.();
         return;
       }

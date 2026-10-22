@@ -15,6 +15,7 @@ import { AppModule } from './app.module';
 import { AdminCrudController } from './admin-crud.controller';
 import { ApiKeysController } from './api-keys.controller';
 import { IntegrationsController } from './integrations.controller';
+import { LinkPageController } from './link-page.controller';
 import { PublicController } from './public.controller';
 import {
   API_KEY_ALLOWED_ROUTES,
@@ -72,9 +73,6 @@ const DENIED = new Set([
   'PUT /v1/me/profile',
   'PUT /v1/me/locale',
   'PUT /v1/vanity',
-  // The workspace link page: not open to keys until it has an MCP tool too.
-  'GET /v1/link-page',
-  'PUT /v1/link-page',
   // Connecting or disconnecting an integration.
   'POST /v1/integrations/:provider/connect',
   'DELETE /v1/integrations/:provider',
@@ -159,6 +157,8 @@ describe('ApiKeyRouteGuard', () => {
       true,
     );
     expect(guard.canActivate(contextFor(PublicController, PublicController.prototype.form, auth))).toBe(true);
+    expect(guard.canActivate(contextFor(LinkPageController, LinkPageController.prototype.get, auth))).toBe(true);
+    expect(guard.canActivate(contextFor(LinkPageController, LinkPageController.prototype.put, auth))).toBe(true);
   });
 
   it('without a key, or with a session bearer, every route goes through untouched', () => {

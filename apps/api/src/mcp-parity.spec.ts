@@ -12,6 +12,7 @@ import { API_REFERENCE, apiEndpoints } from '@quill/shared';
 import { AdminCrudController } from './admin-crud.controller';
 import { AnalyticsController } from './analytics.controller';
 import { BrandingController } from './branding.controller';
+import { LinkPageController } from './link-page.controller';
 import { FormDestinationsController, IntegrationsController } from './integrations.controller';
 import { MCP_ANALYTICS_HANDLERS, MCP_FORM_HANDLERS, keyAllowedRoutes } from './mcp.backend';
 import { MCP_PARITY_HANDLERS, cutCsv } from './mcp.backend.parity';
@@ -41,6 +42,7 @@ describe('the MCP against the API reference', () => {
       ...keyAllowedRoutes(AnalyticsController, MCP_PARITY_HANDLERS.analytics),
       ...keyAllowedRoutes(FormDestinationsController, MCP_PARITY_HANDLERS.destinations),
       ...keyAllowedRoutes(BrandingController, MCP_PARITY_HANDLERS.branding),
+      ...keyAllowedRoutes(LinkPageController, MCP_PARITY_HANDLERS.linkPage),
       ...keyAllowedRoutes(IntegrationsController, MCP_PARITY_HANDLERS.integrations),
     ]);
     expect([...reached].sort()).toEqual(Object.keys(API_ROUTE_TOOLS).sort());

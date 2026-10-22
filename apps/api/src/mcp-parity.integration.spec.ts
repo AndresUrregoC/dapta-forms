@@ -391,6 +391,87 @@ describe('brand kit', () => {
   });
 });
 
+describe('link page', () => {
+  type View = {
+    public_url: string | null;
+    live: boolean;
+    page: { enabled?: boolean; items?: unknown[]; socials?: { whatsapp?: string | null } } | null;
+    forms: Array<{ id: string }>;
+  };
+  const stored = async () =>
+    (await h.db.get<{ link_page: string | null }>(sql`SELECT link_page FROM account WHERE id = ${h.accountId}`))!.link_page;
+
+  it('reads, writes and deletes the page for any member, with its public URL', async () => {
+    const c = await owner();
+    const empty = structured<View>(await member.callTool({ name: 'get_link_page', arguments: {} }));
+    expect(empty).toMatchObject({ public_url: `${APP_URL}/acme`, live: false, page: null });
+    expect(empty.forms.map((f) => f.id)).toContain(h.formId);
+
+    const page = {
+      enabled: true,
+      bio: 'Forms and links',
+      items: [
+        { type: 'form', formId: h.formId },
+        { type: 'link', label: 'Site', url: 'https://example.com' },
+      ],
+      socials: { whatsapp: '+57 300 123 4567' },
+    };
+    const saved = structured<View>(await member.callTool({ name: 'update_link_page', arguments: { page } }));
+    expect(saved).toMatchObject({ live: true, public_url: `${APP_URL}/acme` });
+    expect(saved.page!.socials!.whatsapp).toBe('+573001234567');
+    expect(JSON.parse((await stored())!).socials.whatsapp).toBe('573001234567');
+
+    // What get_link_page returns goes back unchanged, WhatsApp included.
+    const read = structured<View>(await c.callTool({ name: 'get_link_page', arguments: {} }));
+    expect(read.page!.items).toHaveLength(2);
+    const again = structured<View>(await c.callTool({ name: 'update_link_page', arguments: { page: { ...read.page, enabled: false } } }));
+    expect(again).toMatchObject({ live: false, page: { enabled: false, socials: { whatsapp: '+573001234567' } } });
+
+    const gone = structured<View>(await c.callTool({ name: 'update_link_page', arguments: { page: null } }));
+    expect(gone).toMatchObject({ page: null, live: false });
+    expect(await stored()).toBeNull();
+    expect(structured<View>(await member.callTool({ name: 'get_link_page', arguments: {} })).page).toBeNull();
+  });
+
+  it("answers NOT_FOUND for another workspace's form and writes nothing, and keeps each workspace's page apart", async () => {
+    const c = await owner();
+    structured(await c.callTool({ name: 'update_link_page', arguments: { page: { enabled: true, bio: 'ours' } } }));
+    notFound(
+      errorText(await c.callTool({ name: 'update_link_page', arguments: { page: { enabled: true, items: [{ type: 'form', formId: h.other.formId }] } } })),
+    );
+    expect(JSON.parse((await stored())!).bio).toBe('ours');
+    const theirs = await h.connect(await h.otherKey());
+    expect(structured<View>(await theirs.callTool({ name: 'get_link_page', arguments: {} })).page).toBeNull();
+    expect(errorText(await c.callTool({ name: 'get_link_page', arguments: { workspace_id: h.other.accountId } }))).toMatch(/^WORKSPACE_MISMATCH/);
+    expect(errorText(await c.callTool({ name: 'update_link_page', arguments: { page: { items: [{ type: 'link', label: 'x', url: 'javascript:alert(1)' }] } } }))).toMatch(
+      /^VALIDATION_FAILED/,
+    );
+    expect((await c.callTool({ name: 'update_link_page', arguments: { page: { items: [{ type: 'button' }] } } })).isError).toBe(true);
+  });
+
+  it('takes the largest page the REST route takes, past the default body limit', async () => {
+    const c = await owner();
+    const page = {
+      enabled: true,
+      logo: `data:image/png;base64,${'A'.repeat(89_000)}`,
+      items: Array.from({ length: 30 }, (_, i) => ({ type: 'link', label: `Link ${i}`, url: `https://example.com/${'a'.repeat(2_000)}` })),
+    };
+    expect(JSON.stringify(page).length).toBeGreaterThan(100 * 1024);
+    const saved = structured<View>(await c.callTool({ name: 'update_link_page', arguments: { page } }));
+    expect(saved.page!.items).toHaveLength(30);
+  });
+
+  it('opens both REST routes to an API key', async () => {
+    const { key } = await h.key('member');
+    const auth = { authorization: `Bearer ${key}`, 'content-type': 'application/json' };
+    const put = await fetch(`${h.base}/v1/link-page`, { method: 'PUT', headers: auth, body: JSON.stringify({ page: { version: 1, enabled: true, bio: 'by key' } }) });
+    expect(put.status).toBe(200);
+    const get = await fetch(`${h.base}/v1/link-page`, { headers: auth });
+    expect(get.status).toBe(200);
+    expect(await get.json()).toMatchObject({ page: { bio: 'by key' }, live: true, publicUrl: `${APP_URL}/acme` });
+  });
+});
+
 describe('notifications', () => {
   it('lists, edits and resets the workspace emails, for owners and admins only', async () => {
     const c = await owner();

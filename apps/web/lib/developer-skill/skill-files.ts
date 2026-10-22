@@ -217,12 +217,13 @@ Each item has \`id\`, \`data\` (answers keyed by step key), \`score\`, \`started
 
 ## Workspace settings a key can use
 
-Everything here except reading the brand kit and the integrations needs a key whose owner is an owner or admin of the workspace; a member's key gets 403 \`FORBIDDEN\`.
+Everything here except reading the brand kit, the link page and the integrations needs a key whose owner is an owner or admin of the workspace; a member's key gets 403 \`FORBIDDEN\`. Any member's key can also write the link page.
 
 | Method | Path | What it does |
 |---|---|---|
 | GET, PUT | \`/v1/branding\` | The workspace brand kit. Reading it works with any key. |
 | POST | \`/v1/branding/apply\`, \`/v1/branding/revert\` | Apply the kit to forms, or undo it. Body \`{ "formIds": [...] }\`. |
+| GET, PUT | \`/v1/link-page\` | The workspace's public page at \`/{accountCode}\`. \`PUT\` replaces the whole page: body \`{ "page": { "version": 1, "enabled", "name", "bio", "logo", "items", "socials" } }\`, or \`{ "page": null }\` to delete it. Read it first and send it back whole; a stored WhatsApp number comes back as digits, send it with a leading \`+\`. |
 | GET | \`/v1/notifications\` | The workspace's email notifications. |
 | PUT | \`/v1/notifications/{emailKey}\` | Change one. Body \`{ "enabled"?, "subject"?, "body"?, "recipients"? }\`. |
 | POST | \`/v1/notifications/{emailKey}/reset\` | Back to the default. |

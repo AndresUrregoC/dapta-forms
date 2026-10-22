@@ -1,7 +1,10 @@
-import { Body, Controller, Get, Inject, NotFoundException, Put, Req } from '@nestjs/common';
+import { Body, Controller, Get, Inject, NotFoundException, Optional, Put, Req } from '@nestjs/common';
+import type { ServerEnv } from '@quill/config/env';
+import { linkPageUrl } from '@quill/shared';
 import { linkPageSchema } from '@quill/types';
 import { AuthService, type ReqLike } from './auth.service';
 import { LinkPageService } from './link-page.service';
+import { ENV } from './tokens';
 import { parse } from './validation';
 
 /**
@@ -12,24 +15,34 @@ import { parse } from './validation';
  * Both routes still resolve the principal and act only on ITS workspace; the
  * workspace is never taken from the request body.
  *
- * Not open to API keys yet (see `api-key-routes.ts`): adding a route there
- * also means documenting it in the API reference and giving it an MCP tool or
- * an exclusion, and the MCP is being worked on separately.
+ * Open to API keys (see `api-key-routes.ts`), documented in the API reference
+ * and served to agents by the MCP's `get_link_page` and `update_link_page`,
+ * which run these same handlers in process.
  */
 @Controller('v1/link-page')
 export class LinkPageController {
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(LinkPageService) private readonly pages: LinkPageService,
+    // Only for `publicUrl`; absent (a spec) reads as no public address.
+    @Optional() @Inject(ENV) private readonly env?: ServerEnv,
   ) {}
 
-  /** The stored page (or null), the workspace's forms and its brand kit, for the editor and its preview. */
+  /**
+   * The stored page (or null), the workspace's forms and its brand kit, for
+   * the editor and its preview, plus the page's public address (`publicUrl`,
+   * null without `PUBLIC_APP_URL`) and whether it is live there (`live`).
+   */
   @Get()
   async get(@Req() req: ReqLike) {
     const p = await this.auth.resolveHost(req);
     const view = await this.pages.editorView(p.accountId, p.memberId);
     if (!view) throw new NotFoundException({ error: 'NOT_FOUND', message: 'Not found.' });
-    return view;
+    return {
+      ...view,
+      publicUrl: linkPageUrl(this.env?.PUBLIC_APP_URL, view.accountCode),
+      live: view.page?.enabled === true,
+    };
   }
 
   /**

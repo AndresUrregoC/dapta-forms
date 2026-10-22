@@ -1,4 +1,5 @@
 import { getFormById, type Db } from '@quill/db';
+import { linkPageToInput } from '@quill/types';
 import {
   type Answers,
   type FormConfig as EngineConfig,
@@ -18,6 +19,7 @@ import {
   type FolderItem,
   type FormDetail,
   type FormsBackend,
+  type LinkPageView,
   type McpCaller,
   type MemberProfile,
   type NotificationKey,
@@ -33,6 +35,7 @@ import type { AdminCrudController } from './admin-crud.controller';
 import type { AnalyticsController } from './analytics.controller';
 import type { BrandingController } from './branding.controller';
 import type { FormDestinationsController, IntegrationsController } from './integrations.controller';
+import type { LinkPageController } from './link-page.controller';
 import { callRequest } from './in-process-principal';
 import { ApiFormsBackend, answerRows, detailOf, outcomeOf, reqOf, run, type McpHandlers } from './mcp.backend';
 import type { FilterQuery } from './submission-filter';
@@ -80,6 +83,7 @@ export const MCP_PARITY_HANDLERS = {
   analytics: ['submission', 'exportCsv', 'deleteSubmission', 'deleteSubmissions', 'formSummary', 'submissionFacets', 'summaryAnswers'],
   destinations: ['putDestinations', 'pingWebhook'],
   branding: ['get', 'put', 'apply', 'revert'],
+  linkPage: ['get', 'put'],
   integrations: ['list', 'webhooks', 'hubspotProperties', 'calendlyEventTypes'],
 } as const;
 
@@ -96,6 +100,7 @@ export interface McpParityHandlers {
   analytics: Pick<AnalyticsController, Names<'analytics'> | 'exportCsvFirst'>;
   destinations: Pick<FormDestinationsController, Names<'destinations'>>;
   branding: Pick<BrandingController, Names<'branding'>>;
+  linkPage: Pick<LinkPageController, Names<'linkPage'>>;
   integrations: Pick<IntegrationsController, Names<'integrations'>>;
 }
 
@@ -342,6 +347,36 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
     return run(() => this.parity().branding.revert(reqOf(caller), { formIds }));
   }
 
+  // --- Link page --------------------------------------------------------------
+
+  getLinkPage(caller: McpCaller): Promise<LinkPageView> {
+    return run(async () => this.linkPageView(await this.parity().linkPage.get(reqOf(caller))));
+  }
+
+  /**
+   * The route drops a form button naming a form the workspace does not have,
+   * and answers 200. An agent hears NOT_FOUND instead: the page is read
+   * first (the same handler as `getLinkPage`, on the same `callRequest`, so
+   * one tool call is one key call) and every form id is checked against the
+   * workspace's forms before anything is written.
+   */
+  updateLinkPage(caller: McpCaller, page: Record<string, unknown> | null): Promise<LinkPageView> {
+    return run(async () => {
+      const req = callRequest(reqOf(caller));
+      const before = this.linkPageView(await this.parity().linkPage.get(req));
+      const own = new Set(before.forms.map((f) => f.id));
+      const items = Array.isArray(page?.items) ? (page.items as unknown[]) : [];
+      for (const item of items) {
+        if (isRecord(item) && item.type === 'form' && typeof item.formId === 'string' && !own.has(item.formId.trim())) {
+          throw new BackendError(404, 'NOT_FOUND', 'Not found.');
+        }
+      }
+      const out = await this.parity().linkPage.put(req, { page });
+      const saved = out.page ? (linkPageToInput(out.page) as Record<string, unknown>) : null;
+      return { ...before, page: saved, live: out.page?.enabled === true };
+    });
+  }
+
   // --- Notifications ----------------------------------------------------------
 
   listNotifications(caller: McpCaller): Promise<NotificationView[]> {
@@ -400,6 +435,19 @@ export class ApiMcpBackend extends ApiFormsBackend implements FormsBackend {
   }
 
   // --- Shapes -----------------------------------------------------------------
+
+  /** The route's answer, with a stored page put back in the shape the write takes (WhatsApp with its `+`). */
+  private linkPageView(v: Awaited<ReturnType<LinkPageController['get']>>): LinkPageView {
+    return {
+      accountCode: v.accountCode,
+      accountName: v.accountName,
+      page: v.page ? (linkPageToInput(v.page) as Record<string, unknown>) : null,
+      forms: v.forms.map((f) => ({ id: f.id, slug: f.slug, name: f.name, title: f.title ?? null })),
+      brandKit: isRecord(v.brandKit) ? v.brandKit : null,
+      publicUrl: v.publicUrl,
+      live: v.live,
+    };
+  }
 
   private kit(v: { config: unknown; updatedAt: number | null }): BrandKitView {
     return { config: isRecord(v.config) ? v.config : null, updatedAt: v.updatedAt ?? null };

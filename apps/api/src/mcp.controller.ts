@@ -18,6 +18,7 @@ import { AnalyticsController } from './analytics.controller';
 import { AnalyticsEffects } from './analytics-effects';
 import { McpUsageReporter } from './mcp-usage';
 import { BrandingController } from './branding.controller';
+import { LinkPageController } from './link-page.controller';
 import { FormDestinationsController, IntegrationsController } from './integrations.controller';
 import {
   MCP_ANALYTICS_HANDLERS,
@@ -175,12 +176,14 @@ export class McpController implements OnModuleInit {
       keyAllowedRoutes(AnalyticsController, MCP_PARITY_HANDLERS.analytics);
       keyAllowedRoutes(FormDestinationsController, MCP_PARITY_HANDLERS.destinations);
       keyAllowedRoutes(BrandingController, MCP_PARITY_HANDLERS.branding);
+      keyAllowedRoutes(LinkPageController, MCP_PARITY_HANDLERS.linkPage);
       keyAllowedRoutes(IntegrationsController, MCP_PARITY_HANDLERS.integrations);
       this.parityHandlers = {
         forms: this.moduleRef.get(AdminCrudController, { strict: false }),
         analytics: this.moduleRef.get(AnalyticsController, { strict: false }),
         destinations: this.moduleRef.get(FormDestinationsController, { strict: false }),
         branding: this.moduleRef.get(BrandingController, { strict: false }),
+        linkPage: this.moduleRef.get(LinkPageController, { strict: false }),
         integrations: this.moduleRef.get(IntegrationsController, { strict: false }),
       };
     }
