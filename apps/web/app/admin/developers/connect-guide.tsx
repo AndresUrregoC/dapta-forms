@@ -93,7 +93,7 @@ export function stepCount(app: McpApp): number {
 
 /** The guide's step titles for an app, for the walkthrough's corner chip. */
 function captionsOf(m: ConnectMessages, app: McpApp): string[] {
-  const key = { claude: 'claude', chatgpt: 'chatgpt', 'claude-code': 'claudeCode', codex: 'codex', cursor: 'cursor', openclaw: 'openclaw' } as const;
+  const key = { claude: 'claude', chatgpt: 'chatgpt', 'claude-code': 'claudeCode', codex: 'codex', cursor: 'cursor', openclaw: 'openclaw', hermes: 'hermes' } as const;
   return m.apps[key[app]].steps.map((s) => s.title);
 }
 
@@ -458,6 +458,34 @@ function AppSteps({
       steps = [
         { copy: s[0]!, extra: firstCommand(snippets.openclawSet, 'mcp-openclaw-set') },
         { copy: s[1]!, extra: command(snippets.openclawLogin, 'mcp-openclaw-login') },
+        { copy: s[2]!, extra: prompt },
+      ];
+      break;
+    }
+    case 'hermes': {
+      const s = m.apps.hermes.steps;
+      steps = [
+        {
+          copy: s[0]!,
+          extra: (
+            <div className="flex flex-col gap-3">
+              {phone ? (
+                phoneNote
+              ) : (
+                <CopyCommandButton code={snippets.hermesConfig} label={m.copyConfig} copied={m.open.copied} testId="mcp-hermes-config-big-copy" />
+              )}
+              <CodePanel
+                label="~/.hermes/config.yaml"
+                code={snippets.hermesConfig}
+                language="text"
+                copyLabel={m.copyConfig}
+                m={copy}
+                testId="mcp-hermes-config"
+              />
+            </div>
+          ),
+        },
+        { copy: s[1]!, extra: command(snippets.hermesLogin, 'mcp-hermes-login') },
         { copy: s[2]!, extra: prompt },
       ];
       break;

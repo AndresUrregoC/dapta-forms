@@ -51,11 +51,11 @@ afterEach(async () => {
 });
 
 describe('ConnectGuide', () => {
-  it('orders the apps Claude, ChatGPT, Claude Code, Codex, Cursor, OpenClaw, each with its official mark', async () => {
+  it('orders the apps Claude, ChatGPT, Claude Code, Codex, Cursor, OpenClaw, Hermes, each with its official mark', async () => {
     await mount();
     const tabs = [...document.querySelectorAll('[role="tab"]')].map((b) => b.getAttribute('data-testid'));
-    expect(tabs).toEqual(['claude', 'chatgpt', 'claude-code', 'codex', 'cursor', 'openclaw'].map((a) => `mcp-app-${a}`));
-    for (const app of ['claude', 'chatgpt', 'claude-code', 'codex', 'cursor', 'openclaw']) {
+    expect(tabs).toEqual(['claude', 'chatgpt', 'claude-code', 'codex', 'cursor', 'openclaw', 'hermes'].map((a) => `mcp-app-${a}`));
+    for (const app of ['claude', 'chatgpt', 'claude-code', 'codex', 'cursor', 'openclaw', 'hermes']) {
       expect($(`[data-testid="mcp-app-${app}"] svg[data-agent="${app}"]`)).not.toBeNull();
     }
     expect($('[data-testid="mcp-app-claude"]')!.getAttribute('aria-selected')).toBe('true');
@@ -73,7 +73,7 @@ describe('ConnectGuide', () => {
   it('animates every app in code, with no video anywhere, and names the step in the frame', async () => {
     await mount('es');
     const es = getMessages('es').admin.developers.connect;
-    for (const app of ['claude', 'chatgpt', 'claude-code', 'codex', 'cursor', 'openclaw']) {
+    for (const app of ['claude', 'chatgpt', 'claude-code', 'codex', 'cursor', 'openclaw', 'hermes']) {
       await pick(app);
       expect(host.querySelector('video')).toBeNull();
       expect(walk().dataset.kind).toBe(['claude', 'chatgpt', 'cursor'].includes(app) ? 'app' : 'terminal');
@@ -129,7 +129,7 @@ describe('ConnectGuide', () => {
 
   it('never shows a key, a key variable or the identity provider on any tab', async () => {
     await mount();
-    for (const app of ['claude', 'chatgpt', 'claude-code', 'codex', 'cursor', 'openclaw']) {
+    for (const app of ['claude', 'chatgpt', 'claude-code', 'codex', 'cursor', 'openclaw', 'hermes']) {
       await pick(app);
       expect(host.textContent).not.toMatch(/DFORMS_API_KEY|Bearer|dforms_[A-Za-z0-9]|Dapta/);
     }

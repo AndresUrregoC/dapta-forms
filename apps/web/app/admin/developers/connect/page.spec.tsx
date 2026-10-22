@@ -44,7 +44,7 @@ describe('the connect page', () => {
     expect(html).toContain(c.signinTitle);
     for (const b of Object.values(c.benefits)) expect(html).toContain(b.title);
     const tabs = [...html.matchAll(/data-testid="mcp-app-([a-z-]+)"/g)].map((x) => x[1]);
-    expect(tabs).toEqual(['tabs', 'claude', 'chatgpt', 'claude-code', 'codex', 'cursor', 'openclaw', 'panel']);
+    expect(tabs).toEqual(['tabs', 'claude', 'chatgpt', 'claude-code', 'codex', 'cursor', 'openclaw', 'hermes', 'panel']);
     expect(html).toMatch(/data-testid="mcp-walkthrough" data-kind="app" data-app="claude"/);
     expect(html).not.toMatch(/<video|\/mcp\/videos\//);
     expect(html).toContain(MCP);

@@ -14,7 +14,7 @@ import './agent-promo.css';
 type CardMessages = FormsMessages['admin']['home']['agentCard'];
 
 /** The apps the card cycles through, in the dforms.ai landing's order. */
-const CARD_APPS: readonly McpApp[] = ['claude', 'chatgpt', 'claude-code', 'codex', 'cursor', 'openclaw'];
+const CARD_APPS: readonly McpApp[] = ['claude', 'chatgpt', 'claude-code', 'codex', 'cursor', 'openclaw', 'hermes'];
 
 /**
  * One steady beat per prompt, whatever its length: it types in TYPE_TOTAL_MS,

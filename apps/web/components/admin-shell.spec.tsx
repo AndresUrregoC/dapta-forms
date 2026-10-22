@@ -56,11 +56,11 @@ describe('AdminShell: Connect your agent', () => {
       expect(a).toContain('ring-signal/30');
       const icon = linkBody(rail);
       // Claude, ChatGPT and Cursor, stacked; the first one shows on first paint.
-      expect(icon.match(/data-logo="(\w+)"/g)).toEqual(['data-logo="claude"', 'data-logo="openai"', 'data-logo="cursor"']);
+      expect(icon.match(/data-logo="(\w+)"/g)).toEqual(['data-logo="claude"', 'data-logo="openai"', 'data-logo="cursor"', 'data-logo="openclaw"', 'data-logo="hermes"']);
       expect(icon).toMatch(/data-logo="claude" data-active="true"/);
       expect(icon).toMatch(/<svg [^>]*data-logo="claude"[^>]*style="color:#d97757"/);
       // Drawn inline: a session replay cannot fetch a mask file, so nothing here loads one.
-      expect(icon).not.toMatch(/url\(/);
+      expect(icon).not.toMatch(/url\((?!#)/);
       expect(icon).toContain('width:20px;height:20px');
     }
     expect(html).not.toContain('nav-developers-pages');

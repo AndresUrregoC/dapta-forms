@@ -10,7 +10,7 @@ import { Line, StepChip, Typed, at, type Delay } from './walk-kit';
 type WalkMessages = FormsMessages['admin']['developers']['connect']['walkthrough'];
 
 /** The apps set up in a terminal: their walkthrough replays the CLI. */
-export const TERMINAL_APPS = ['claude-code', 'codex', 'openclaw'] as const;
+export const TERMINAL_APPS = ['claude-code', 'codex', 'openclaw', 'hermes'] as const;
 export type TerminalApp = (typeof TERMINAL_APPS)[number];
 type WalkApp = McpApp;
 
@@ -25,6 +25,7 @@ export const WALK_DURATIONS: Record<WalkApp, readonly number[]> = {
   'claude-code': [4800, 6000, 6000],
   codex: [4400, 5200, 6000],
   openclaw: [4400, 5200, 6000],
+  hermes: [4400, 5200, 6000],
 };
 
 /** The size the frames are drawn at (16:9); the stage scales them to its width. */
@@ -274,6 +275,60 @@ function OpenClawFrame({ step, m, prompt, snippets }: FrameProps) {
   );
 }
 
+/* ── Hermes: its CLI, in Nous Research's gold ─────────────────────────────── */
+
+const HERMES_GOLD = '#E8B04B';
+
+function HermesFrame({ step, m, prompt, snippets }: FrameProps) {
+  const u = m.ui;
+  if (step === 0) {
+    return (
+      <Terminal title="zsh" bg="#111214">
+        <Shell>
+          <Typed text="hermes config edit" d={0.3} dur={0.8} />
+        </Shell>
+        {snippets.hermesConfig.split('\n').map((line, i) => (
+          <Line key={i} d={1.4 + i * 0.35} className="whitespace-pre text-[#9cdcfe]">
+            {line}
+          </Line>
+        ))}
+        <Line d={3.2}>
+          <span style={{ color: HERMES_GOLD }}>✓</span> {u.hmSaved}
+        </Line>
+      </Terminal>
+    );
+  }
+  if (step === 1) {
+    return (
+      <Terminal title="zsh" bg="#111214">
+        <Shell>
+          <Typed text={snippets.hermesLogin} d={0.3} dur={0.8} />
+        </Shell>
+        <Line d={1.5} className="text-[#9a9a9a]">
+          {u.hmLogin}
+        </Line>
+        <Line d={3.4}>
+          <span style={{ color: HERMES_GOLD }}>✓</span> {u.hmLoggedIn}
+        </Line>
+      </Terminal>
+    );
+  }
+  return (
+    <Terminal title="hermes" bg="#111214">
+      <Line className="mb-2 font-semibold">
+        <span style={{ color: HERMES_GOLD }}>☤ Hermes Agent</span>
+      </Line>
+      <Line d={0.1}>
+        <span style={{ color: HERMES_GOLD }}>❯</span> <Typed text={prompt} d={0.2} dur={1} />
+      </Line>
+      <Line d={1.5} className="mt-1 text-[#9a9a9a]">
+        ↳ {u.called} <span className="text-[#00E5CC]">mcp_dforms_list_forms</span>
+      </Line>
+      <FormsList m={m} d={2.1} bullet="●" color={HERMES_GOLD} />
+    </Terminal>
+  );
+}
+
 interface FrameProps {
   step: number;
   m: WalkMessages;
@@ -288,6 +343,8 @@ type Snippets = {
   codexLogin: string;
   openclawSet: string;
   openclawLogin: string;
+  hermesConfig: string;
+  hermesLogin: string;
   cursorJson: string;
 };
 
@@ -298,6 +355,7 @@ const FRAMES: Record<WalkApp, (p: FrameProps) => ReactNode> = {
   'claude-code': ClaudeCodeFrame,
   codex: CodexFrame,
   openclaw: OpenClawFrame,
+  hermes: HermesFrame,
 };
 
 /**

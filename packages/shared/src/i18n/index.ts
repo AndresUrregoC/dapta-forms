@@ -2037,6 +2037,7 @@ export interface FormsMessages {
           codex: { steps: { title: string; body: string }[]; note: string };
           cursor: { steps: { title: string; body: string }[] };
           openclaw: { steps: { title: string; body: string }[] };
+          hermes: { steps: { title: string; body: string }[] };
         };
         /** Under the steps: one connector reaches every workspace. */
         tip: string;
@@ -2075,6 +2076,9 @@ export interface FormsMessages {
             ocSaved: string;
             ocLogin: string;
             ocLoggedIn: string;
+            hmSaved: string;
+            hmLogin: string;
+            hmLoggedIn: string;
           };
           /** The dForms sign-in the apps open: email, then the code by email. */
           signIn: {
@@ -2746,7 +2750,7 @@ export const en: FormsMessages = {
       colUpdated: 'Updated',
       agentBanner: {
         title: 'Control your forms, logic and design from your AI agent',
-        body: 'Connect Claude, ChatGPT, Claude Code, Codex, Cursor or OpenClaw with your account. No API key.',
+        body: 'Connect Claude, ChatGPT, Claude Code, Codex, Cursor, OpenClaw or Hermes with your account. No API key.',
         cta: 'Connect your agent',
       },
       agentCard: {
@@ -4269,6 +4273,22 @@ export const en: FormsMessages = {
               },
             ],
           },
+          hermes: {
+            steps: [
+              {
+                title: 'Add dForms to Hermes',
+                body: 'Open `~/.hermes/config.yaml` (or run `hermes config edit`) and add dForms under `mcp_servers`:',
+              },
+              {
+                title: 'Log in to your account',
+                body: 'Run this command. Your browser opens: log in and come back to the terminal. Then start a new session, or run `/reload-mcp` in the one you have open.',
+              },
+              {
+                title: 'Ask',
+                body: 'Ask your Hermes agent, for example:',
+              },
+            ],
+          },
         },
         tip: '**One connector for every workspace.** If you have several, your AI app asks which one to use. To change, just say “switch to <workspace>”. Every answer says which workspace it used.',
         unavailableTitle: 'The connector is not available on this deployment',
@@ -4297,6 +4317,9 @@ export const en: FormsMessages = {
             ocSaved: 'Saved MCP server "dforms" (streamable-http, auth: oauth).',
             ocLogin: 'Opening the browser to sign in to dforms…',
             ocLoggedIn: 'dforms: authorized. 47 tools available.',
+            hmSaved: 'Saved. Run hermes mcp login dforms to sign in.',
+            hmLogin: 'Opening your browser to authorize dforms…',
+            hmLoggedIn: 'dforms: authorized. Tokens saved.',
           },
           signIn: {
             title: 'Log in to your account',
@@ -5157,7 +5180,7 @@ export const es: FormsMessages = {
       colUpdated: 'Actualizado',
       agentBanner: {
         title: 'Controla tus formularios, la lógica y el diseño desde tu agente de IA',
-        body: 'Conecta Claude, ChatGPT, Claude Code, Codex, Cursor u OpenClaw con tu cuenta. Sin llave de API.',
+        body: 'Conecta Claude, ChatGPT, Claude Code, Codex, Cursor, OpenClaw o Hermes con tu cuenta. Sin llave de API.',
         cta: 'Conecta tu agente',
       },
       agentCard: {
@@ -6691,6 +6714,22 @@ export const es: FormsMessages = {
               },
             ],
           },
+          hermes: {
+            steps: [
+              {
+                title: 'Agrega dForms a Hermes',
+                body: 'Abre `~/.hermes/config.yaml` (o ejecuta `hermes config edit`) y agrega dForms dentro de `mcp_servers`:',
+              },
+              {
+                title: 'Inicia sesión con tu cuenta',
+                body: 'Ejecuta este comando. Se abre tu navegador: inicia sesión y vuelve a la terminal. Después abre una sesión nueva, o ejecuta `/reload-mcp` en la que tengas abierta.',
+              },
+              {
+                title: 'Pregunta',
+                body: 'Pregúntale a tu agente de Hermes, por ejemplo:',
+              },
+            ],
+          },
         },
         tip: '**Un conector para todos tus workspaces.** Si tienes varios, tu app de IA te pregunta en cuál trabajar. Para cambiar, solo di «cambia a <workspace>». Cada respuesta te dice en qué workspace trabajó.',
         unavailableTitle: 'El conector no está disponible en esta instalación',
@@ -6719,6 +6758,9 @@ export const es: FormsMessages = {
             ocSaved: 'Saved MCP server "dforms" (streamable-http, auth: oauth).',
             ocLogin: 'Opening the browser to sign in to dforms…',
             ocLoggedIn: 'dforms: authorized. 47 tools available.',
+            hmSaved: 'Saved. Run hermes mcp login dforms to sign in.',
+            hmLogin: 'Opening your browser to authorize dforms…',
+            hmLoggedIn: 'dforms: authorized. Tokens saved.',
           },
           signIn: {
             title: 'Inicia sesión con tu cuenta',

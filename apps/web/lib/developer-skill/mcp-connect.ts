@@ -103,6 +103,17 @@ export function openclawSetCommand(mcpUrl: string): string {
 
 export const openclawLoginCommand = `openclaw mcp login ${MCP_SERVER_NAME}`;
 
+/**
+ * Hermes (Nous Research): an `mcp_servers` entry in `~/.hermes/config.yaml`
+ * with `auth: oauth`, per Hermes' MCP docs; `hermesLoginCommand` then runs
+ * the sign-in in the browser.
+ */
+export function hermesConfig(mcpUrl: string): string {
+  return `mcp_servers:\n  ${MCP_SERVER_NAME}:\n    url: "${mcpUrl}"\n    auth: oauth`;
+}
+
+export const hermesLoginCommand = `hermes mcp login ${MCP_SERVER_NAME}`;
+
 /** Everything the guide prints for one address, built on the server. */
 export interface McpSnippets {
   url: string;
@@ -111,6 +122,8 @@ export interface McpSnippets {
   codexLogin: string;
   openclawSet: string;
   openclawLogin: string;
+  hermesConfig: string;
+  hermesLogin: string;
   cursorDeeplink: string;
   cursorJson: string;
 }
@@ -123,6 +136,8 @@ export function mcpSnippets(mcpUrl: string): McpSnippets {
     codexLogin: codexLoginCommand,
     openclawSet: openclawSetCommand(mcpUrl),
     openclawLogin: openclawLoginCommand,
+    hermesConfig: hermesConfig(mcpUrl),
+    hermesLogin: hermesLoginCommand,
     cursorDeeplink: cursorDeeplink(mcpUrl),
     cursorJson: cursorMcpJson(mcpUrl),
   };

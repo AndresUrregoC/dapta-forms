@@ -48,16 +48,16 @@ const active = () => host.querySelector('[data-active="true"]')?.getAttribute('d
 const tick = (ms = MCP_ROTATE_MS) => act(async () => void vi.advanceTimersByTime(ms));
 
 describe('McpLogos', () => {
-  it('draws the three logos as inline SVG, hidden from screen readers', async () => {
+  it('draws the five logos as inline SVG, hidden from screen readers', async () => {
     await mount();
     const stack = host.querySelector<HTMLElement>('[data-testid="mcp-logos"]')!;
     expect(stack.getAttribute('aria-hidden')).toBe('true');
-    const logos = [...stack.querySelectorAll<SVGElement>('.mcp-logos__logo')];
-    expect(logos.map((l) => l.dataset.logo)).toEqual(['claude', 'openai', 'cursor']);
+    const logos = [...stack.querySelectorAll<HTMLElement>('.mcp-logos__logo')];
+    expect(logos.map((l) => l.dataset.logo)).toEqual(['claude', 'openai', 'cursor', 'openclaw', 'hermes']);
     for (const logo of logos) {
-      expect(logo.tagName.toLowerCase()).toBe('svg');
-      expect(logo.getAttribute('viewBox')).toBe('0 0 24 24');
-      expect(logo.querySelector('path')?.getAttribute('d')).toMatch(/^M/i);
+      const svg = logo.tagName.toLowerCase() === 'svg' ? logo : logo.querySelector('svg')!;
+      expect(svg.getAttribute('viewBox')).toBe('0 0 24 24');
+      expect(svg.querySelector('path')?.getAttribute('d')).toMatch(/^M/i);
     }
     expect(host.querySelectorAll('.is-active')).toHaveLength(1);
   });
@@ -71,7 +71,7 @@ describe('McpLogos', () => {
     for (const el of host.querySelectorAll<HTMLElement>('[style]')) {
       expect(el.getAttribute('style')).not.toMatch(/url\(/i);
     }
-    expect(host.innerHTML).not.toMatch(/url\(|\bhref=|\bsrc=/i);
+    expect(host.innerHTML).not.toMatch(/url\((?!#)|\bhref=|\bsrc=/i);
   });
 
   it('paints Claude in its brand orange and leaves ChatGPT and Cursor on the text color', async () => {
@@ -93,6 +93,10 @@ describe('McpLogos', () => {
     expect(active()).toBe('openai');
     await tick();
     expect(active()).toBe('cursor');
+    await tick();
+    expect(active()).toBe('openclaw');
+    await tick();
+    expect(active()).toBe('hermes');
     await tick();
     expect(active()).toBe('claude');
   });

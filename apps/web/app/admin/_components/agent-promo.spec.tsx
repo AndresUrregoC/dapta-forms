@@ -51,7 +51,7 @@ describe('AgentBanner', () => {
     const lists = host.querySelectorAll('[data-testid="home-agent-marquee"] ul');
     expect(lists).toHaveLength(2);
     expect(lists[1]!.getAttribute('aria-hidden')).toBe('true');
-    expect(lists[0]!.querySelectorAll('svg[data-agent]')).toHaveLength(6);
+    expect(lists[0]!.querySelectorAll('svg[data-agent]')).toHaveLength(7);
   });
 
   it('cannot be closed', async () => {
