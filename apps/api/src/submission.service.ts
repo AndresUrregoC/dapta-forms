@@ -223,7 +223,9 @@ export class SubmissionService {
       if (!verdict.ok)
         return {
           error: 'INVALID_ANSWERS',
-          message: `Answer for "${verdict.key}" is not valid (${verdict.code}).`,
+          message: verdict.nameFields
+            ? `Answer for "${verdict.key}" is not valid (${verdict.code}). A name question is sent as its fields (${verdict.nameFields.join(', ')}), not under its own key.`
+            : `Answer for "${verdict.key}" is not valid (${verdict.code}).`,
           status: 400,
         };
     }

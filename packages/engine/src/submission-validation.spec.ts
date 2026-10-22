@@ -56,8 +56,18 @@ describe('validateSubmission', () => {
     );
     expect(validateSubmission(quiz, { team: 'solo', email: 'ana@acme.com' })).toEqual({
       ok: false,
-      key: 'full',
+      key: 'firstname',
       code: 'required',
+      nameFields: ['firstname', 'lastname'],
+    });
+  });
+
+  it('names the missing sub-field of a name step, even when the name was sent under its own key', () => {
+    expect(validateSubmission(quiz, { team: 'solo', full: 'Ana Paz', firstname: 'Ana', email: 'ana@acme.com' })).toEqual({
+      ok: false,
+      key: 'lastname',
+      code: 'required',
+      nameFields: ['firstname', 'lastname'],
     });
   });
 
