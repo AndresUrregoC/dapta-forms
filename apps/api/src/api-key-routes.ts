@@ -5,15 +5,14 @@
  * keys until someone decides it belongs here. Allowed are the routes an agent
  * needs to build and run forms: forms (create, read, edit, slug, duplicate,
  * publish, revert, delete, file into a folder), folders, destinations,
- * responses and their files, CSV, analytics, brand kit, notifications,
- * `GET /v1/me`, reading the profile and the public page, and reading
- * integrations.
+ * responses and their files, CSV, analytics, brand kit, the workspace link
+ * page, notifications, `GET /v1/me`, reading the profile and the public page,
+ * and reading integrations.
  *
  * Everything else is a 403 `KEY_NOT_ALLOWED` with a key: the key routes
  * themselves, members, invitations, workspaces, onboarding and attribution,
- * writing the profile, the language or the public page (vanity), the
- * workspace link page (until it has an MCP tool to match), and connecting or
- * disconnecting integrations.
+ * writing the profile, the language or the public page (vanity), and
+ * connecting or disconnecting integrations.
  *
  * `ApiKeyRouteGuard` enforces it for every controller, before any handler runs,
  * so it also covers handlers that never call `AuthService.resolveHost`. It
@@ -84,6 +83,10 @@ export const API_KEY_ALLOWED_ROUTES: ReadonlySet<string> = new Set([
   'PUT /v1/branding',
   'POST /v1/branding/apply',
   'POST /v1/branding/revert',
+
+  // The workspace link page (any member, as in the dashboard).
+  'GET /v1/link-page',
+  'PUT /v1/link-page',
 
   // Notifications, workspace-wide and per form.
   'GET /v1/notifications',

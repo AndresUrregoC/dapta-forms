@@ -14,6 +14,7 @@ import { AppModule } from './app.module';
 import { generateApiKey } from './api-keys';
 import { configureCors } from './cors';
 import { configureDeprecatedHosts } from './deprecated-hosts';
+import { linkPageBodyParser } from './link-page-body';
 import { McpController } from './mcp.controller';
 import { normalizeWorkspaceSearch } from '@quill/mcp';
 import type { EstateWorkspace, Person, PersonDirectory } from './person-directory';
@@ -201,10 +202,11 @@ export async function bootHarness(
     throw error;
   }
   // The same wiring main.ts applies, in the same order, so the specs see the
-  // real policy: the deprecated-hosts middleware, then CORS.
+  // real policy: the deprecated-hosts middleware, CORS, then the large-body reader.
   const deprecatedHostLog: string[] = [];
   configureDeprecatedHosts(app, loadServerEnv(), (line) => deprecatedHostLog.push(line));
   configureCors(app, loadServerEnv());
+  app.use(linkPageBodyParser());
   await app.init();
   server.on('request', app.getHttpAdapter().getInstance());
   // Providers read the environment while the app is built; put it back at once

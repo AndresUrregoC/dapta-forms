@@ -136,6 +136,31 @@ export interface BrandKitView {
   updatedAt: number | null;
 }
 
+/** One of the workspace's forms, as the link page knows it. */
+export interface LinkPageFormRef {
+  id: string;
+  slug: string;
+  name: string;
+  title: string | null;
+}
+
+/** The workspace link page and what its editor reads with it. */
+export interface LinkPageView {
+  accountCode: string;
+  accountName: string;
+  /**
+   * The stored page as a body `updateLinkPage` takes back unchanged (a stored
+   * WhatsApp number carries its `+` again), or null when there is none.
+   */
+  page: Record<string, unknown> | null;
+  forms: LinkPageFormRef[];
+  brandKit: Record<string, unknown> | null;
+  /** The page's public address, or null when the deployment has none to promise. */
+  publicUrl: string | null;
+  /** Saved with `enabled: true`: the public address serves it. */
+  live: boolean;
+}
+
 /** A notification email as the Settings screen reads it. */
 export type NotificationView = Record<string, unknown> & { emailKey: string };
 
@@ -199,6 +224,14 @@ export interface ApiParityBackend {
   updateBrandKit(caller: McpCaller, kit: Record<string, unknown>): Promise<BrandKitView>;
   applyBrandKit(caller: McpCaller, formIds: string[]): Promise<{ applied: string[] }>;
   revertBrandKit(caller: McpCaller, formIds: string[]): Promise<{ reverted: string[] }>;
+
+  // Link page (any member, as the REST routes)
+  getLinkPage(caller: McpCaller): Promise<LinkPageView>;
+  /**
+   * Replaces the whole page; null deletes it. A form button naming a form the
+   * workspace does not have is a 404, not a silent drop.
+   */
+  updateLinkPage(caller: McpCaller, page: Record<string, unknown> | null): Promise<LinkPageView>;
 
   // Notifications
   listNotifications(caller: McpCaller): Promise<NotificationView[]>;

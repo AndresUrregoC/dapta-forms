@@ -2131,6 +2131,7 @@ export interface FormsMessages {
           analytics: { title: string; body: string };
           folders: { title: string; body: string };
           brandKit: { title: string; body: string };
+          linkPage: { title: string; body: string };
           notifications: { title: string; body: string };
           integrations: { title: string; body: string };
           account: { title: string; body: string };
@@ -4316,7 +4317,7 @@ export const en: FormsMessages = {
             working: 'Working',
             ocSaved: 'Saved MCP server "dforms" (streamable-http, auth: oauth).',
             ocLogin: 'Opening the browser to sign in to dforms…',
-            ocLoggedIn: 'dforms: authorized. 47 tools available.',
+            ocLoggedIn: 'dforms: authorized. 49 tools available.',
             hmSaved: 'Saved. Run hermes mcp login dforms to sign in.',
             hmLogin: 'Opening your browser to authorize dforms…',
             hmLoggedIn: 'dforms: authorized. Tokens saved.',
@@ -4364,6 +4365,7 @@ export const en: FormsMessages = {
           analytics: { title: 'Analytics', body: 'Views, starts, completions, drop-off by step and a summary of each form.' },
           folders: { title: 'Folders', body: 'Create, rename and delete folders, and move forms between them.' },
           brandKit: { title: 'Brand kit', body: 'Read and edit the brand kit and apply it to your forms.' },
+          linkPage: { title: 'Link page', body: 'Read and edit the workspace’s public page with your forms and links.' },
           notifications: { title: 'Emails', body: 'Edit the notification emails of the workspace and of each form.' },
           integrations: { title: 'Integrations', body: 'Webhooks, HubSpot and Calendly: where responses go, tests and deliveries.' },
           account: { title: 'Account and workspaces', body: 'Who is connected, the workspaces you can work in and your profile.' },
@@ -4399,6 +4401,8 @@ export const en: FormsMessages = {
           update_brand_kit: { what: 'Change the brand kit.', ask: 'Make my brand color green' },
           apply_brand_kit: { what: 'Apply the brand kit to a form.', ask: 'Apply my brand kit to the survey' },
           revert_brand_kit: { what: 'Take a form back to the design it had before the brand kit.', ask: 'Undo the brand kit on my survey' },
+          get_link_page: { what: 'Read the workspace’s public page: its buttons, socials and link.', ask: 'What does my workspace page show?' },
+          update_link_page: { what: 'Edit, publish or delete the workspace’s public page.', ask: 'Add my contact form to the workspace page and publish it' },
           list_notifications: { what: 'See the workspace\'s notification emails.', ask: 'Which emails does dForms send?' },
           update_notification: { what: 'Edit a notification email for the whole workspace.', ask: 'Change the subject of the new response email' },
           reset_notification: { what: 'Put a workspace email back to its default.', ask: 'Reset the new response email' },
@@ -4526,6 +4530,10 @@ export const en: FormsMessages = {
           title: 'Brand kit',
           intro: 'The workspace’s logo, colours and type, and applying them to forms.',
         },
+        linkPage: {
+          title: 'Link page',
+          intro: 'The workspace’s public page at `/{accountCode}`: its forms and links in one place. Any member can read and edit it.',
+        },
         notifications: {
           title: 'Notifications',
           intro: 'The emails dForms sends on each response, for the whole workspace or for one form.',
@@ -4589,6 +4597,8 @@ export const en: FormsMessages = {
           'Replaces the brand kit. New forms take it at once; existing forms only when you apply it.',
         'POST /v1/branding/apply': 'Applies the brand kit to the forms you name.',
         'POST /v1/branding/revert': 'Puts back the look the forms had before the brand kit was applied.',
+        'GET /v1/link-page': 'The stored page (`page`, null when there is none), the workspace’s forms and brand kit, the page’s `publicUrl` and whether it is `live`. A stored WhatsApp number comes back as digits; send it back with a leading `+`.',
+        'PUT /v1/link-page': 'Replaces the whole page: read it first and send it back complete. Colors and type come from the brand kit. `{ "page": null }` deletes the page and its URL answers 404 again.',
         'GET /v1/notifications':
           'The two emails dForms sends on each response: the notice to your team and the receipt to the person who answered.',
         'PUT /v1/notifications/:emailKey': 'Turns an email on or off, changes its text or who gets the notice.',
@@ -4654,6 +4664,13 @@ export const en: FormsMessages = {
         brandButtonStyle: 'How buttons are drawn.',
         brandClientLogos: 'Logos of your clients to show on the cover, up to 24.',
         formIds: 'The `id`s of the forms, 1 to 500.',
+        linkPage: 'The whole page with `version: 1`, or `null` to delete it.',
+        linkPageEnabled: 'Live at the public URL. `false` (the default) answers 404 there.',
+        linkPageName: 'The heading, up to 80 characters. Blank or absent shows the workspace name.',
+        linkPageBio: 'A line under the heading, up to 280 characters.',
+        linkPageLogo: 'Absent uses the brand kit logo, `null` shows none, an http(s) URL shows that image.',
+        linkPageItems: 'The buttons, in order, up to 30: `{ "type": "form", "formId" }` or `{ "type": "link", "label", "url" }`. A form of another workspace is dropped.',
+        linkPageSocials: '`instagram`, `x`, `youtube` and `tiktok` (a link or a handle) and `whatsapp` (the number with its country code, starting with `+`).',
         notificationEnabled: 'Whether the email is sent.',
         notificationSubject: 'The subject, with `{{token}}` markers such as `{{formName}}`. `null` puts the default back.',
         notificationBody: 'The body as plain text, with `{{token}}` markers. `null` puts the default back.',
@@ -6757,7 +6774,7 @@ export const es: FormsMessages = {
             working: 'Working',
             ocSaved: 'Saved MCP server "dforms" (streamable-http, auth: oauth).',
             ocLogin: 'Opening the browser to sign in to dforms…',
-            ocLoggedIn: 'dforms: authorized. 47 tools available.',
+            ocLoggedIn: 'dforms: authorized. 49 tools available.',
             hmSaved: 'Saved. Run hermes mcp login dforms to sign in.',
             hmLogin: 'Opening your browser to authorize dforms…',
             hmLoggedIn: 'dforms: authorized. Tokens saved.',
@@ -6805,6 +6822,7 @@ export const es: FormsMessages = {
           analytics: { title: 'Analíticas', body: 'Visitas, inicios, completados, abandono por paso y un resumen de cada formulario.' },
           folders: { title: 'Carpetas', body: 'Crea, renombra y borra carpetas, y mueve formularios entre ellas.' },
           brandKit: { title: 'Kit de marca', body: 'Lee y edita el kit de marca y aplícalo a tus formularios.' },
+          linkPage: { title: 'Página del workspace', body: 'Lee y edita la página pública del workspace con tus formularios y enlaces.' },
           notifications: { title: 'Correos', body: 'Edita los correos de notificación del workspace y de cada formulario.' },
           integrations: { title: 'Integraciones', body: 'Webhooks, HubSpot y Calendly: a dónde van las respuestas, pruebas y entregas.' },
           account: { title: 'Cuenta y workspaces', body: 'Quién está conectado, en qué workspaces puedes trabajar y tu perfil.' },
@@ -6840,6 +6858,8 @@ export const es: FormsMessages = {
           update_brand_kit: { what: 'Cambia el kit de marca.', ask: 'Pon verde el color de mi marca' },
           apply_brand_kit: { what: 'Aplica el kit de marca a un formulario.', ask: 'Aplica mi kit de marca a la encuesta' },
           revert_brand_kit: { what: 'Devuelve un formulario al diseño que tenía antes del kit de marca.', ask: 'Quita el kit de marca de mi encuesta' },
+          get_link_page: { what: 'Lee la página pública del workspace: sus botones, redes y su enlace.', ask: '¿Qué muestra la página de mi workspace?' },
+          update_link_page: { what: 'Edita, publica o borra la página pública del workspace.', ask: 'Agrega mi formulario de contacto a la página del workspace y publícala' },
           list_notifications: { what: 'Ve los correos de notificación del workspace.', ask: '¿Qué correos envía dForms?' },
           update_notification: { what: 'Edita un correo de notificación de todo el workspace.', ask: 'Cambia el asunto del correo de respuesta nueva' },
           reset_notification: { what: 'Devuelve un correo del workspace a su versión original.', ask: 'Restablece el correo de respuesta nueva' },
@@ -6967,6 +6987,10 @@ export const es: FormsMessages = {
           title: 'Brand kit',
           intro: 'El logo, los colores y la tipografía del workspace, y cómo aplicarlos a los forms.',
         },
+        linkPage: {
+          title: 'Página del workspace',
+          intro: 'La página pública del workspace en `/{accountCode}`: sus forms y enlaces en un solo lugar. Cualquier miembro puede leerla y editarla.',
+        },
         notifications: {
           title: 'Notificaciones',
           intro: 'Los correos que dForms manda con cada respuesta, para todo el workspace o para un form.',
@@ -7030,6 +7054,8 @@ export const es: FormsMessages = {
           'Reemplaza el brand kit. Los forms nuevos lo toman de inmediato; los que ya existen, solo cuando lo aplicas.',
         'POST /v1/branding/apply': 'Aplica el brand kit a los forms que indiques.',
         'POST /v1/branding/revert': 'Devuelve a los forms el estilo que tenían antes de aplicar el brand kit.',
+        'GET /v1/link-page': 'La página guardada (`page`, null si no hay), los forms y el brand kit del workspace, el `publicUrl` de la página y si está publicada (`live`). Un número de WhatsApp guardado vuelve como dígitos; envíalo de vuelta con un `+` adelante.',
+        'PUT /v1/link-page': 'Reemplaza la página completa: léela primero y envíala entera. Los colores y la tipografía vienen del brand kit. `{ "page": null }` borra la página y su URL vuelve a dar 404.',
         'GET /v1/notifications':
           'Los dos correos que dForms manda con cada respuesta: el aviso para tu equipo y el comprobante para quien respondió.',
         'PUT /v1/notifications/:emailKey': 'Activa o desactiva un correo, cambia su texto o quién recibe el aviso.',
@@ -7095,6 +7121,13 @@ export const es: FormsMessages = {
         brandButtonStyle: 'Cómo se dibujan los botones.',
         brandClientLogos: 'Logos de tus clientes para mostrar en la portada, hasta 24.',
         formIds: 'Los `id` de los forms, de 1 a 500.',
+        linkPage: 'La página completa con `version: 1`, o `null` para borrarla.',
+        linkPageEnabled: 'Publicada en la URL pública. `false` (por defecto) da 404 ahí.',
+        linkPageName: 'El título, hasta 80 caracteres. Vacío o ausente muestra el nombre del workspace.',
+        linkPageBio: 'Una línea bajo el título, hasta 280 caracteres.',
+        linkPageLogo: 'Ausente usa el logo del brand kit, `null` no muestra ninguno, una URL http(s) muestra esa imagen.',
+        linkPageItems: 'Los botones, en orden, hasta 30: `{ "type": "form", "formId" }` o `{ "type": "link", "label", "url" }`. Un form de otro workspace se descarta.',
+        linkPageSocials: '`instagram`, `x`, `youtube` y `tiktok` (un link o un usuario) y `whatsapp` (el número con su código de país, empezando por `+`).',
         notificationEnabled: 'Si el correo se manda.',
         notificationSubject: 'El asunto, con marcadores `{{token}}` como `{{formName}}`. `null` vuelve al texto por defecto.',
         notificationBody: 'El cuerpo en texto plano, con marcadores `{{token}}`. `null` vuelve al texto por defecto.',

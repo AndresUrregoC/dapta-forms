@@ -4,6 +4,7 @@ import { pingWebhook, setDestinations } from './destinations';
 import { createFolder, deleteFolder, listFolders, renameFolder } from './folders';
 import { deleteForm, duplicateForm, moveForm, setFormSlug } from './forms';
 import { getMyProfile, getWorkspaceLinkCode } from './identity';
+import { getLinkPage, updateLinkPage } from './link-page';
 import { getFormSummary, getResponseFacets, searchAnswers } from './insights';
 import { listCalendlyEventTypes, listHubspotProperties, listIntegrations, listWebhooks } from './integrations';
 import {
@@ -51,6 +52,9 @@ export const PARITY_TOOLS: readonly ToolDef[] = [
   updateBrandKit,
   applyBrandKit,
   revertBrandKit,
+  // Link page
+  getLinkPage,
+  updateLinkPage,
   // Notifications
   listNotifications,
   updateNotification,
@@ -114,6 +118,9 @@ export const API_ROUTE_TOOLS: Readonly<Record<string, string>> = {
   'PUT /v1/branding': 'update_brand_kit',
   'POST /v1/branding/apply': 'apply_brand_kit',
   'POST /v1/branding/revert': 'revert_brand_kit',
+
+  'GET /v1/link-page': 'get_link_page',
+  'PUT /v1/link-page': 'update_link_page',
 
   'GET /v1/notifications': 'list_notifications',
   'PUT /v1/notifications/:emailKey': 'update_notification',

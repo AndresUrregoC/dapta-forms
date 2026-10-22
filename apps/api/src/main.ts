@@ -27,8 +27,9 @@ async function bootstrap() {
   // CORS (P1-4): an explicit allowlist, never a reflected origin; `/mcp` has
   // its own (MCP_ALLOWED_ORIGINS, no credentials). See cors.ts.
   const origins = configureCors(app, env);
-  // `PUT /v1/link-page` reads a larger body than the global 100 KB parser
-  // allows (an inlined logo); mounted before it, and for that route only.
+  // `PUT /v1/link-page` and the MCP (`update_link_page`) read a larger body
+  // than the global 100 KB parser allows (an inlined logo); mounted before
+  // it, and for those two routes only.
   app.use(linkPageBodyParser());
   console.log(`[api] CORS allowlist: ${origins.join(', ')}`);
   await app.listen(env.API_PORT);

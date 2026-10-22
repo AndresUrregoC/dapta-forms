@@ -64,6 +64,13 @@ const CASES: Case[] = [
   { tool: 'update_brand_kit', ok: { kit: { primaryColor: '#000000' } }, adminOnly: true, invalid: { kit: 'red' } },
   { tool: 'apply_brand_kit', ok: { form_ids: ['form-1'] }, adminOnly: true, invalid: { form_ids: [] } },
   { tool: 'revert_brand_kit', ok: { form_ids: ['form-1'] }, adminOnly: true, invalid: { form_ids: [] } },
+  { tool: 'get_link_page', ok: {}, invalid: { workspace_id: 3 } },
+  {
+    tool: 'update_link_page',
+    ok: { page: { enabled: true, items: [{ type: 'form', formId: 'form-1' }, { type: 'link', label: 'Site', url: 'https://example.test' }] } },
+    missing: { page: { items: [{ type: 'form', formId: 'nope' }] } },
+    invalid: { page: { items: [{ type: 'button' }] } },
+  },
   { tool: 'list_notifications', ok: {}, adminOnly: true, invalid: { workspace_id: 3 } },
   { tool: 'update_notification', ok: { email_key: 'submission_received', enabled: false }, adminOnly: true, invalid: { email_key: 'digest' } },
   { tool: 'reset_notification', ok: { email_key: 'submission_received' }, adminOnly: true, invalid: {} },
@@ -133,6 +140,7 @@ describe('the catalog', () => {
         'reset_notification',
         'revert_brand_kit',
         'set_destinations',
+        'update_link_page',
       ].sort(),
     );
     for (const t of PARITY_TOOLS.filter((x) => x.annotations.destructiveHint)) {

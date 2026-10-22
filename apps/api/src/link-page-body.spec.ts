@@ -1,12 +1,13 @@
 /**
- * `PUT /v1/link-page` reads bodies past the global 100 KB parser ceiling (a
- * page at the schema's limits is about 160 KB), and only that route does.
+ * `PUT /v1/link-page` and the MCP endpoint read bodies past the global 100 KB
+ * parser ceiling (a page at the schema's limits is about 160 KB), and only
+ * those routes do.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { LINK_PAGE_MAX_BODY_BYTES } from '@quill/types';
-import { isLinkPageWrite, linkPageBodyParser } from './link-page-body';
+import { MCP_MAX_BODY_BYTES, isLinkPageWrite, isMcpPost, linkPageBodyParser } from './link-page-body';
 
 const GLOBAL_LIMIT = 100 * 1024;
 let server: Server;
@@ -60,6 +61,16 @@ describe('the link page body reader', () => {
     expect(res.status).toBe(400);
   });
 
+  it('reads the same page inside an MCP call, and refuses one past the MCP ceiling', async () => {
+    const call = (bytes: number) =>
+      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'update_link_page', arguments: JSON.parse(json(bytes)) } });
+    const ok = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: call(LINK_PAGE_MAX_BODY_BYTES - 1_000) });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toMatchObject({ via: 'link-page' });
+    const big = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: call(MCP_MAX_BODY_BYTES) });
+    expect(big.status).toBe(413);
+  });
+
   it('leaves every other route on the global limit', async () => {
     const res = await fetch(`${base}/v1/forms/x`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: json(160_000) });
     expect(res.status).toBe(413);
@@ -72,5 +83,8 @@ describe('the link page body reader', () => {
     expect(isLinkPageWrite({ method: 'GET', url: '/v1/link-page', headers: h })).toBe(false);
     expect(isLinkPageWrite({ method: 'PUT', url: '/v1/link-pages', headers: h })).toBe(false);
     expect(isLinkPageWrite({ method: 'PUT', url: '/v1/link-page', headers: { 'content-type': 'text/plain' } })).toBe(false);
+    expect(isMcpPost({ method: 'POST', url: '/mcp', headers: h })).toBe(true);
+    expect(isMcpPost({ method: 'GET', url: '/mcp', headers: h })).toBe(false);
+    expect(isMcpPost({ method: 'POST', url: '/mcp/x', headers: h })).toBe(false);
   });
 });
