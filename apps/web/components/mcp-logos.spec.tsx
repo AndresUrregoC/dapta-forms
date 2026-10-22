@@ -8,7 +8,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { McpAppLogo, McpLogos, MCP_ROTATE_MS } from './mcp-logos';
+import { McpLogos, MCP_ROTATE_MS } from './mcp-logos';
+import { AgentLogo } from './agent-logos';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -47,16 +48,16 @@ const active = () => host.querySelector('[data-active="true"]')?.getAttribute('d
 const tick = (ms = MCP_ROTATE_MS) => act(async () => void vi.advanceTimersByTime(ms));
 
 describe('McpLogos', () => {
-  it('draws the three logos as inline SVG, hidden from screen readers', async () => {
+  it('draws the five logos as inline SVG, hidden from screen readers', async () => {
     await mount();
     const stack = host.querySelector<HTMLElement>('[data-testid="mcp-logos"]')!;
     expect(stack.getAttribute('aria-hidden')).toBe('true');
-    const logos = [...stack.querySelectorAll<SVGElement>('.mcp-logos__logo')];
-    expect(logos.map((l) => l.dataset.logo)).toEqual(['claude', 'openai', 'cursor']);
+    const logos = [...stack.querySelectorAll<HTMLElement>('.mcp-logos__logo')];
+    expect(logos.map((l) => l.dataset.logo)).toEqual(['claude', 'openai', 'cursor', 'openclaw', 'hermes']);
     for (const logo of logos) {
-      expect(logo.tagName.toLowerCase()).toBe('svg');
-      expect(logo.getAttribute('viewBox')).toBe('0 0 24 24');
-      expect(logo.querySelector('path')?.getAttribute('d')).toMatch(/^M/i);
+      const svg = logo.tagName.toLowerCase() === 'svg' ? logo : logo.querySelector('svg')!;
+      expect(svg.getAttribute('viewBox')).toBe('0 0 24 24');
+      expect(svg.querySelector('path')?.getAttribute('d')).toMatch(/^M/i);
     }
     expect(host.querySelectorAll('.is-active')).toHaveLength(1);
   });
@@ -70,7 +71,7 @@ describe('McpLogos', () => {
     for (const el of host.querySelectorAll<HTMLElement>('[style]')) {
       expect(el.getAttribute('style')).not.toMatch(/url\(/i);
     }
-    expect(host.innerHTML).not.toMatch(/url\(|\bhref=|\bsrc=/i);
+    expect(host.innerHTML).not.toMatch(/url\((?!#)|\bhref=|\bsrc=/i);
   });
 
   it('paints Claude in its brand orange and leaves ChatGPT and Cursor on the text color', async () => {
@@ -92,6 +93,10 @@ describe('McpLogos', () => {
     expect(active()).toBe('openai');
     await tick();
     expect(active()).toBe('cursor');
+    await tick();
+    expect(active()).toBe('openclaw');
+    await tick();
+    expect(active()).toBe('hermes');
     await tick();
     expect(active()).toBe('claude');
   });
@@ -116,14 +121,26 @@ describe('McpLogos', () => {
   });
 });
 
-describe('McpAppLogo', () => {
-  it('draws each brand inline, with no file to fetch, so a session replay shows it', () => {
-    for (const logo of ['claude', 'openai', 'cursor'] as const) {
-      const html = renderToStaticMarkup(<McpAppLogo logo={logo} />);
-      expect(html).toContain('<svg');
-      expect(html).toContain('<path d="');
-      expect(html).not.toContain('url(');
+describe('AgentLogo', () => {
+  it('draws each app official mark inline, decorative unless asked for a name', () => {
+    for (const app of ['chatgpt', 'claude', 'claude-code', 'cursor', 'codex'] as const) {
+      const html = renderToStaticMarkup(<AgentLogo app={app} />);
+      expect(html).toContain(`data-agent="${app}"`);
+      expect(html).toContain('aria-hidden="true"');
+      expect(html).not.toMatch(/<img|href=/);
     }
-    expect(renderToStaticMarkup(<McpAppLogo logo="claude" />)).toContain('color:#d97757');
+    expect(renderToStaticMarkup(<AgentLogo app="claude-code" />)).toContain('#D97757');
+    expect(renderToStaticMarkup(<AgentLogo app="codex" title />)).toContain('aria-label="Codex"');
+  });
+
+  it('gives each Codex mark its own gradient id, so two on a page both draw', () => {
+    const html = renderToStaticMarkup(
+      <>
+        <AgentLogo app="codex" />
+        <AgentLogo app="codex" />
+      </>,
+    );
+    const ids = [...html.matchAll(/linearGradient[^>]*id="([^"]+)"/g)].map((m) => m[1]);
+    expect(new Set(ids).size).toBe(2);
   });
 });

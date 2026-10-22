@@ -53,13 +53,13 @@ describe('buildSkillFiles', () => {
   it('injects the environment URLs and leaves no placeholder behind', () => {
     const skill = files.get(`${SKILL_DIR}/SKILL.md`)!;
     expect(skill).toContain('`https://api.forms.example.com`');
-    expect(skill).toContain('https://forms.example.com/admin/developers/keys');
-    expect(skill).toContain('https://forms.example.com/admin/developers/docs');
+    expect(skill).toContain('https://forms.example.com/admin/developers/connect');
+    expect(skill).toContain('https://forms.example.com/admin/developers/tools');
     const install = files.get(`${SKILL_DIR}/INSTALL.md`)!;
-    expect(install).toContain('https://forms.example.com/admin/developers/keys');
-    expect(install).toContain('https://forms.example.com/admin/developers/docs');
+    expect(install).toContain('https://forms.example.com/admin/developers/connect');
+    expect(install).toContain('https://forms.example.com/admin/developers/tools');
     // The old address only redirects; the skill names the pages themselves.
-    for (const [path, content] of files) expect(content, path).not.toMatch(/\/admin\/developers(?!\/(keys|docs))/);
+    for (const [path, content] of files) expect(content, path).not.toMatch(/\/admin\/developers(?!\/(connect|tools))/);
     for (const [path, content] of files) {
       expect(content, path).not.toMatch(/\$\{|undefined|null\/v1|localhost/);
     }

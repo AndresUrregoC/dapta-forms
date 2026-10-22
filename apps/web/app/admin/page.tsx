@@ -7,6 +7,8 @@ import { greetingName } from '@/lib/person';
 import { publishedWorkspacePagePath } from '@/lib/public-page';
 import { CopyLink } from '@/components/copy-link';
 import { CreateForm } from './forms/create-form';
+import { AgentBanner } from './_components/agent-banner';
+import { AgentCard } from './_components/agent-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,7 +71,8 @@ export default async function AdminHome() {
   const zone = me.timezone ?? 'UTC';
 
   return (
-    <div className="mx-auto max-w-[1520px] px-6 py-10 sm:px-8">
+    <div className="mx-auto max-w-[1520px] px-4 py-8 sm:px-8 sm:py-10">
+      <AgentBanner m={h.agentBanner} />
       <div className="mb-8 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         {/* Two lines at ONE size: the greeting in ink, what the page is in grey.
             The grey line is the subtitle, promoted, so the page opens with a
@@ -106,6 +109,8 @@ export default async function AdminHome() {
           href="/admin/analytics"
         />
       </div>
+
+      <AgentCard m={h.agentCard} />
 
       <section aria-labelledby="home-recent" className="min-w-0">
         <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
