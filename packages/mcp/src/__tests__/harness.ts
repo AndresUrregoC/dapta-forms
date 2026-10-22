@@ -162,6 +162,7 @@ export interface HarnessOptions {
   writeLimiter?: RateLimiter;
   onInternalError?: FormsMcpServerOptions['onInternalError'];
   onTransportError?: FormsMcpServerOptions['onTransportError'];
+  onToolCall?: FormsMcpServerOptions['onToolCall'];
 }
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
@@ -185,6 +186,7 @@ export async function bootHarness(opts: HarnessOptions = {}): Promise<Harness> {
     writeLimiter: opts.writeLimiter ?? unlimited,
     onInternalError: opts.onInternalError,
     onTransportError: opts.onTransportError,
+    onToolCall: opts.onToolCall,
   });
   const audit: string[] = [];
   server.auditSink = (line) => audit.push(line);

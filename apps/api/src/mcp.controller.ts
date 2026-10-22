@@ -15,6 +15,8 @@ import {
 } from '@quill/mcp';
 import { AdminCrudController } from './admin-crud.controller';
 import { AnalyticsController } from './analytics.controller';
+import { AnalyticsEffects } from './analytics-effects';
+import { McpUsageReporter } from './mcp-usage';
 import { BrandingController } from './branding.controller';
 import { FormDestinationsController, IntegrationsController } from './integrations.controller';
 import {
@@ -68,6 +70,8 @@ export class McpController implements OnModuleInit {
   readonly server: FormsMcpServer;
   private readonly door: McpDoor;
   private readonly trustProxyHops: number;
+  /** Reports each tool call to product analytics. A field so specs can reach it. */
+  readonly usage: McpUsageReporter;
   private handlers: McpHandlers | null = null;
   private parityHandlers: McpParityHandlers | null = null;
   /** Where each staff call outside the person's own workspaces is logged (one JSON line). A field so specs can read it. */
@@ -82,6 +86,8 @@ export class McpController implements OnModuleInit {
     // MCP connections over OAuth: both null unless MCP_OAUTH_PROVIDER is set.
     @Inject(MCP_OAUTH) oauth: McpOAuth | null,
     @Inject(PERSON_DIRECTORY) directory: PersonDirectory | null,
+    // Product analytics: one `$mcp_tool_call` per tool call, only with PRODUCT_ANALYTICS_KEY set.
+    @Inject(AnalyticsEffects) analytics: AnalyticsEffects,
   ) {
     this.trustProxyHops = resolveTrustProxyHops(env);
     const bucket = (capacity: number, refill: number): RateLimiter =>
@@ -90,6 +96,7 @@ export class McpController implements OnModuleInit {
     // sits behind a per-pod cache, and a lookup the cache cannot answer takes
     // a token keyed by the token's verified subject first: a burst of 10, then
     // one every 6 seconds, ample for a cache that asks once a minute.
+    this.usage = new McpUsageReporter(db, analytics, env.IAM_STAFF_DOMAINS);
     const people = directory ? cachePersonDirectory(directory, { limiter: bucket(10, 1 / 6) }) : null;
     this.server = new FormsMcpServer({
       backend: new ApiMcpBackend(
@@ -104,6 +111,8 @@ export class McpController implements OnModuleInit {
       // Class and code only: a stack or a message can quote the request's data.
       onInternalError: (tool, requestId, error) => this.logger.error(`tool ${tool} failed (${requestId}): ${errorLabel(error)}`),
       onTransportError: (error) => this.logger.warn(`mcp transport: ${errorLabel(error)}`),
+      // Fire and forget: the tool's result never waits on reporting, and `report` never rejects.
+      onToolCall: (event) => void this.usage.report(event),
     });
     this.door = new McpDoor({
       server: this.server,

@@ -30,6 +30,7 @@ export {
   DoorThrottled,
   DoorUnavailable,
   McpDoor,
+  clientInfoOf,
   hostnameOf,
   mcpCorsPolicy,
   type DoorContext,
@@ -47,6 +48,8 @@ export {
   MCP_SERVER_VERSION,
   type FormsMcpServerOptions,
   type McpCall,
+  type McpClientInfo,
+  type McpToolCallEvent,
 } from './server';
 export {
   ToolFailure,
