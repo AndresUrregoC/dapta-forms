@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isReservedPublicSlug } from '@quill/engine';
 import { plausibleAccountCode } from '@/lib/public-page';
 
 /**
@@ -12,12 +13,21 @@ import { plausibleAccountCode } from '@/lib/public-page';
  * neutral `/{accountCode}/f/{slug}`) are separate segments and do not pass
  * through this file.
  *
- * Every handle redirects, known or not, without asking the API: the member
- * pages are gone, so the workspace page (or its 404) is the answer for all of
- * them. The query string rides along, so a campaign's UTMs survive the hop.
+ * A two-segment path whose first segment is a static route of the app
+ * (`/admin/<typo>`, `/login/x`, `/preview/x`, `/onboarding/x`) falls through
+ * to this handler too, because the static folder has no page at that depth.
+ * Those are a 404, never a redirect: a 308 is cached by the browser for good,
+ * and nobody's workspace lives at `/admin`. The same goes for anything that
+ * cannot be a workspace code at all.
+ *
+ * Every other handle redirects, known or not, without asking the API: the
+ * member pages are gone, so the workspace page (or its 404) is the answer for
+ * all of them. The query string rides along, so a campaign's UTMs survive.
  */
-function redirectToWorkspace(req: Request, accountCode: string): Response {
-  if (!plausibleAccountCode(accountCode)) return new Response(null, { status: 404 });
+function workspaceRedirect(req: Request, accountCode: string): Response {
+  if (!plausibleAccountCode(accountCode) || isReservedPublicSlug(accountCode)) {
+    return new Response(null, { status: 404 });
+  }
   const url = new URL(req.url);
   // Relative Location: resolved against the host the visitor is already on,
   // and the segment is re-encoded so no visitor input can bend the header.
@@ -28,9 +38,9 @@ function redirectToWorkspace(req: Request, accountCode: string): Response {
 type Ctx = { params: Promise<{ accountCode: string; handle: string }> };
 
 export async function GET(req: Request, ctx: Ctx): Promise<Response> {
-  return redirectToWorkspace(req, (await ctx.params).accountCode);
+  return workspaceRedirect(req, (await ctx.params).accountCode);
 }
 
 export async function HEAD(req: Request, ctx: Ctx): Promise<Response> {
-  return redirectToWorkspace(req, (await ctx.params).accountCode);
+  return workspaceRedirect(req, (await ctx.params).accountCode);
 }

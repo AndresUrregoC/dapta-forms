@@ -25,6 +25,14 @@ describe('/[accountCode]/[handle]', () => {
     expect((await call(HEAD, 'http://localhost/acme/alex', 'acme')).status).toBe(308);
   });
 
+  it('is a 404, never a cached redirect, under a static route of the app', async () => {
+    for (const first of ['admin', 'login', 'preview', 'onboarding', 'api', 'file', 'ADMIN']) {
+      const res = await call(GET, `http://localhost/${first}/typo`, first, 'typo');
+      expect(res.status, first).toBe(404);
+      expect(res.headers.get('location'), first).toBeNull();
+    }
+  });
+
   it('is a 404 for a code that cannot be a workspace', async () => {
     const res = await call(GET, 'http://localhost/x/alex', 'bad%0d%0aSet-Cookie:x');
     expect(res.status).toBe(404);
