@@ -119,6 +119,12 @@ export interface FormsMessages {
       rate_limited: string;
       /** The API's `ANSWER_TOO_LONG`: an answer over its question's ceiling. */
       answer_too_long: string;
+      /**
+       * The API's `INVALID_ANSWERS`: a complete whose answers the form could not
+       * have produced (a missing required answer, an option that no longer
+       * exists). In practice a page loaded before the owner changed the form.
+       */
+      invalid_answers: string;
     };
     /**
      * Spam protection on the submitting screen: the human check that runs before
@@ -2519,6 +2525,7 @@ export const en: FormsMessages = {
       captcha_required: 'This form now checks that you’re human. Refresh the page and submit again.',
       rate_limited: 'Too many attempts from your connection. Wait a moment and try again.',
       answer_too_long: 'One of your answers is longer than this form allows. Shorten it and try again.',
+      invalid_answers: 'Some answers are missing or no longer match this form. Reload the page and try again.',
     },
     captcha: {
       prompt: 'Confirm you’re human to send your answers.',
@@ -2900,7 +2907,7 @@ export const en: FormsMessages = {
       recipientsLabel: 'Send to',
       recipientsHint:
         'Each address receives its own copy of this email. Up to five addresses.',
-      recipientsEmpty: 'No addresses yet, so this email goes to the workspace owner.',
+      recipientsEmpty: 'No addresses yet, so this email goes to the workspace owner, or to the first admin when there is no owner with an email.',
       recipientsAdd: 'Add address',
       recipientsRemove: 'Remove address',
       recipientsPlaceholder: 'name@example.com',
@@ -4773,6 +4780,7 @@ export const es: FormsMessages = {
         'Este formulario ahora verifica que eres una persona. Recarga la página y vuelve a enviar tus respuestas.',
       rate_limited: 'Demasiados intentos desde tu conexión. Espera un momento e inténtalo de nuevo.',
       answer_too_long: 'Una de tus respuestas es más larga de lo que permite este formulario. Acórtala e inténtalo de nuevo.',
+      invalid_answers: 'Faltan respuestas o alguna ya no coincide con este formulario. Recarga la página e inténtalo de nuevo.',
     },
     captcha: {
       prompt: 'Confirma que eres una persona para enviar tus respuestas.',
@@ -5157,7 +5165,7 @@ export const es: FormsMessages = {
       recipientsLabel: 'Enviar a',
       recipientsHint:
         'Cada dirección recibe su propia copia de este correo. Hasta cinco direcciones.',
-      recipientsEmpty: 'Sin direcciones, así que este correo llega al propietario del workspace.',
+      recipientsEmpty: 'Sin direcciones, así que este correo llega al propietario del workspace, o al primer administrador si no hay un propietario con correo.',
       recipientsAdd: 'Añadir dirección',
       recipientsRemove: 'Quitar dirección',
       recipientsPlaceholder: 'nombre@example.com',
