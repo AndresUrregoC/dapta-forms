@@ -89,7 +89,8 @@ export async function startFakeIdentityProvider(): Promise<FakeIdentityProvider>
       req.on('data', (c: Buffer) => chunks.push(c));
       req.on('end', () => {
         const form = new URLSearchParams(Buffer.concat(chunks).toString('utf8'));
-        const basic = /^Basic\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1];
+        const header = req.headers.authorization ?? '';
+        const basic = header.slice(0, 6).toLowerCase() === 'basic ' ? header.slice(6).trim() || undefined : undefined;
         const [id, secret] = basic
           ? Buffer.from(basic, 'base64').toString('utf8').split(':').map((p) => decodeURIComponent(p))
           : [form.get('client_id') ?? '', form.get('client_secret') ?? ''];
