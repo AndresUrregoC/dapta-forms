@@ -380,7 +380,8 @@ const forms = await client.callTool({ name: 'list_forms', arguments: {} });
   argument) is not audited.
 - **Usage analytics.** With `PRODUCT_ANALYTICS_KEY` set, forms-api also
   enqueues one `$mcp_tool_call` event per tool call (PostHog's MCP analytics
-  names, so no `forms_` prefix) through the analytics outbox: tool name, error
+  names, so no `forms_` prefix, and `$mcp_server_name: 'dForms'`) through the
+  analytics outbox: tool name, error
   flag and lowercased error code, duration, protocol version, client name,
   version and user agent, `credential_type` (`api_key` or `oauth`) and
   `staff_access`, grouped by `forms_account` and sent under the member's email

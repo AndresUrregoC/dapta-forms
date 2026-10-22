@@ -1,11 +1,18 @@
 import { Logger } from '@nestjs/common';
 import { getMe, type Db } from '@quill/db';
-import { MCP_SERVER_NAME, MCP_SERVER_VERSION, type McpToolCallEvent } from '@quill/mcp';
+import { MCP_SERVER_VERSION, type McpToolCallEvent } from '@quill/mcp';
 import type { AnalyticsEffects } from './analytics-effects';
 import { isStaffEmail } from './staff';
 
 /** The vendor's name for one tool call in its MCP analytics. */
 export const MCP_TOOL_CALL_EVENT = '$mcp_tool_call';
+
+/**
+ * The server name on the event. Not the protocol's `serverInfo.name`
+ * (`dforms`): it is cased like Dapta's own MCP (`Dapta`), which reports into
+ * the same project, so the MCP dashboard splits the two by this property.
+ */
+export const MCP_ANALYTICS_SERVER_NAME = 'dForms';
 
 /** How long a member's email is reused before it is read again. */
 const IDENTITY_TTL_MS = 5 * 60_000;
@@ -24,7 +31,9 @@ type Properties = Record<string, string | number | boolean | null>;
  * Reports each MCP tool call to product analytics as one `$mcp_tool_call`, in
  * the vocabulary PostHog's MCP analytics reads (the same one Dapta's own MCP
  * server sends), so both MCPs land on the same screens, told apart by
- * `$mcp_server_name` and `product`.
+ * `$mcp_server_name` (`dForms` vs `Dapta`) and `product`. The email as the
+ * distinct id is what lets the dashboard's internal-users filter drop staff
+ * traffic; `staff_access` says it explicitly as well.
  *
  * What it sends is fixed here and nowhere else: the tool's name, whether it
  * failed and with which code, how long it took, the protocol version, the
@@ -58,10 +67,12 @@ export class McpUsageReporter {
     try {
       const properties: Properties = {
         $mcp_tool_name: event.tool,
+        // The vendor's SDK repeats the tool name here on a tool call; Dapta's MCP sends it too.
+        $mcp_resource_name: event.tool,
         $mcp_is_error: !event.ok,
         $mcp_duration_ms: event.durationMs,
         $mcp_protocol_version: event.protocolVersion,
-        $mcp_server_name: MCP_SERVER_NAME,
+        $mcp_server_name: MCP_ANALYTICS_SERVER_NAME,
         $mcp_server_version: MCP_SERVER_VERSION,
         $mcp_source: 'posthog_mcp_analytics',
         product: 'forms',

@@ -277,7 +277,7 @@ read the server event, never infer it from client events.
 MCP is captured server side as `$mcp_tool_call` (`apps/api/src/mcp-usage.ts`),
 the name PostHog's MCP analytics screens read, through
 `AnalyticsEffects.captureRaw`, which accepts only `$mcp_*` names. Tell it apart
-from another MCP in the shared project by `$mcp_server_name: 'dforms'` or
+from another MCP in the shared project by `$mcp_server_name: 'dForms'` or
 `product: 'forms'`. See `docs/MCP.md` for what it carries and what it never
 does.
 

@@ -84,6 +84,7 @@ describe('McpUsageReporter', () => {
     expect(p).toMatchObject({ event: MCP_TOOL_CALL_EVENT, distinctId: 'ada@example.com', accountId: ACCOUNT, timestamp: 1_700_000_000_000 });
     expect(p!.properties).toEqual({
       $mcp_tool_name: 'update_form',
+      $mcp_resource_name: 'update_form',
       $mcp_is_error: false,
       $mcp_duration_ms: 42,
       $mcp_protocol_version: '2025-06-18',
@@ -91,7 +92,7 @@ describe('McpUsageReporter', () => {
       $mcp_client_version: '1.2.3',
       $mcp_client_user_agent: 'claude-code/2.1.0',
       $mcp_vendor_client: 'anthropic',
-      $mcp_server_name: 'dforms',
+      $mcp_server_name: 'dForms',
       $mcp_server_version: expect.any(String),
       $mcp_source: 'posthog_mcp_analytics',
       product: 'forms',
