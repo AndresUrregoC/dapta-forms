@@ -4,7 +4,7 @@ import { formatDate, getMessages, t } from '@quill/shared';
 import { adminApi } from '@/lib/admin-api';
 import { getLocale } from '@/lib/locale';
 import { greetingName } from '@/lib/person';
-import { publishedPublicPagePath } from '@/lib/public-page';
+import { publishedWorkspacePagePath } from '@/lib/public-page';
 import { CopyLink } from '@/components/copy-link';
 import { CreateForm } from './forms/create-form';
 
@@ -14,11 +14,11 @@ export default async function AdminHome() {
   const locale = await getLocale();
   const messages = getMessages(locale).admin;
   const h = messages.home;
-  const [me, forms, myProfile] = await Promise.all([
+  const [me, forms, linkPage] = await Promise.all([
     adminApi.me(),
     adminApi.listForms(),
-    // Missing or unreadable profile reads as "not published": the box hides.
-    adminApi.myProfile().catch(() => null),
+    // Missing or unreadable page reads as "not published": the box hides.
+    adminApi.linkPage().catch(() => null),
   ]);
 
   // Aggregate submissions + completion across every form (reuse per-form
@@ -35,12 +35,11 @@ export default async function AdminHome() {
   const completionRate =
     totalStarts > 0 ? Math.min(100, Math.round((totalSubmissions / totalStarts) * 1000) / 10) : 0;
 
-  // The dashboard's shareable link is the member's PUBLIC PAGE (the form list at
-  // /{accountCode}/{handle}), and only while it is published in Account
-  // settings. It used to point at the most recently updated form, which is not
-  // what "your public link" means and could be a draft. Off or no handle: the
-  // box hides rather than pointing at a 404.
-  const publicUrl = publishedPublicPagePath(me, myProfile?.profile);
+  // The dashboard's shareable link is the WORKSPACE PAGE (/{accountCode}: the
+  // workspace's chosen forms and links), and only while it is published in
+  // Account settings, Public page. Off: the box hides rather than pointing at
+  // a 404.
+  const publicUrl = publishedWorkspacePagePath(me.accountCode, linkPage?.page);
 
   // Null when `displayName` is really the address — the full one for local signup,
   // the local part for an invite. The email has to be passed to catch the second

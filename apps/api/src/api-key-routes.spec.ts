@@ -72,6 +72,9 @@ const DENIED = new Set([
   'PUT /v1/me/profile',
   'PUT /v1/me/locale',
   'PUT /v1/vanity',
+  // The workspace link page: not open to keys until it has an MCP tool too.
+  'GET /v1/link-page',
+  'PUT /v1/link-page',
   // Connecting or disconnecting an integration.
   'POST /v1/integrations/:provider/connect',
   'DELETE /v1/integrations/:provider',

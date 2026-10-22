@@ -9,6 +9,8 @@ import type {
   AnalyticsResponse,
   BrandKit,
   FormConfig,
+  LinkPage,
+  LinkPageFormRef,
   FormDestination,
   MemberProfile,
   SubmissionFile,
@@ -298,6 +300,15 @@ export interface Folder {
   name: string;
   createdAt: number;
   updatedAt: number;
+}
+
+/** GET /v1/link-page: the stored page and everything its editor's preview needs. */
+export interface LinkPageEditorView {
+  accountCode: string;
+  accountName: string;
+  page: LinkPage | null;
+  forms: LinkPageFormRef[];
+  brandKit: BrandKit | null;
 }
 
 /** GET/PUT /v1/branding — the workspace brand kit (null = none saved yet). */
@@ -798,6 +809,11 @@ export const adminApi = {
   listIntegrations: () => req<IntegrationsResponse>('GET', '/v1/integrations'),
   /** Every webhook across this account's forms, read-only (secrets never selected). */
   listAccountWebhooks: () => req<AccountWebhooksResponse>('GET', '/v1/integrations/webhooks'),
+  /** The workspace link page, with the forms and brand kit its editor previews with. */
+  linkPage: () => req<LinkPageEditorView>('GET', '/v1/link-page'),
+  /** Replace the workspace link page; null removes it. Any member may. */
+  saveLinkPage: (page: unknown | null) =>
+    req<{ ok: boolean; page: LinkPage | null }>('PUT', '/v1/link-page', { page }),
   /** The caller's own public page config (raw blob or null). */
   myProfile: () => req<{ handle: string | null; profile: MemberProfile | null }>('GET', '/v1/me/profile'),
   /** Replace the caller's own public page; null removes it. */
