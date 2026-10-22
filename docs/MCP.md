@@ -37,9 +37,10 @@ takes, sent as `Authorization: Bearer dforms_...`. Members create keys in dForms
 ## Choosing a workspace
 
 Every tool that acts in a workspace takes an optional `workspace_id`, and every
-result names the workspace it acted in: `workspace: { id, name }` in the
-structured content, and `In workspace "<name>":` at the start of the text
-summary.
+result names the workspace it acted in: `workspace: { id, name, access }` in the
+structured content (`access` is `member`, or `staff` through a staff access
+grant; an API key always says `member`), and `In workspace "<name>":` at the
+start of the text summary.
 
 - **API key:** one workspace, the key's. Leave `workspace_id` out.
 - **Signed in as a person:** the person may be a member of several workspaces.
@@ -89,11 +90,17 @@ app's workspace switcher lets them (see
   identity service's live workspaces (by workspace or account name, ignoring
   case, accents, spaces and punctuation, so `jose` finds `JOSÉ`). At most
   20, never the full list, and only
-  workspaces a call could enter. Each result carries `id`, `name`,
-  `account_name` (when known; names repeat), `role` and `access` (`member`,
-  or `staff` for a workspace they would enter through a grant). A workspace
-  dForms has never seen is named by the identity service's id; passing either
-  id works.
+  workspaces a call could enter; `truncated: true` (and `next_step`) says
+  when more matched, so the agent asks for more of the name. Each result
+  carries `id`, `name`, `account_name` (when known; names repeat), `role`,
+  `access` (`member`, or `staff` for a workspace they would enter through a
+  grant) and `matched_on` (`name`, `account_name`, `member_email` or
+  `form_name`), so a workspace found by a member's email or a form's name
+  says why it is listed. A workspace of the identity service is always named
+  by the identity service's id, the same before and after dForms first
+  projects it, so a search never answers with one id before a call and
+  another after it; passing dForms' own id works too. The person's own
+  workspaces keep the id their list gives them.
 - **Always named, always confirmed.** Staff send `workspace_id` on every
   call, even with one workspace of their own (`WORKSPACE_REQUIRED`
   otherwise). The server instructions, `whoami`, `list_my_workspaces` and the
@@ -109,9 +116,11 @@ app's workspace switcher lets them (see
   the team's roster. Staff then use every tool (read, write and destructive ones) as that
   admin, under every rule a member gets. A workspace where they hold a real
   membership is always entered as that member, by either id in any letter
-  case; one where the identity service names them a member but dForms has
-  not seen it yet answers `MEMBERSHIP_NOT_SYNCED` (open it once in dForms),
-  never a grant. A membership of theirs that is not active (disabled by the
+  case. One where the identity service names them a member but dForms has
+  not projected that membership yet is entered through a grant like any
+  other (the staff log line says `upstreamMember: true`), and the grant row
+  becomes that membership, with its upstream role, the next time the
+  person's memberships are projected (their next visit to dForms). A membership of theirs that is not active (disabled by the
   workspace owner, or still an invitation) is never turned into a grant
   either: the call answers `MEMBERSHIP_NOT_ACTIVE` and the row stays as it
   was. A pending invitation by email is never adopted as the grant.
@@ -145,10 +154,10 @@ app's workspace switcher lets them (see
 
 | Tool | Kind | What it does |
 |---|---|---|
-| `whoami` | read | Who is connected (the key prefix, or the person signed in), every workspace it can act in with the role there, whether the person is `staff`, and, when a workspace applies, that workspace and the member it acts as (every field `GET /v1/me` documents, `status` and `locale` included). |
-| `list_my_workspaces` | read | The workspaces this connection can act in: id, name, account name, role and access, plus what to do next. `search` filters them; for staff it searches every workspace (3+ letters or digits, at most 20). `limit` caps the list (default: all; the result says how many were left out). With a key, the key's one workspace. |
+| `whoami` | read | Who is connected (the key prefix, or the person signed in), every workspace it can act in with the role there, whether the person is `staff`, `next_step`, and, when a workspace applies, that workspace (with its `access`) and the member it acts as (every field `GET /v1/me` documents, `status` and `locale` included). |
+| `list_my_workspaces` | read | The workspaces this connection can act in: id, name, account name, role and access, plus what to do next. `search` filters them; for staff it searches every workspace (3+ letters or digits, at most 20, each with `matched_on`). `limit` caps the list (default: all); `truncated` says when more applied. With a key, the key's one workspace. |
 | `list_forms` | read | Forms, most recently updated first, with id, `public_url`, whether edits are unpublished and `is_live` (false when the live version has no steps, so the link opens an empty form). Filter by name, ignoring case and accents; page with `limit`/`offset`. |
-| `get_form` | read | One form: `public_url`, publish state, `is_live` and the config to edit (the pending draft when there is one). `destinations` are left out of the config and only counted. |
+| `get_form` | read | One form: `public_url`, publish state, `is_live` and the config to edit (the pending draft when there is one). `destinations` are left out of the config and listed apart (the live form's, with their ids, secrets masked): the list `set_destinations` starts from. |
 | `create_form` | write | Creates a form from a full config. It is live at once; the result carries its `public_url`, and a warning when dForms filled `branding` in. Not idempotent. |
 | `update_form` | write | Saves a new config as an unpublished draft (and can rename). Requires `expected_updated_at`; a form saved elsewhere since answers `STALE`. |
 | `publish_form` | **destructive** | Makes the draft live, replacing what respondents see. The replaced version is kept for `revert_form`. A retry after the publish went through answers `nothing_published`, not `STALE`. |
@@ -174,7 +183,7 @@ its REST route, with the same role rule and the same masking.
 | Folders | `PATCH /v1/folders/:id` | `rename_folder` | write |
 | Folders | `DELETE /v1/folders/:id` | `delete_folder` | **destructive** (forms are unfiled, never deleted) |
 | Destinations | `PUT /v1/forms/:id/destinations` | `set_destinations` | **destructive** (replaces the list; secrets come back masked) |
-| Destinations | `POST /v1/forms/:id/destinations/webhook/ping` | `ping_webhook` | write, owners and admins |
+| Destinations | `POST /v1/forms/:id/destinations/webhook/ping` | `ping_webhook` | write, owners and admins (the endpoint's status; sample answers for input steps, in the phase the webhook listens to, `test: true` at the top) |
 | Responses | `GET /v1/forms/:id/submissions/:submissionId` | `get_response` | read |
 | Responses | `GET /v1/forms/:id/submissions/:submissionId/files/:stepKey` | `get_response_file` | read (a short-lived link, never the bytes) |
 | Responses | `GET /v1/forms/:id/submissions.csv` | `export_responses_csv` | read (CSV text, at most `max_rows` rows and 100,000 characters counting the header, the first row always whole, with `truncated`; only those rows are read) |
@@ -253,7 +262,17 @@ the MCP exactly as over REST, because the tools run the API's own handlers.
   saved as it was, with a warning, so an editor-built form never blocks an
   edit; one the API refuses anyway says it came with the form. The REST API
   keeps its v1 behaviour for all of these.
-- `update_form` ignores `destinations` and says so in `warnings`.
+- `update_form` ignores `destinations` and says so in `warnings`: change them
+  with `set_destinations`, starting from `get_form`'s `destinations`.
+- A refusal points at `get_form_guide` only for a form config (`create_form`,
+  `update_form`); the brand kit, notification and destination tools name the
+  field and what to send instead.
+- `update_notification` and `update_form_notification` save a `{{token}}` the
+  emails do not know, as the REST API does, and list it in `warnings` with
+  the valid ones: it reaches the inbox as written.
+- A question that recalls an answer (`Tu email, [firstname]`) is filled in per
+  response by `list_responses` and `get_response`; a CSV header, the summary
+  and the funnel name it as written, since each respondent's value differs.
 - What is saved is the engine's normalized config, the same shape the editor
   saves, so everything an agent writes opens and edits in the dForms editor.
 - Forms created through the MCP record `created_via = 'mcp'`.
