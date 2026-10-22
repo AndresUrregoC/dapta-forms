@@ -11,8 +11,9 @@
  *
  * Everything else is a 403 `KEY_NOT_ALLOWED` with a key: the key routes
  * themselves, members, invitations, workspaces, onboarding and attribution,
- * writing the profile, the language or the public page (vanity), and
- * connecting or disconnecting integrations.
+ * writing the profile, the language or the public page (vanity), the
+ * workspace link page (until it has an MCP tool to match), and connecting or
+ * disconnecting integrations.
  *
  * `ApiKeyRouteGuard` enforces it for every controller, before any handler runs,
  * so it also covers handlers that never call `AuthService.resolveHost`. It

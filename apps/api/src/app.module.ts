@@ -49,6 +49,8 @@ import { HealthController, DocsController } from './controllers';
 import { PublicController } from './public.controller';
 import { AdminCrudController } from './admin-crud.controller';
 import { BrandingController } from './branding.controller';
+import { LinkPageController } from './link-page.controller';
+import { LinkPageService } from './link-page.service';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
 import { McpController } from './mcp.controller';
@@ -87,6 +89,7 @@ function signupObserver(productAnalytics: AnalyticsEffects): SignupObserver {
     AdminCrudController,
     ApiKeysController,
     BrandingController,
+    LinkPageController,
     AnalyticsController,
     IntegrationsController,
     FormDestinationsController,
@@ -179,6 +182,8 @@ function signupObserver(productAnalytics: AnalyticsEffects): SignupObserver {
     // when RATE_LIMIT_ENABLED=false; swappable for a distributed limiter.
     { provide: RATE_LIMITER, useFactory: (env: ServerEnv) => createRateLimiter(env), inject: [ENV] },
     RateLimitGuard,
+    // The workspace link page: public read + events, and the editor's read/write.
+    LinkPageService,
     // API keys (public API v1): 120 calls a minute per key, in memory per pod,
     // off with the rest of the limiting when RATE_LIMIT_ENABLED=false.
     {

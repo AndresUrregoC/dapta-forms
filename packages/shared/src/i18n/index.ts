@@ -189,7 +189,82 @@ export interface FormsMessages {
     formsTitle: string;
     noForms: string;
   };
+  /** The workspace link page (`/[accountCode]`). */
+  linkPage: {
+    /** Accessible name of the button list and of the icon row. */
+    buttonsLabel: string;
+    socialsLabel: string;
+    /** Accessible name of each network's icon. */
+    social: { instagram: string; x: string; youtube: string; tiktok: string; whatsapp: string };
+    /** Meta description when the page has no bio. `{name}` is the page name. */
+    seoDescription: string;
+  };
   admin: {
+    /** Account settings, Public page: the workspace link page editor. */
+    linkPage: {
+      heading: string;
+      subtitle: string;
+      anyMember: string;
+      enable: string;
+      offNote: string;
+      copy: string;
+      copied: string;
+      open: string;
+      qr: string;
+      qrTitle: string;
+      qrIntro: string;
+      qrAlt: string;
+      qrDownloadPng: string;
+      qrDownloadSvg: string;
+      qrPngFailed: string;
+      headerSection: string;
+      logo: string;
+      logoHint: string;
+      logoUpload: string;
+      logoUseKit: string;
+      logoNone: string;
+      logoFromKit: string;
+      logoNoKit: string;
+      logoInitials: string;
+      logoUrl: string;
+      logoUrlPlaceholder: string;
+      logoInvalid: string;
+      logoTooBig: string;
+      name: string;
+      bio: string;
+      bioPlaceholder: string;
+      buttonsSection: string;
+      buttonsHint: string;
+      addForm: string;
+      addFormPlaceholder: string;
+      addLink: string;
+      noForms: string;
+      allFormsAdded: string;
+      empty: string;
+      formTag: string;
+      linkTag: string;
+      linkLabel: string;
+      linkLabelPlaceholder: string;
+      linkUrl: string;
+      linkUrlPlaceholder: string;
+      linkInvalid: string;
+      moveUp: string;
+      moveDown: string;
+      remove: string;
+      maxItems: string;
+      socialsSection: string;
+      socialsHint: string;
+      socialPlaceholders: { instagram: string; x: string; youtube: string; tiktok: string; whatsapp: string };
+      socialInvalid: string;
+      whatsappInvalid: string;
+      whatsappHint: string;
+      preview: string;
+      save: string;
+      saving: string;
+      saved: string;
+      error: string;
+      fixErrors: string;
+    };
     /** Branded combobox (`components/ui/select`) that replaces native selects. */
     select: {
       search: string;
@@ -2561,7 +2636,83 @@ export const en: FormsMessages = {
     formsTitle: 'Forms',
     noForms: 'Nothing published yet.',
   },
+  linkPage: {
+    buttonsLabel: 'Links',
+    socialsLabel: 'Social profiles',
+    social: { instagram: 'Instagram', x: 'X', youtube: 'YouTube', tiktok: 'TikTok', whatsapp: 'WhatsApp' },
+    seoDescription: 'Forms and links from {name}.',
+  },
   admin: {
+    linkPage: {
+      heading: 'Your workspace page',
+      subtitle: 'One page with your logo, your forms and your links, at a link you can share or print as a QR code.',
+      anyMember: 'Anyone in this workspace can edit this page.',
+      enable: 'Published',
+      offNote: 'Not published. Visitors get a page not found until you turn it on.',
+      copy: 'Copy link',
+      copied: 'Copied',
+      open: 'Open',
+      qr: 'QR code',
+      qrTitle: 'QR code for your page',
+      qrIntro: 'Print it on a card, a banner or a booth. Scanning it opens this page.',
+      qrAlt: 'QR code that opens your workspace page',
+      qrDownloadPng: 'Download PNG',
+      qrDownloadSvg: 'Download SVG',
+      qrPngFailed: 'Could not make the PNG in this browser. Download the SVG instead.',
+      headerSection: 'Header',
+      logo: 'Photo or logo',
+      logoHint: 'Shown at the top of the page and on the link preview.',
+      logoUpload: 'Upload image',
+      logoUseKit: 'Use brand kit logo',
+      logoNone: 'No logo',
+      logoFromKit: 'From your brand kit.',
+      logoNoKit: 'Your brand kit has no logo, so your initials show instead.',
+      logoInitials: 'No logo: your initials show instead.',
+      logoUrl: 'Or paste an image link',
+      logoUrlPlaceholder: 'https://example.com/logo.png',
+      logoInvalid: 'Use a PNG, JPEG, WebP or GIF image, or a link that starts with https://.',
+      logoTooBig: 'That image is too large even after resizing. Try a smaller one.',
+      name: 'Name',
+      bio: 'Bio',
+      bioPlaceholder: 'One line about what you do.',
+      buttonsSection: 'Buttons',
+      buttonsHint: 'Your forms and links, in the order they show on the page.',
+      addForm: 'Add a form',
+      addFormPlaceholder: 'Choose a form',
+      addLink: 'Add a link',
+      noForms: 'This workspace has no forms yet.',
+      allFormsAdded: 'Every form is already on the page.',
+      empty: 'No buttons yet. Add a form or a link.',
+      formTag: 'Form',
+      linkTag: 'Link',
+      linkLabel: 'Label',
+      linkLabelPlaceholder: 'Our website',
+      linkUrl: 'URL',
+      linkUrlPlaceholder: 'https://example.com',
+      linkInvalid: 'Give the link a label and a full URL that starts with https://.',
+      moveUp: 'Move up',
+      moveDown: 'Move down',
+      remove: 'Remove',
+      maxItems: 'A page holds up to {max} buttons.',
+      socialsSection: 'Social links',
+      socialsHint: 'Only the ones you fill in show on the page. Each opens in a new tab.',
+      socialPlaceholders: {
+        instagram: 'instagram.com/yourbrand',
+        x: 'x.com/yourbrand',
+        youtube: 'youtube.com/@yourbrand',
+        tiktok: 'tiktok.com/@yourbrand',
+        whatsapp: '+57 300 123 4567',
+      },
+      socialInvalid: 'Enter a {network} link or handle, like @yourbrand.',
+      whatsappInvalid: 'Add the country code at the start, with a +, like +57 300 123 4567.',
+      whatsappHint: 'Visitors open a WhatsApp chat with this number.',
+      preview: 'Preview',
+      save: 'Save',
+      saving: 'Saving…',
+      saved: 'Page saved.',
+      error: 'Could not save the page.',
+      fixErrors: 'Fix the highlighted fields first.',
+    },
     select: {
       search: 'Search…',
       noResults: 'No results',
@@ -4817,7 +4968,83 @@ export const es: FormsMessages = {
     formsTitle: 'Formularios',
     noForms: 'Todavía no hay nada publicado.',
   },
+  linkPage: {
+    buttonsLabel: 'Enlaces',
+    socialsLabel: 'Redes sociales',
+    social: { instagram: 'Instagram', x: 'X', youtube: 'YouTube', tiktok: 'TikTok', whatsapp: 'WhatsApp' },
+    seoDescription: 'Formularios y enlaces de {name}.',
+  },
   admin: {
+    linkPage: {
+      heading: 'La página de tu workspace',
+      subtitle: 'Una página con tu logo, tus formularios y tus enlaces, en un link que puedes compartir o imprimir como código QR.',
+      anyMember: 'Cualquier persona de este workspace puede editar esta página.',
+      enable: 'Publicada',
+      offNote: 'Sin publicar. Quien la visite verá una página no encontrada hasta que la actives.',
+      copy: 'Copiar link',
+      copied: 'Copiado',
+      open: 'Abrir',
+      qr: 'Código QR',
+      qrTitle: 'Código QR de tu página',
+      qrIntro: 'Imprímelo en una tarjeta, un banner o tu stand. Al escanearlo se abre esta página.',
+      qrAlt: 'Código QR que abre la página de tu workspace',
+      qrDownloadPng: 'Descargar PNG',
+      qrDownloadSvg: 'Descargar SVG',
+      qrPngFailed: 'No se pudo crear el PNG en este navegador. Descarga el SVG.',
+      headerSection: 'Encabezado',
+      logo: 'Foto o logo',
+      logoHint: 'Se muestra arriba en la página y en la vista previa del link.',
+      logoUpload: 'Subir imagen',
+      logoUseKit: 'Usar el logo del brand kit',
+      logoNone: 'Sin logo',
+      logoFromKit: 'Del brand kit.',
+      logoNoKit: 'Tu brand kit no tiene logo, así que se muestran tus iniciales.',
+      logoInitials: 'Sin logo: se muestran tus iniciales.',
+      logoUrl: 'O pega el link de una imagen',
+      logoUrlPlaceholder: 'https://example.com/logo.png',
+      logoInvalid: 'Usa una imagen PNG, JPEG, WebP o GIF, o un link que empiece por https://.',
+      logoTooBig: 'La imagen sigue siendo muy grande después de reducirla. Prueba con una más pequeña.',
+      name: 'Nombre',
+      bio: 'Bio',
+      bioPlaceholder: 'Una línea sobre lo que haces.',
+      buttonsSection: 'Botones',
+      buttonsHint: 'Tus formularios y enlaces, en el orden en que salen en la página.',
+      addForm: 'Agregar un formulario',
+      addFormPlaceholder: 'Elige un formulario',
+      addLink: 'Agregar un enlace',
+      noForms: 'Este workspace todavía no tiene formularios.',
+      allFormsAdded: 'Todos los formularios ya están en la página.',
+      empty: 'Todavía no hay botones. Agrega un formulario o un enlace.',
+      formTag: 'Formulario',
+      linkTag: 'Enlace',
+      linkLabel: 'Texto',
+      linkLabelPlaceholder: 'Nuestro sitio web',
+      linkUrl: 'URL',
+      linkUrlPlaceholder: 'https://example.com',
+      linkInvalid: 'Ponle un texto al enlace y una URL completa que empiece por https://.',
+      moveUp: 'Subir',
+      moveDown: 'Bajar',
+      remove: 'Quitar',
+      maxItems: 'Una página admite hasta {max} botones.',
+      socialsSection: 'Redes sociales',
+      socialsHint: 'Solo salen en la página las que llenes. Cada una se abre en una pestaña nueva.',
+      socialPlaceholders: {
+        instagram: 'instagram.com/tumarca',
+        x: 'x.com/tumarca',
+        youtube: 'youtube.com/@tumarca',
+        tiktok: 'tiktok.com/@tumarca',
+        whatsapp: '+57 300 123 4567',
+      },
+      socialInvalid: 'Escribe un link o un usuario de {network}, como @tumarca.',
+      whatsappInvalid: 'Agrega el código de país al inicio, con un +, como +57 300 123 4567.',
+      whatsappHint: 'Quien la visite abre un chat de WhatsApp con este número.',
+      preview: 'Vista previa',
+      save: 'Guardar',
+      saving: 'Guardando…',
+      saved: 'Página guardada.',
+      error: 'No se pudo guardar la página.',
+      fixErrors: 'Primero corrige los campos marcados.',
+    },
     select: {
       search: 'Buscar…',
       noResults: 'Sin resultados',

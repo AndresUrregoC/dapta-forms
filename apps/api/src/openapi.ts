@@ -116,6 +116,40 @@ export const openapiSpec = {
         responses: { '202': { description: 'Accepted' }, '400': { description: 'Invalid' } },
       },
     },
+    '/v1/public/pages/{accountCode}': {
+      get: {
+        summary: 'Fetch a workspace link page (public)',
+        description:
+          'Body { accountCode, name, bio, logo, buttons: [{ type: "form", label, slug } | { type: "link", label, url }], socials: [{ network, href }], branding }. 404 until someone in the workspace publishes the page. Buttons keep the order the workspace chose; a deleted form drops out. Only the social networks the workspace filled in are listed.',
+        parameters: [{ name: 'accountCode', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: 'The published page' }, '404': { description: 'Not found' } },
+      },
+    },
+    '/v1/public/pages/{accountCode}/events': {
+      post: {
+        summary: 'Record a view of a link page, or a click on one of its links',
+        description:
+          'Body { type: "view" } or { type: "click", linkType: "form" | "link" | "social", position?, network?, slug? }. Product analytics only: nothing about the visitor is recorded. 404 when the page is not published.',
+        parameters: [{ name: 'accountCode', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '202': { description: 'Accepted' }, '400': { description: 'Invalid' }, '404': { description: 'Not found' } },
+      },
+    },
+    '/v1/link-page': {
+      get: {
+        summary: 'Read the workspace link page (host session only)',
+        description:
+          'Body { accountCode, accountName, page, forms: [{ id, slug, name, title }], brandKit }. `page` is null until one is saved. Any member of the workspace may call it.',
+        security: [{ hostSession: [] }],
+        responses: { '200': { description: 'The page and what the editor needs' } },
+      },
+      put: {
+        summary: 'Replace the workspace link page (host session only)',
+        description:
+          'Body { page: { version: 1, enabled, name?, bio?, logo?, items?: [{ type: "form", formId } | { type: "link", label, url }], socials?: { instagram?, x?, youtube?, tiktok?, whatsapp? } } | null }. Socials are normalized to https links on their own network (a handle such as @yourbrand works too). WhatsApp must carry its country code, starting with + or 00 (a number without it is refused), and is stored as digits. `logo` absent uses the brand kit logo, null shows none. `{ page: null }` removes the page. Form buttons for forms outside the workspace are dropped. Any member of the workspace may call it.',
+        security: [{ hostSession: [] }],
+        responses: { '200': { description: 'Saved' }, '400': { description: 'BAD_REQUEST with issues' } },
+      },
+    },
     '/v1/api-keys': {
       get: {
         summary: 'List API keys (host session only)',
