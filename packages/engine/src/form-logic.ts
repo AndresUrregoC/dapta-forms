@@ -2556,7 +2556,7 @@ export function answeredPath(config: FormConfig, answers: Answers): FormStep[] {
 /** Why a completed response does not stand, or ok. */
 export type SubmissionValidation =
   | { ok: true }
-  | { ok: false; key: string; code: ValidationCode };
+  | { ok: false; key: string; code: ValidationCode; nameFields?: string[] };
 
 /**
  * Validate a COMPLETED response the way the renderers did on the way through:
@@ -2572,7 +2572,16 @@ export type SubmissionValidation =
 export function validateSubmission(config: FormConfig, answers: Answers): SubmissionValidation {
   for (const step of answeredPath(config, answers)) {
     const check = validateAnswerCode(step, answers[step.key], answers);
-    if (!check.ok) return { ok: false, key: step.key, code: check.code };
+    if (!check.ok) {
+      // A name step stores its sub-fields, never its own key: name the one
+      // that is missing, so a client that sent `name: "Ana"` learns the shape.
+      if (step.type === 'name') {
+        const fields = nameFields(step);
+        const missing = fields.find((f) => answers[f] == null || String(answers[f]).trim() === '') ?? step.key;
+        return { ok: false, key: missing, code: check.code, nameFields: fields };
+      }
+      return { ok: false, key: step.key, code: check.code };
+    }
   }
   return { ok: true };
 }

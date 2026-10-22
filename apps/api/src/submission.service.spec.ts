@@ -1121,6 +1121,22 @@ describe('submit: a complete must be one the form could have produced', () => {
     if ('error' in out) expect(out.message).toContain('"email"');
   });
 
+  it('names the missing field of a name question sent under its own key', async () => {
+    const { slug } = await formFrom(
+      {
+        version: 1,
+        steps: [
+          { key: 'full', type: 'name', question: 'Your name?', required: true },
+          { key: 'email', type: 'email', question: 'Your email?', required: true },
+        ],
+      },
+      'Name shape',
+    );
+    const out = await svc.submit('acme', slug, { sessionId: 'sess-name', data: { full: 'Eva Retest', email: 'eva@acme.io' } });
+    expect(out).toMatchObject({ error: 'INVALID_ANSWERS', status: 400 });
+    if ('error' in out) expect(out.message).toBe('Answer for "firstname" is not valid (required). A name question is sent as its fields (firstname, lastname), not under its own key.');
+  });
+
   it('still saves the same answers as a partial, step by step', async () => {
     for (const data of [{ role: 'founder' }, { role: 'founder', team_size: 20 }]) {
       const out = await svc.submit('acme', 'lead-qualifier', { sessionId: 'sess-steps', data, partial: true });
