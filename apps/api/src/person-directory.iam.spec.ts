@@ -241,9 +241,9 @@ describe.skipIf(!onPostgres)('the identity-service person directory, on Postgres
     expect(found.map((w) => w.id)).toEqual([newer.id, byAccount.id, older.id]);
     expect(found[1]).toMatchObject({ accountName: `Call-Center ${tag} Holdings` });
     expect(await d.searchWorkspaces(`callcenter${tag}`, 1)).toHaveLength(1);
-    // Never more than 20, whatever the caller asks.
+    // Never more than 21 (the 20 a search shows, and one to tell it was cut), whatever the caller asks.
     for (let i = 0; i < 22; i += 1) await workspace(`Bulk ${tag} ${i}`);
-    expect(await d.searchWorkspaces(`bulk${tag}`, 500)).toHaveLength(20);
+    expect(await d.searchWorkspaces(`bulk${tag}`, 500)).toHaveLength(21);
   });
 
   it('folds accents and case on both sides, even under collation C where lower() leaves É alone', async () => {

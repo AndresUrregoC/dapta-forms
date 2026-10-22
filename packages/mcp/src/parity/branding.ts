@@ -43,7 +43,7 @@ const updateInput = z.object({
   kit: z
     .record(z.string(), z.unknown())
     .describe(
-      'The whole kit, as get_brand_kit returns it. Fields: logo (an https URL or null), clientLogos (up to 24), primaryColor, background (setting it fixes forms to a light or dark look) and foreground (CSS colors or null), fontFamily (figtree, poppins, inter, dm-sans, space-grotesk, manrope, work-sans, fraunces or playfair), customFont, radius (sharp, soft or round), buttonStyle (solid, outline or soft).',
+      'The whole kit, as get_brand_kit returns it (when it returns null, start from {}). Fields: logo (an image URL, or null; use https, since an http image is blocked on the https form page), clientLogos (up to 24), primaryColor, background (setting it fixes forms to a light or dark look) and foreground (CSS colors or null), fontFamily (figtree, poppins, inter, dm-sans, space-grotesk, manrope, work-sans, fraunces or playfair), customFont, radius (sharp, soft or round), buttonStyle (solid, outline or soft).',
     ),
 });
 
@@ -51,7 +51,7 @@ export const updateBrandKit: ToolDef = {
   name: 'update_brand_kit',
   title: 'Update the brand kit',
   description:
-    'Replace the workspace brand kit: a field left out is no longer set by the kit. Start from get_brand_kit, change only what was asked and send the whole kit. Existing forms keep their look until apply_brand_kit. Owners and admins only.',
+    'Replace the workspace brand kit: a field left out is no longer set by the kit. Start from get_brand_kit, change only what was asked and send the whole kit. To clear a field, leave it out (logo, primaryColor, background, foreground and customFont also take null); to clear the whole kit, send {}: it then sets nothing. The kit itself is never deleted, as over the REST API. Existing forms keep their look until apply_brand_kit. Owners and admins only.',
   write: true,
   workspace: 'required',
   annotations: WRITE_IDEMPOTENT,
@@ -71,7 +71,7 @@ export const applyBrandKit: ToolDef = {
   name: 'apply_brand_kit',
   title: 'Apply the brand kit to forms',
   description: [
-    'Put the brand kit on these forms, live at once, published or not: their own logo, colours and type are replaced by the kit.',
+    'Put the brand kit on these forms, live at once, published or not: their own logo, colours and type are replaced by the kit, and their themePreset (the editor\'s note of the last preset picked) is cleared, because it no longer describes their colours.',
     'revert_brand_kit brings back the look each form had before.',
     CONFIRM_FIRST,
     'Owners and admins only.',
@@ -101,7 +101,7 @@ export const revertBrandKit: ToolDef = {
   name: 'revert_brand_kit',
   title: 'Undo the brand kit on forms',
   description: [
-    'Give these forms back the look they had before apply_brand_kit, live at once.',
+    'Give these forms back the look they had before apply_brand_kit (their themePreset included), live at once.',
     CONFIRM_FIRST,
     'Owners and admins only.',
   ].join(' '),

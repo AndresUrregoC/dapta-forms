@@ -197,10 +197,26 @@ export function describeError(error: unknown): ErrorDescriptor {
 }
 
 
-/** What to do about each issue code the form validator reports. */
-const ISSUE_HINTS: Record<string, string> = {
+/**
+ * The hints that point at the form config's schema in get_form_guide: only
+ * true of a form config (create_form, update_form). Any other tool's body
+ * (a brand kit, a notification, a destination) is not described there.
+ */
+const CONFIG_ISSUE_HINTS: Record<string, string> = {
   UNSUPPORTED_FIELD:
     'Remove it, or send back exactly the value you read. Only the fields in the config_schema of get_form_guide are accepted.',
+  unrecognized_keys:
+    'Remove it. Only the fields in the config_schema of get_form_guide are accepted; nothing outside it is saved.',
+};
+
+/** The same codes outside a form config. */
+const OTHER_ISSUE_HINTS: Record<string, string> = {
+  UNSUPPORTED_FIELD: 'Remove it, or send back exactly the value you read.',
+  unrecognized_keys: 'Remove it: this tool does not take that field, and nothing outside its description is saved.',
+};
+
+/** What to do about each issue code the validators report. */
+const ISSUE_HINTS: Record<string, string> = {
   EMPTY_QUESTION: 'Write a question for it. Only message, reveal and scheduler steps may go without one.',
   STEPS_REQUIRED: "Start from get_form's config and send it back whole, steps included.",
   DUPLICATE_KEY: 'Give every step its own key: conditions, goto rules and [placeholders] name a step by its key.',
@@ -220,8 +236,6 @@ const ISSUE_HINTS: Record<string, string> = {
   invalid_enum_value: 'Use one of the allowed values.',
   invalid_literal: 'Use the exact value shown (for example version must be 1).',
   invalid_union_discriminator: 'Unknown type: check the allowed values.',
-  unrecognized_keys:
-    'Remove it. Only the fields in the config_schema of get_form_guide are accepted; nothing outside it is saved.',
   too_small: 'Too short, too few items or too low.',
   too_big: 'Too long, too many items or too high.',
 };
@@ -237,28 +251,38 @@ function toolPath(path: string): string {
 
 const MAX_LISTED_ISSUES = 25;
 
-/** Every validation issue, one line each, path first, so a model can fix them all in one retry. */
-export function renderIssues(issues: BackendIssue[]): string {
+/**
+ * Every validation issue, one line each, path first, so a model can fix them
+ * all in one retry. `config`: the body is a form config, so the hints may send
+ * the model to its schema in get_form_guide.
+ */
+export function renderIssues(issues: BackendIssue[], opts: { config?: boolean } = {}): string {
   const lines = issues.slice(0, MAX_LISTED_ISSUES).map((issue) => {
-    const hint = ISSUE_HINTS[issue.code];
+    const hint = (opts.config ? CONFIG_ISSUE_HINTS : OTHER_ISSUE_HINTS)[issue.code] ?? ISSUE_HINTS[issue.code];
     return `- ${toolPath(issue.path)} [${issue.code}]: ${issue.message}${hint ? ` ${hint}` : ''}`;
   });
   if (issues.length > MAX_LISTED_ISSUES) lines.push(`- ...and ${issues.length - MAX_LISTED_ISSUES} more.`);
   return lines.join('\n');
 }
 
-const CONFIG_HELP = 'The config schema, the step types and worked examples are in get_form_guide.';
+/** The line after a form config's problems: where its rules are. */
+export const CONFIG_HELP = 'The config schema, the step types and worked examples are in get_form_guide.';
+
+/** The tools whose body is a form config, the one thing get_form_guide describes. */
+export const CONFIG_TOOLS: ReadonlySet<string> = new Set(['create_form', 'update_form']);
 
 /**
  * A refusal that lists every problem, path first, so a model fixes them all in
- * one retry. `help` is the line after the list (the guide, by default).
+ * one retry. `help` is the line after the list; `config` says the body is a
+ * form config, so the hints may point at get_form_guide (and `help` defaults
+ * to it). Any other tool's problems never send the model to the form guide.
  */
-export function validationFailure(issues: BackendIssue[], help: string = CONFIG_HELP): ToolFailure {
+export function validationFailure(issues: BackendIssue[], help?: string, opts: { config?: boolean } = {}): ToolFailure {
   const count = issues.length;
   return new ToolFailure(
     'VALIDATION_FAILED',
-    `${count} problem${count === 1 ? '' : 's'} in the arguments. Fix every one, then retry the same call:\n${renderIssues(issues)}`,
-    help,
+    `${count} problem${count === 1 ? '' : 's'} in the arguments. Fix every one, then retry the same call:\n${renderIssues(issues, opts)}`,
+    help ?? (opts.config ? CONFIG_HELP : undefined),
   );
 }
 
@@ -304,11 +328,17 @@ const CONNECTION: Record<string, { message?: string; hint: string }> = {
   },
 };
 
-/** Map anything a tool can throw to a `ToolFailure` the model can act on, in the terms of the call's credential. */
-export function toFailure(error: unknown, credential: CredentialKind = 'key'): ToolFailure {
+/**
+ * Map anything a tool can throw to a `ToolFailure` the model can act on, in
+ * the terms of the call's credential. `tool` names the tool that failed, so
+ * only a form config's problems point at get_form_guide.
+ */
+export function toFailure(error: unknown, credential: CredentialKind = 'key', tool?: string): ToolFailure {
   if (error instanceof ToolFailure) return error;
   if (error instanceof BackendError) {
-    if (error.status === 400 && error.issues.length > 0) return validationFailure(error.issues);
+    if (error.status === 400 && error.issues.length > 0) {
+      return validationFailure(error.issues, undefined, { config: tool !== undefined && CONFIG_TOOLS.has(tool) });
+    }
     if (error.status === 404) return notFound('Form');
     if (error.status === 429) {
       const after = Number(error.details['retryAfterSec']);

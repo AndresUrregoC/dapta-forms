@@ -131,13 +131,18 @@ export class FormsMcpServer {
             // Echo the id the agent sent: a staff search can hand out the
             // identity provider's id, which differs from ours, and an agent
             // that compares ids would think it landed somewhere else.
-            workspace: { id: named === undefined ? caller.accountId : normalizeWorkspaceId(named), name: caller.workspaceName, ...(staff ? { access: 'staff' as const } : {}) },
+            workspace: {
+              id: named === undefined ? caller.accountId : normalizeWorkspaceId(named),
+              name: caller.workspaceName,
+              // Always said, so a member's result reads like a staff one.
+              access: staff ? ('staff' as const) : ('member' as const),
+            },
           },
           summary: `In workspace "${caller.workspaceName}"${staff ? ' (staff access)' : ''}: ${result.summary}`,
         };
       }
     } catch (error) {
-      failure = toFailure(error, call && isConnection(call.credential) ? 'connection' : 'key');
+      failure = toFailure(error, call && isConnection(call.credential) ? 'connection' : 'key', def.name);
       if (failure.code === 'INTERNAL_ERROR') this.options.onInternalError?.(def.name, call?.requestId ?? 'unknown', describeError(error));
     }
     this.audit(def, args, call, caller, started, result, failure);

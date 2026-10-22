@@ -324,16 +324,16 @@ async function fromDirectory<T>(read: () => Promise<T>): Promise<T> {
  *   - `search`: the accounts this database already knows (by workspace name,
  *     a member's email or a form name) that are still live workspaces of the
  *     identity service, and the identity service's live workspaces (by
- *     workspace or account name), at most `limit`, each named by the id a
- *     call passes: the local account id when dForms has one, else the
- *     identity service's workspace id. Only what `enter` would take.
+ *     workspace or account name), at most `limit`, each named by the
+ *     identity service's workspace id (stable before and after dForms first
+ *     projects it), with what it matched on. Only what `enter` would take.
  *   - `enter`: either id, in any letter case. The workspace must be live in
  *     the identity service now (read through the directory's cache). A
- *     workspace of the person's own is entered as that member, and one where
- *     the identity service names them a member but dForms has not seen it yet
- *     is refused with what to do, never turned into a grant. Otherwise the
+ *     workspace of the person's own is entered as that member. Otherwise the
  *     person acts as the `admin` row `grantStaffAccess` mints (or finds) with
- *     `access_grant = 'staff'`, exactly as the web app does.
+ *     `access_grant = 'staff'`, exactly as the web app does; where the
+ *     identity service names them a member that dForms has not projected yet,
+ *     that row becomes the membership on their next projection.
  */
 function staffAccessFor(
   db: Db,
@@ -356,14 +356,22 @@ function staffAccessFor(
       const live = await fromDirectory(() => Promise.all(grantable.map((hit) => directory.workspaceOf(hit.workspaceId))));
       const known = await Promise.all(estate.map((ws) => getAccountByExternalId(db, ws.id)));
       // Keyed by the identity service's workspace id, so one workspace found
-      // both ways is listed once.
+      // both ways is listed once, and always NAMED by that id: it exists
+      // before dForms first projects the workspace and stays the same after,
+      // so a search never answers with one id before a call and another one
+      // after it (the local id is kept apart, only to tell the person's own
+      // workspaces from the rest). Either id still enters it.
       const hits = new Map<string, StaffWorkspaceHit>();
+      estate.forEach((ws, i) => {
+        if (hits.has(ws.id)) return;
+        const matchedOn = normalizeWorkspaceSearch(ws.name).includes(needle) ? 'name' : 'account_name';
+        hits.set(ws.id, { id: ws.id, localId: known[i]?.id ?? null, name: ws.name, accountName: ws.accountName, role: 'admin', access: 'staff', matchedOn });
+      });
       grantable.forEach((hit, i) => {
         const ws = live[i];
-        if (ws && !hits.has(ws.id)) hits.set(ws.id, { id: hit.id, name: ws.name, accountName: ws.accountName, role: 'admin', access: 'staff' });
-      });
-      estate.forEach((ws, i) => {
-        if (!hits.has(ws.id)) hits.set(ws.id, { id: known[i]?.id ?? ws.id, name: ws.name, accountName: ws.accountName, role: 'admin', access: 'staff' });
+        if (!ws || hits.has(ws.id)) return;
+        const matchedOn = hit.hint?.kind === 'email' ? 'member_email' : hit.hint?.kind === 'form' ? 'form_name' : 'name';
+        hits.set(ws.id, { id: ws.id, localId: hit.id, name: ws.name, accountName: ws.accountName, role: 'admin', access: 'staff', matchedOn });
       });
       return [...hits.values()].slice(0, limit);
     },
@@ -403,17 +411,18 @@ function staffAccessFor(
       let accountId: string;
       let memberId: string;
       let granted = false;
+      let upstreamMember = false;
       if (local && held && held.status === 'active' && held.access_grant === 'staff') {
         accountId = local.id;
         memberId = held.id;
       } else {
-        if (await fromDirectory(async () => (await directory.holdsMembership?.(ws.id, person.id)) ?? false)) {
-          throw new ToolFailure(
-            'MEMBERSHIP_NOT_SYNCED',
-            'You are a member of this workspace, but dForms has not seen that membership yet.',
-            'Ask the user to open this workspace once in dForms (the workspace switcher), then retry: the call then acts as the member they are, not through staff access.',
-          );
-        }
+        // A membership upstream that dForms has not projected yet is not a
+        // reason to refuse: staff may act as an admin here anyway, and the
+        // grant row becomes that membership (with its upstream role) the next
+        // time the person's memberships are projected (the web app on their
+        // next visit). Refusing left the agent stuck on a workspace the
+        // search had just offered it.
+        upstreamMember = await fromDirectory(async () => (await directory.holdsMembership?.(ws.id, person.id)) ?? false);
         try {
           ({ accountId, memberId } = await grantStaffAccess(
             db,
@@ -437,6 +446,7 @@ function staffAccessFor(
           memberId,
           workspaceId: ws.id,
           granted,
+          ...(granted && upstreamMember ? { upstreamMember: true } : {}),
         }),
       );
       return memberCaller(person, label, { accountId, accountName: ws.name, memberId, role: 'admin' }, 'staff');

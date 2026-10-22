@@ -161,6 +161,14 @@ describe('destinations', () => {
     structured(await member.callTool({ name: 'set_destinations', arguments: { form_id: id, destinations: [again] } }));
     const stored = await h.db.get<{ config: string }>(sql`SELECT config FROM form WHERE id = ${id}`);
     expect(JSON.parse(stored!.config).destinations[0].settings.secret).toBe('s3cret-value');
+    // get_form lists them, with ids and the secret masked: the list set_destinations starts from.
+    const read = structured<{ destinations: Array<{ id: string; settings: { secret: string } }>; connected_destinations: number; config: Record<string, unknown> }>(
+      await member.callTool({ name: 'get_form', arguments: { form_id: id } }),
+    );
+    expect(read.destinations).toHaveLength(1);
+    expect(read.destinations[0]).toMatchObject({ id: out.destinations[0]!.id, settings: { secret: WEBHOOK_SECRET_MASK } });
+    expect(read.connected_destinations).toBe(1);
+    expect(read.config).not.toHaveProperty('destinations');
 
     const text = errorText(
       await c.callTool({ name: 'set_destinations', arguments: { form_id: id, destinations: [{ ...webhook, settings: { url: 'ftp://example.com' } }] } }),
@@ -184,8 +192,10 @@ describe('destinations', () => {
     const out = structured<{ ok: boolean; status: number; endpoint_supplied: { detail: string } }>(
       await c.callTool({ name: 'ping_webhook', arguments: { form_id: id } }),
     );
-    expect(out.ok).toBe(true);
-    expect(received.some((b) => b.includes('"test":true'))).toBe(true);
+    // The endpoint's real status, as list_deliveries records it.
+    expect(out).toMatchObject({ ok: true, status: 200 });
+    const sent = JSON.parse(received.at(-1)!) as { test?: unknown; phase: string };
+    expect(sent).toMatchObject({ test: true, phase: 'complete' });
     notFound(errorText(await c.callTool({ name: 'ping_webhook', arguments: { form_id: h.other.formId } })));
 
     const deliveries = structured<{ deliveries: Array<{ kind: string; status: string; action: string }> }>(
@@ -366,6 +376,9 @@ describe('brand kit', () => {
     expect(saved.kit.primaryColor).toBe('#123456');
     expect(errorText(await c.callTool({ name: 'update_brand_kit', arguments: { kit: { radius: 'wobbly' } } }))).toMatch(/^VALIDATION_FAILED: .*\n- radius/);
     expect((await c.callTool({ name: 'update_brand_kit', arguments: { kit: 'red' } })).isError).toBe(true);
+    // A brand kit refusal never sends the agent to the form guide.
+    const refused = errorText(await c.callTool({ name: 'update_brand_kit', arguments: { kit: { radius: 'wobbly', logo: 'javascript:alert(1)' } } }));
+    expect(refused).not.toContain('get_form_guide');
 
     const id = await newForm(c);
     forbidden(errorText(await member.callTool({ name: 'apply_brand_kit', arguments: { form_ids: [id] } })));
@@ -388,6 +401,7 @@ describe('notifications', () => {
       await c.callTool({ name: 'update_notification', arguments: { email_key: 'submission_received', subject: 'Lead: {{formName}}' } }),
     );
     expect(saved.setting.subject).toBe('Lead: {{formName}}');
+    expect(saved).not.toHaveProperty('warnings');
     forbidden(errorText(await member.callTool({ name: 'update_notification', arguments: { email_key: 'submission_received', enabled: false } })));
     expect(
       errorText(await c.callTool({ name: 'update_notification', arguments: { email_key: 'submission_confirmed', recipients: ['a@example.com'] } })),
@@ -410,6 +424,18 @@ describe('notifications', () => {
       await c.callTool({ name: 'update_form_notification', arguments: { form_id: id, email_key: 'submission_received', subject: 'Form lead' } }),
     );
     expect(saved.setting.override.subject).toBe('Form lead');
+    // An unknown token is saved as over REST, and the agent is told it stays literal.
+    const odd = structured<{ warnings: string[]; setting: { override: { body: string } } }>(
+      await c.callTool({
+        name: 'update_form_notification',
+        arguments: { form_id: id, email_key: 'submission_received', body: 'Hi {{ unknownToken }} from {{formName}}' },
+      }),
+    );
+    expect(odd.setting.override.body).toBe('Hi {{ unknownToken }} from {{formName}}');
+    expect(odd.warnings).toHaveLength(1);
+    expect(odd.warnings[0]).toContain('{{unknownToken}}');
+    expect(odd.warnings[0]).toContain('{{respondentName}}');
+    expect(odd.warnings[0]).not.toContain('{{formName}} is');
     forbidden(errorText(await member.callTool({ name: 'update_form_notification', arguments: { form_id: id, email_key: 'submission_received', enabled: true } })));
     notFound(
       errorText(await c.callTool({ name: 'update_form_notification', arguments: { form_id: h.other.formId, email_key: 'submission_received', enabled: true } })),

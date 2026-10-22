@@ -527,7 +527,7 @@ export const API_REFERENCE = {
     params: [FORM_PATH],
     status: 200,
     adminOnly: true,
-    response: { ok: true },
+    response: { ok: true, status: 200 },
   },
 
   // Responses
