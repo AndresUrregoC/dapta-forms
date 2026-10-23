@@ -179,7 +179,8 @@ export class AuthService {
     if (!requested || requested === home.accountId) {
       const member = await getAccountMember(this.db, home.accountId, home.memberId);
       if (member?.accessGrant === 'staff' && !staff) throw workspaceForbidden();
-      if (member && member.accessGrant === null) await this.noteVerifiedLogin(home, home.accountId, home.memberId);
+      // The home member is the person the provider resolved: it names them.
+      if (member && member.accessGrant === null) await this.noteVerifiedLogin(home, home.accountId, home.memberId, null);
       return {
         accountId: home.accountId,
         memberId: home.memberId,
@@ -198,7 +199,11 @@ export class AuthService {
     // Opening a workspace you were invited to IS accepting the invitation, the
     // same transition the home account gets above, for the same reason.
     await activateInvitedMember(this.db, membership.accountId, membership.memberId);
-    if (membership.accessGrant === null) await this.noteVerifiedLogin(home, membership.accountId, membership.memberId);
+    // Only a row bound to this same person: the switch also matches a row by
+    // email, and such a row may belong to someone else who kept that address.
+    if (membership.accessGrant === null && identity?.externalId) {
+      await this.noteVerifiedLogin(home, membership.accountId, membership.memberId, identity.externalId);
+    }
     return {
       accountId: membership.accountId,
       memberId: membership.memberId,
@@ -226,16 +231,22 @@ export class AuthService {
    *     provider that vouches for nothing (the dev stub) touches nothing.
    *
    * Never for a staff access grant (the caller skips those): a grant is not a
-   * membership. Never costs the request: a failure is logged by its code and
+   * membership. Only on a row bound to a person (`external_id`), and on a
+   * workspace the request switched to, only on a row bound to the same
+   * person as the home member (`person`): the switch matches rows by email
+   * too, and the token vouches for its own person, never for whoever else
+   * holds a row with that address. Never costs the request: a failure is logged by its code and
    * the next request tries again.
    */
-  private async noteVerifiedLogin(home: ResolvedHost, accountId: string, memberId: string): Promise<void> {
+  private async noteVerifiedLogin(home: ResolvedHost, accountId: string, memberId: string, person: string | null): Promise<void> {
     const subject = home.idpSubject;
     const vouchedAt = typeof home.authenticatedAt === 'number' ? Math.min(home.authenticatedAt, Date.now()) : null;
     if (!subject && vouchedAt === null) return;
     try {
       const link = await memberIdpLink(this.db, accountId, memberId);
-      if (!link) return;
+      // A row no login bound to a person names nobody (an MCP sign-in never
+      // reaches it), and a row bound to someone else is theirs to vouch for.
+      if (!link || link.externalId === null || (person !== null && link.externalId !== person)) return;
       if (subject && subject !== link.idpSubject) {
         const out = await recordMemberIdpSubject(this.db, accountId, memberId, subject, vouchedAt);
         if (out.written) {

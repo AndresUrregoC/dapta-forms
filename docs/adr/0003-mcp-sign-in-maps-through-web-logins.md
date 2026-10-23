@@ -7,7 +7,8 @@ ADR 0001 mapped an MCP sign-in's token to a person by reading the identity servi
 - A person signs in to the web app once before their first MCP sign-in, and again at least once per link window: dForms is not told when someone is removed upstream, so MCP access ends when the web's would. Until then the door answers a 403 that says to open dForms once, never a 401 that would loop the login.
 - A person blocked in the identity service keeps MCP access until the link window lapses, because the block does not reach the authorization server that issues MCP tokens. The old directory saw a block within a minute. Closing this belongs at the source (the block revoking the person's sessions at the authorization server), which would cover every product that signs MCP clients in through it.
 - Only owners and admins reach a workspace over a sign-in, as in the calendars product; a `member` uses an API key an admin creates.
-- Nothing is matched by email at the MCP door: an invitation becomes a member through the person's next web visit, which also links it.
+- Nothing is matched by email at the MCP door. With the identity service's workspaces on (`IAM_BASE_URL`), an invitation becomes a member bound to the person through their next web visit, which also links it. Without them, a member that only an email ever matched is bound to nobody and is not reached over a sign-in.
+- The subject and the stamp are written only on a member bound to the same person the session token names. The web switcher also matches a row by email, and a row bound to someone else who kept that address is theirs to vouch for, never the caller's.
 - Staff of the deployment act over an MCP sign-in in their own memberships only. To work in a customer's workspace from an agent they enter it in the web switcher and create an API key there (0002's rule for keys still holds).
 - A `sub` that two different people carry is refused rather than resolved, as the directory did.
 

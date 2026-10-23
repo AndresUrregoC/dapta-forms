@@ -232,6 +232,39 @@ describe('a web login, then an MCP sign-in, end to end', () => {
     expect(who).toMatchObject({ workspace: { id: row!.account_id }, member: { id: row!.id } });
   });
 
+  it("reaches a second workspace the person opened on the web, never someone else's row that shares their email", async () => {
+    const h = await boot(workos);
+    const iamUser = randomUUID();
+    const workosUser = `user_01${randomUUID().replaceAll('-', '').slice(0, 24).toUpperCase()}`;
+    const email = `${randomUUID().slice(0, 8)}@example.com`;
+    const auth = { authorization: `Bearer ${session({ sub: iamUser, account_id: randomUUID(), email, name: 'Web', workos_user_id: workosUser })}` };
+    expect((await fetch(`${h.base}/v1/me`, { headers: auth })).status).toBe(200);
+    // Globex: the person's own admin row. Its owner row (Bo) is someone else.
+    const own = randomUUID();
+    await h.db.run(
+      sql`INSERT INTO member (id, account_id, external_id, email, role, status, created_at)
+          VALUES (${own}, ${h.other.accountId}, ${iamUser}, ${email}, 'admin', 'active', ${Date.now()})`,
+    );
+    // Acme: a row bound to another person that still carries this email.
+    const theirs = randomUUID();
+    await h.db.run(
+      sql`INSERT INTO member (id, account_id, external_id, email, role, status, created_at)
+          VALUES (${theirs}, ${h.accountId}, ${`iam-someone-else-${randomUUID()}`}, ${email}, 'owner', 'active', ${Date.now()})`,
+    );
+    for (const workspace of [h.other.accountId, h.accountId]) {
+      expect((await fetch(`${h.base}/v1/me`, { headers: { ...auth, 'x-quill-workspace': workspace } })).status).toBe(200);
+    }
+    const link = await h.db.get<{ idp_subject: string | null; login_seen_at: number | null }>(
+      sql`SELECT idp_subject, login_seen_at FROM member WHERE id = ${theirs}`,
+    );
+    expect(link).toEqual({ idp_subject: null, login_seen_at: null });
+    const c = await h.signIn(idp.client(workosUser));
+    const listed = structured<{ workspaces: Array<{ id: string }> }>(await c.callTool({ name: 'list_my_workspaces', arguments: {} }));
+    expect(listed.workspaces.map((w) => w.id)).not.toContain(h.accountId);
+    expect(listed.workspaces.map((w) => w.id)).toContain(h.other.accountId);
+    expect(listed.workspaces).toHaveLength(2);
+  });
+
   it('records nothing for a placeholder id or a token without one, and a token without an issue time stamps nothing', async () => {
     const h = await boot(workos);
     const placeholder = randomUUID();
@@ -244,6 +277,7 @@ describe('a web login, then an MCP sign-in, end to end', () => {
     const rows = await h.db.all<{ external_id: string; idp_subject: string | null; login_seen_at: number | null }>(
       sql`SELECT external_id, idp_subject, login_seen_at FROM member WHERE external_id IN (${placeholder}, ${bare}, ${undated})`,
     );
+    expect(rows).toHaveLength(3);
     expect(rows.every((r) => r.idp_subject === null)).toBe(true);
     expect(rows.find((r) => r.external_id === undated)?.login_seen_at ?? null).toBeNull();
     expect(rows.find((r) => r.external_id === bare)?.login_seen_at).not.toBeNull();

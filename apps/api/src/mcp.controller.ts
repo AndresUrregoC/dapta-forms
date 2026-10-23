@@ -92,13 +92,11 @@ export class McpController implements OnModuleInit {
     const bucket = (capacity: number, refill: number): RateLimiter =>
       env.RATE_LIMIT_ENABLED ? new TokenBucketRateLimiter(capacity, refill) : unlimited;
     this.usage = new McpUsageReporter(db, analytics, env.IAM_STAFF_DOMAINS);
-    if (oauth) {
-      this.logger.log(`MCP OAuth on: resource ${oauth.resource}, link window ${env.OAUTH_LINK_MAX_AGE_DAYS} days`);
-      // The person directory is gone (a sign-in maps through dForms' own
-      // members): its settings are ignored, never a refused boot.
-      const leftover = Object.keys(process.env).filter((name) => name.startsWith('IAM_DB_'));
-      if (leftover.length > 0) this.logger.warn(`${leftover.join(', ')} are set but no longer read; remove them from the environment.`);
-    }
+    if (oauth) this.logger.log(`MCP OAuth on: resource ${oauth.resource}, link window ${env.OAUTH_LINK_MAX_AGE_DAYS} days`);
+    // The person directory is gone (a sign-in maps through dForms' own
+    // members): its settings are ignored, never a refused boot.
+    const leftover = Object.keys(process.env).filter((name) => name.startsWith('IAM_DB_'));
+    if (leftover.length > 0) this.logger.warn(`${leftover.join(', ')} are set but no longer read; remove them from the environment.`);
     this.server = new FormsMcpServer({
       backend: new ApiMcpBackend(
         db,

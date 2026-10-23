@@ -212,7 +212,7 @@ export async function authenticateMcpConnection(
     refuse(rows.length === 0 ? 'not_linked' : 'not_active_admin');
     throw notLinked(opts.appUrl ?? '');
   }
-  const person: Person = { id: first.externalId ?? `member:${first.memberId}`, email: first.email };
+  const person: Person = { id: first.externalId, email: first.email };
   const label = `oauth:${person.id}`;
   const workspaces = allowed.map((m) =>
     memberCaller(person, label, { accountId: m.accountId, accountName: m.accountName, memberId: m.memberId, role: m.role }),

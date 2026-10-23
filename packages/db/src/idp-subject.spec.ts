@@ -28,7 +28,7 @@ async function member(
   accountId: string,
   role = 'admin',
   status = 'active',
-  externalId: string | null = null,
+  externalId: string | null = `iam_${randomUUID()}`,
   accessGrant: string | null = null,
 ): Promise<string> {
   const id = randomUUID();
@@ -64,7 +64,7 @@ describe('recordMemberIdpSubject', () => {
     const m = await member(a);
     expect(await recordMemberIdpSubject(db, a, m, s('one'), 1_000)).toEqual({ written: true, clearedMemberIds: [] });
     expect(await subjectOf(m)).toBe(s('one'));
-    expect(await memberIdpLink(db, a, m)).toEqual({ idpSubject: s('one'), loginSeenAt: 1_000 });
+    expect(await memberIdpLink(db, a, m)).toEqual({ externalId: expect.stringMatching(/^iam_/), idpSubject: s('one'), loginSeenAt: 1_000 });
     expect(await recordMemberIdpSubject(db, a, m, s('one'))).toEqual({ written: false, clearedMemberIds: [] });
   });
 
@@ -189,6 +189,13 @@ describe('membershipsBySubject', () => {
     await seen(other, Date.now());
     await seen(linked, Date.now() - 40 * DAY);
     expect(await membershipsBySubject(db, s('person'), since())).toEqual([]);
+  });
+
+  it('never returns a row no login bound to a person (no external_id), even one carrying the subject', async () => {
+    const a = await account('Acme');
+    const unbound = await member(a, 'admin', 'active', null);
+    await recordMemberIdpSubject(db, a, unbound, s('unbound'));
+    expect(await membershipsBySubject(db, s('unbound'), since())).toEqual([]);
   });
 
   it('never returns a row held through a staff access grant', async () => {

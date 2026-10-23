@@ -13,6 +13,8 @@ import { AuthService, LOGIN_SEEN_REFRESH_MS, WORKSPACE_HEADER, loginSeenRefreshM
 import { LocalAuthProvider, type AuthProvider, type ReqLike, type ResolvedHost } from './auth.provider';
 
 const EMAIL = 'alex@example.com';
+/** The person's upstream user id: what a real login binds every member of theirs to. */
+const PERSON = 'iam_alex';
 const SUBJECT = 'user_01HSPECSUBJECT0000000000';
 const DAY = 86_400_000;
 
@@ -31,13 +33,17 @@ const as = (workspace?: string): ReqLike => ({
 const linkOf = async (memberId: string) =>
   db.get<{ idp_subject: string | null; login_seen_at: number | null }>(sql`SELECT idp_subject, login_seen_at FROM member WHERE id = ${memberId}`);
 
-async function otherWorkspace(name: string, grant: 'staff' | null = null): Promise<{ accountId: string; memberId: string }> {
+async function otherWorkspace(
+  name: string,
+  grant: 'staff' | null = null,
+  externalId: string | null = PERSON,
+): Promise<{ accountId: string; memberId: string }> {
   await insertAccountWithShortCode(db, { name, externalId: `ext:${name}` });
   const accountId = (await db.get<{ id: string }>(sql`SELECT id FROM account WHERE external_id = ${`ext:${name}`}`))!.id;
   const memberId = randomUUID();
   await db.run(
-    sql`INSERT INTO member (id, account_id, email, handle, role, status, access_grant, created_at)
-        VALUES (${memberId}, ${accountId}, ${EMAIL}, ${`h-${name}`}, 'admin', 'active', ${grant}, ${Date.now()})`,
+    sql`INSERT INTO member (id, account_id, external_id, email, handle, role, status, access_grant, created_at)
+        VALUES (${memberId}, ${accountId}, ${externalId}, ${EMAIL}, ${`h-${name}`}, 'admin', 'active', ${grant}, ${Date.now()})`,
   );
   return { accountId, memberId };
 }
@@ -48,6 +54,8 @@ beforeEach(async () => {
   await seed(db);
   homeAccountId = (await getAccountByCode(db, 'acme'))!.id;
   homeMemberId = (await db.get<{ id: string }>(sql`SELECT id FROM member WHERE account_id = ${homeAccountId} AND email = ${EMAIL}`))!.id;
+  // The dev stub's seed binds nobody; a real login binds the member to the person.
+  await db.run(sql`UPDATE member SET external_id = ${PERSON} WHERE id = ${homeMemberId}`);
   const local = new LocalAuthProvider(db, {
     NODE_ENV: 'test',
     DEV_LOGIN_EMAIL: undefined,
@@ -85,6 +93,19 @@ describe('a verified web request', () => {
     const beta = await otherWorkspace('Beta');
     await auth.resolveHost(as(beta.accountId));
     expect((await linkOf(beta.memberId))?.idp_subject).toBe(SUBJECT);
+  });
+
+  it("never records or stamps anything on someone else's row the switch reached by a shared email", async () => {
+    const theirs = await otherWorkspace('Theirs', null, 'iam_someone_else');
+    await auth.resolveHost(as(theirs.accountId));
+    expect(await linkOf(theirs.memberId)).toEqual({ idp_subject: null, login_seen_at: null });
+    expect(audit.every((l) => !l.includes(theirs.memberId))).toBe(true);
+  });
+
+  it('never records anything on a row no login bound to a person, reached by email on the web', async () => {
+    const unbound = await otherWorkspace('Unbound', null, null);
+    await auth.resolveHost(as(unbound.accountId));
+    expect(await linkOf(unbound.memberId)).toEqual({ idp_subject: null, login_seen_at: null });
   });
 
   it('never records anything on a row held through a staff access grant', async () => {

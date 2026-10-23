@@ -261,9 +261,10 @@ export const serverEnvSchema = z.object({
   // verified web login (the issue time of that login's token, stamped on the
   // member) an MCP sign-in may still act as that member. dForms is not told
   // when someone is removed upstream, so this is when MCP access ends for a
-  // person who stops coming to the web app. Read only with MCP_OAUTH_PROVIDER
-  // set. 1 to 365 days, 30 when unset (the sibling calendars product's name
-  // and default).
+  // person who stops coming to the web app. Checked at boot whatever
+  // MCP_OAUTH_PROVIDER says: the web side reads it too, for how often a login
+  // renews that stamp. 1 to 365 days, 30 when unset (the sibling calendars
+  // product's name and default).
   OAUTH_LINK_MAX_AGE_DAYS: blankAsUnset(z.coerce.number().int().min(1).max(365).default(30)),
 
   // Product analytics — OUR OWN telemetry about the people who USE Dapta Forms

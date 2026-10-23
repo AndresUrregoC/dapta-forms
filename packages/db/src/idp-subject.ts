@@ -75,20 +75,25 @@ export async function recordMemberIdpSubject(
 }
 
 /**
- * The subject a member carries and when the identity service last vouched for
- * it, or null for a member not in the account. Read on a verified web request
- * to decide whether anything needs writing.
+ * The person a member names (`external_id`, null on a row no login ever
+ * bound), the subject it carries and when the identity service last vouched
+ * for it, or null for a member not in the account. Read on a verified web
+ * request to decide whether anything needs writing.
  */
 export async function memberIdpLink(
   db: Db,
   accountId: string,
   memberId: string,
-): Promise<{ idpSubject: string | null; loginSeenAt: number | null } | null> {
-  const r = await db.get<{ idp_subject: string | null; login_seen_at: number | string | null }>(
-    sql`SELECT idp_subject, login_seen_at FROM member WHERE account_id = ${accountId} AND id = ${memberId} LIMIT 1`,
+): Promise<{ externalId: string | null; idpSubject: string | null; loginSeenAt: number | null } | null> {
+  const r = await db.get<{ external_id: string | null; idp_subject: string | null; login_seen_at: number | string | null }>(
+    sql`SELECT external_id, idp_subject, login_seen_at FROM member WHERE account_id = ${accountId} AND id = ${memberId} LIMIT 1`,
   );
   if (!r) return null;
-  return { idpSubject: r.idp_subject, loginSeenAt: r.login_seen_at == null ? null : Number(r.login_seen_at) };
+  return {
+    externalId: r.external_id,
+    idpSubject: r.idp_subject,
+    loginSeenAt: r.login_seen_at == null ? null : Number(r.login_seen_at),
+  };
 }
 
 /**
@@ -113,8 +118,8 @@ export interface SubjectMembership {
   memberId: string;
   accountId: string;
   accountName: string;
-  /** The person's upstream user id (`member.external_id`); null only on a row no login ever bound. */
-  externalId: string | null;
+  /** The person's upstream user id (`member.external_id`). */
+  externalId: string;
   email: string | null;
   role: string;
   status: string;
@@ -137,7 +142,8 @@ export interface SubjectMembership {
  * removed upstream, so a member whose web login has not been verified within
  * the window is treated as gone. Rows held through a staff access grant
  * (`access_grant`) never count: they are not memberships, and staff status is
- * judged per request on the web, never over an MCP sign-in. Role and status
+ * judged per request on the web, never over an MCP sign-in. Nor does a row
+ * no login ever bound to a person (`external_id` NULL): it names nobody. Role and status
  * are returned, not filtered, so the caller applies its own rule for who may
  * act. Read on every MCP request: removing a member, disabling them or taking
  * their admin role away cuts access at once.
@@ -152,7 +158,7 @@ export async function membershipsBySubject(db: Db, subject: string, seenSince: n
     member_id: string;
     account_id: string;
     account_name: string;
-    external_id: string | null;
+    external_id: string;
     email: string | null;
     role: string;
     status: string;
@@ -161,6 +167,7 @@ export async function membershipsBySubject(db: Db, subject: string, seenSince: n
         FROM member m JOIN account a ON a.id = m.account_id
         WHERE m.login_seen_at >= ${seenSince}
           AND m.access_grant IS NULL
+          AND m.external_id IS NOT NULL
           AND m.id IN (
             SELECT id FROM member WHERE idp_subject = ${subject}
             UNION
