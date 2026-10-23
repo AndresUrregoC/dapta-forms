@@ -79,10 +79,18 @@ function vouchedBy(
 // URL. Idempotency across concurrent first-logins is anchored on external_id
 // (ON CONFLICT), so the code no longer needs to be deterministic.
 
+/** How long a looked-up WorkOS user id is kept per person, and a miss (none, or the identity service down). */
+const SUBJECT_LOOKUP_TTL_MS = 10 * 60_000;
+const SUBJECT_MISS_TTL_MS = 60_000;
+/** At most this many people's lookups are kept; the oldest go first. */
+const SUBJECT_LOOKUP_MAX = 10_000;
+
 export class WorkOsAuthProvider implements AuthProvider {
   readonly name = 'workos';
   private readonly log = new Logger('WorkOsAuthProvider');
   private readonly secret: string;
+  /** Per person (`sub`): the WorkOS user id their own user row holds, or null, and until when it is kept. */
+  private readonly subjectLookups = new Map<string, { until: number; subject: string | null }>();
 
   constructor(
     private readonly db: Db,
@@ -166,7 +174,20 @@ export class WorkOsAuthProvider implements AuthProvider {
       }
       // Staff is judged again here, on the token's email, every request: the
       // auth service ignores grant rows for anyone it does not mark.
-      if (home) return { ...home, staff: this.projection.isStaff(upstream.email), ...vouchedBy(sub, claims) };
+      if (home) {
+        const vouched = vouchedBy(sub, claims);
+        return {
+          ...home,
+          staff: this.projection.isStaff(upstream.email),
+          ...vouched,
+          // The identity service just answered for every membership: all of
+          // them are vouched for, not only the one this request acts in.
+          confirmsMemberships: !state.degraded && state.complete,
+          // An older session token carries no usable WorkOS user id: read it
+          // from the person's own user row, with their own bearer.
+          ...(vouched.idpSubject ? {} : { lookUpIdpSubject: () => this.lookUpIdpSubject(upstream) }),
+        };
+      }
       // Nothing upstream and nothing local. The identity service creates a
       // workspace at signup, so this is a real fault, not a first login — and
       // minting a token-account row here would recreate exactly the pre-0015
@@ -181,6 +202,35 @@ export class WorkOsAuthProvider implements AuthProvider {
     const accountId = await this.resolveAccount(accountExtId, claims);
     const memberId = await this.resolveMember(accountId, sub, claims);
     return { accountId, memberId, ...vouchedBy(sub, claims) };
+  }
+
+  /**
+   * The WorkOS user id on the person's own user row in the identity service,
+   * read with their own bearer (the identity service answers a user token only
+   * about that same user). Taken only from an active, unblocked row whose id
+   * is the token's `sub`, and only when it is a real WorkOS id. Kept a few
+   * minutes per person, a miss for one; never throws: a failure is logged by
+   * class and status and links nothing this time.
+   */
+  private async lookUpIdpSubject(upstream: UpstreamIdentity): Promise<string | null> {
+    const now = Date.now();
+    const hit = this.subjectLookups.get(upstream.sub);
+    if (hit && hit.until > now) return hit.subject;
+    let subject: string | null = null;
+    try {
+      const user = await this.projection!.iam.getUser(upstream.bearer, upstream.sub);
+      const id = user?.workos_user_id;
+      if (user && user.is_active !== false && !user.blocked_at && typeof id === 'string' && WORKOS_USER_ID.test(id)) {
+        subject = id;
+      }
+    } catch (error) {
+      const status = (error as { status?: unknown } | null)?.status;
+      this.log.warn(`could not read the WorkOS user id of ${upstream.sub}: ${error instanceof Error ? error.name : 'error'}${typeof status === 'number' ? ` ${status}` : ''}`);
+    }
+    this.subjectLookups.delete(upstream.sub);
+    this.subjectLookups.set(upstream.sub, { until: now + (subject ? SUBJECT_LOOKUP_TTL_MS : SUBJECT_MISS_TTL_MS), subject });
+    while (this.subjectLookups.size > SUBJECT_LOOKUP_MAX) this.subjectLookups.delete(this.subjectLookups.keys().next().value as string);
+    return subject;
   }
 
   /** Find (or JIT-create) the local account projected from the token's account_id. */

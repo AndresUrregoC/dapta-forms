@@ -72,6 +72,22 @@ export interface ResolvedHost {
    * (`member.idp_subject`), so an MCP sign-in as the same person finds it.
    */
   idpSubject?: string;
+  /**
+   * For a session token that carries no usable `idpSubject` (an older or
+   * migrated session): reads the person's own user row from the identity
+   * service, with their own bearer, and answers the subject it holds, or
+   * null. `AuthService` calls it only when the member still has no link, so
+   * an existing session links without logging out.
+   */
+  lookUpIdpSubject?: () => Promise<string | null>;
+  /**
+   * True when, on this request, the identity service has just confirmed every
+   * membership of the person (a fresh, complete, not degraded workspace
+   * projection), so every active member row bound to the person is one the
+   * web lets them use right now. `AuthService` then vouches for all of them,
+   * not only the one the request acts as.
+   */
+  confirmsMemberships?: boolean;
 }
 
 /**
@@ -85,7 +101,8 @@ export interface ResolvedHost {
 export type PrincipalVia = 'session' | 'api_key' | 'mcp_connection';
 
 /** The authenticated host, enriched with the account role for authorization. */
-export interface HostPrincipal extends Omit<ResolvedHost, 'staff' | 'personId' | 'authenticatedAt' | 'idpSubject'> {
+export interface HostPrincipal
+  extends Omit<ResolvedHost, 'staff' | 'personId' | 'authenticatedAt' | 'idpSubject' | 'lookUpIdpSubject' | 'confirmsMemberships'> {
   role: AccountRole;
   via: PrincipalVia;
   /**

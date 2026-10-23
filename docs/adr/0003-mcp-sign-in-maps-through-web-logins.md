@@ -17,3 +17,12 @@ ADR 0001 mapped an MCP sign-in's token to a person by reading the identity servi
 - Keep reading the identity database: the dependency and the shared credential are what failed.
 - Ask the identity service over HTTP with a service key for each sign-in: dForms would hold a credential that reads every person and workspace, for a mapping the session token already gives it.
 - Staff search over the identity service's HTTP API with that key: same credential, and the door has no session email it can trust to judge staff. Left out; it can come back if staff need it, behind its own decision.
+
+## Amendment (2026-10-23, after the first day in production)
+
+Four consequences above proved wrong for customers and are changed, still with no identity database and no shared credential:
+
+- **Any active role connects**, as before this ADR. Each tool call applies the member's live role, as on the web. The dashboard no longer creates API keys, so restricting sign-ins to owners and admins left plain members with no way in.
+- **One visit links every workspace.** When the identity service has just confirmed all of a person's memberships (a fresh, complete, not degraded projection), the web request stamps every one of them, not only the one it acts in.
+- **Older sessions link without logging out.** A session token with no usable WorkOS id (older or migrated sessions) makes the API read the person's own user row from the identity service with that person's own bearer (the identity service answers a user token only about that same user), only while the member has no link yet. The answer counts only from an active, unblocked row with that id and a real WorkOS id.
+- **Staff reach the workspaces they entered as staff, for a day.** A web request that proves the person is staff stamps all of their staff access grants; a sign-in reaches each grant while that stamp is under a day old. So a person who stops being staff loses those workspaces over MCP within a day, not the link window. There is still no search over, or entry into, other workspaces from a sign-in.

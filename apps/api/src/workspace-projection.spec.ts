@@ -44,6 +44,8 @@ class FakeIam {
   calls: Array<{ method: string; path: string; body?: unknown }> = [];
   down = false;
   lastWorkspace: string | null = null;
+  /** What the caller's own user row says (`GET /user/:id`); null = the route answers 404. */
+  user: { workos_user_id?: string | null; is_active?: boolean; blocked_at?: string | null } | null = null;
   workspaces: IamWorkspace[] = [];
 
   fetch: typeof fetch = async (input, init) => {
@@ -61,6 +63,12 @@ class FakeIam {
     if (method === 'PUT' && url.pathname === `/iam/account/${IAM_ACCOUNT}`) {
       this.lastWorkspace = body?.feature_flags?.last_workspace ?? null;
       return json({ ok: true });
+    }
+    if (method === 'GET' && url.pathname.startsWith('/iam/user/')) {
+      const id = decodeURIComponent(url.pathname.slice('/iam/user/'.length));
+      // The identity service answers a user token only about that same user.
+      if (id !== SUB) return new Response('{}', { status: 403 });
+      return this.user ? json({ id: SUB, email: 'a@example.com', ...this.user }) : new Response('{}', { status: 404 });
     }
     if (method === 'GET' && url.pathname === '/iam/workspace/search') {
       return json({ data: this.workspaces, total: this.workspaces.length, totalPages: 1 });
@@ -292,6 +300,46 @@ describe('workspace projection (IAM-backed workspaces)', () => {
     expect(put).toBeDefined();
     expect((put!.body as { feature_flags: { last_workspace: string } }).feature_flags.last_workspace).toBe(WS_INVITED);
   });
+  it('links an older session through the person\'s own user row, and one visit reaches every workspace the identity service confirmed', async () => {
+    const workosUser = 'user_01HOLDSESSIONSPEC000000000';
+    const iat = Math.floor(Date.now() / 1000) - 5;
+    // An older session: no workos_user_id in the token, or the migration placeholder.
+    const token = signJwtHs256(
+      { sub: SUB, account_id: IAM_ACCOUNT, email: 'a@example.com', name: 'Alex', iat, exp: 4102444800, workos_user_id: 'pending_workos_sync' },
+      SECRET,
+    );
+    iam.user = { workos_user_id: workosUser, is_active: true };
+    await auth.resolveHost(asReq(token));
+    const rows = await db.all<{ idp_subject: string | null; login_seen_at: number | string | null }>(
+      sql`SELECT idp_subject, login_seen_at FROM member WHERE external_id = ${SUB}`,
+    );
+    expect(rows).toHaveLength(2);
+    // Both memberships vouched for at once, the subject on the one the request acted in.
+    expect(rows.every((r) => Number(r.login_seen_at) === iat * 1000)).toBe(true);
+    expect(rows.filter((r) => r.idp_subject === workosUser)).toHaveLength(1);
+    expect((await membershipsBySubject(db, workosUser, iat * 1000 - 1)).map((m) => m.accountId)).toHaveLength(2);
+    expect(iam.calls.filter((c) => c.path.startsWith('/iam/user/'))).toHaveLength(1);
+  });
+
+  it('takes nothing from a user row that is inactive, blocked, or holds no real WorkOS id', async () => {
+    const token = signJwtHs256({ sub: SUB, account_id: IAM_ACCOUNT, email: 'a@example.com', name: 'Alex', iat: Math.floor(Date.now() / 1000), exp: 4102444800 }, SECRET);
+    for (const user of [
+      { workos_user_id: 'user_01HINACTIVE000000000000000', is_active: false },
+      { workos_user_id: 'user_01HBLOCKED0000000000000000', is_active: true, blocked_at: '2026-10-01T00:00:00Z' },
+      { workos_user_id: 'pending_workos_sync', is_active: true },
+    ]) {
+      iam.user = user;
+      // A fresh provider each time: the lookup is kept per person for a while.
+      const fresh = new AuthService(
+        db,
+        new WorkOsAuthProvider(db, { JWT_SECRET: SECRET, JWT_ISSUER: undefined, JWT_AUDIENCE: undefined, SEED_DEMO_FORM: false, ONBOARDING_WIZARD: false }, undefined, projection),
+      );
+      await fresh.resolveHost(asReq(token));
+      const linked = await db.all<{ id: string }>(sql`SELECT id FROM member WHERE idp_subject IS NOT NULL`);
+      expect(linked, JSON.stringify(user)).toHaveLength(0);
+    }
+  });
+
   it('records the WorkOS user id the session carries on each workspace the person opens, so an MCP sign-in reaches them', async () => {
     const workosUser = 'user_01HPROJECTIONSPEC000000000';
     const iat = Math.floor(Date.now() / 1000) - 5;

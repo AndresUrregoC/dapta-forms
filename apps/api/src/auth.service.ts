@@ -8,6 +8,7 @@ import {
   listWorkspacesForIdentity,
   memberIdpLink,
   noteMemberLogin,
+  notePersonLogins,
   recordMemberIdpSubject,
   touchMemberLastSeen,
   type MemberIdentity,
@@ -21,6 +22,7 @@ import type { RateLimiter } from './rate-limit';
 import { API_KEY_RATE_LIMITER, AUTH_PROVIDER, DB, ENV } from './tokens';
 import { header, type AuthProvider, type HostPrincipal, type ReqLike, type ResolvedHost } from './auth.provider';
 import { inProcessPrincipalOf, oncePerCall, type InProcessPrincipal } from './in-process-principal';
+import { STAFF_GRANT_REFRESH_MS } from './staff';
 
 export type { HostPrincipal, PrincipalVia, ReqLike } from './auth.provider';
 export { isAgentPrincipal, isApiKeyPrincipal } from './auth.provider';
@@ -39,6 +41,9 @@ export const LOGIN_SEEN_REFRESH_MS = 86_400_000;
 export function loginSeenRefreshMs(maxAgeDays: number): number {
   return Math.min(LOGIN_SEEN_REFRESH_MS, (maxAgeDays * 86_400_000) / 4);
 }
+
+/** How often one person's rows are vouched for together, per pod, at most. */
+const PERSON_VOUCH_THROTTLE_MS = 5 * 60_000;
 
 /** The error code a failed write carries (the driver's, under the query builder's wrapper), never its message. */
 function errorCode(error: unknown): string {
@@ -103,6 +108,8 @@ export class AuthService {
 
   private readonly apiKeys: ApiKeyAuthenticator;
   private readonly loginSeenRefreshMs: number;
+  /** Per person and kind of rows: when they were last vouched for together on this pod. */
+  private readonly personVouchedAt = new Map<string, number>();
   private readonly logger = new Logger('Auth');
   /** Where audit lines go (one JSON object per line). A field so specs can read it. */
   auditSink: (line: string) => void = (line) => this.logger.log(line);
@@ -180,6 +187,7 @@ export class AuthService {
       const member = await getAccountMember(this.db, home.accountId, home.memberId);
       if (member?.accessGrant === 'staff' && !staff) throw workspaceForbidden();
       if (member && member.accessGrant === null) await this.noteVerifiedLogin(home, home.accountId, home.memberId);
+      await this.notePersonVouched(home);
       return {
         accountId: home.accountId,
         memberId: home.memberId,
@@ -201,6 +209,7 @@ export class AuthService {
     // Checked against the person the token names: the switch also matches a
     // row by email, and such a row may belong to someone else.
     if (membership.accessGrant === null) await this.noteVerifiedLogin(home, membership.accountId, membership.memberId);
+    await this.notePersonVouched(home);
     return {
       accountId: membership.accountId,
       memberId: membership.memberId,
@@ -237,14 +246,17 @@ export class AuthService {
    */
   private async noteVerifiedLogin(home: ResolvedHost, accountId: string, memberId: string): Promise<void> {
     const person = home.personId;
-    const subject = home.idpSubject;
+    let subject = home.idpSubject;
     const vouchedAt = typeof home.authenticatedAt === 'number' ? Math.min(home.authenticatedAt, Date.now()) : null;
-    if (!person || (!subject && vouchedAt === null)) return;
+    if (!person || (!subject && !home.lookUpIdpSubject && vouchedAt === null)) return;
     try {
       const link = await memberIdpLink(this.db, accountId, memberId);
       // A row no login bound to a person names nobody (an MCP sign-in never
       // reaches it), and a row bound to someone else is theirs to vouch for.
       if (!link || link.externalId !== person) return;
+      // An older session token carries no usable subject: read it from the
+      // person's own user row, only while the member has no link yet.
+      if (!subject && !link.idpSubject && home.lookUpIdpSubject) subject = (await home.lookUpIdpSubject()) ?? undefined;
       if (subject && subject !== link.idpSubject) {
         const out = await recordMemberIdpSubject(this.db, accountId, memberId, subject, vouchedAt);
         if (out.written) {
@@ -264,6 +276,45 @@ export class AuthService {
     } catch (error) {
       // The code only: a constraint message would carry the subject itself.
       this.logger.warn(`could not record the sign-in link of member ${memberId}: ${errorCode(error)}`);
+    }
+  }
+
+  /**
+   * Vouch for several rows of the person at once, on a request that proved
+   * they may use them right now (same token issue time, never backwards):
+   *
+   *   - every active real membership, when the identity service has just
+   *     confirmed all of them (`confirmsMemberships`), so one visit to the web
+   *     app reaches every workspace of theirs over MCP, not only the one it
+   *     opened;
+   *   - every active staff access grant, when the provider proved on this
+   *     request that the person is staff (`staff`), so the workspaces they
+   *     entered as staff stay reachable over MCP for `STAFF_GRANT_MAX_AGE_MS`
+   *     after their last such visit, and no longer.
+   *
+   * At most once every few minutes per person and kind, per pod. Never costs
+   * the request: a failure is logged by its code.
+   */
+  private async notePersonVouched(home: ResolvedHost): Promise<void> {
+    const person = home.personId;
+    const vouchedAt = typeof home.authenticatedAt === 'number' ? Math.min(home.authenticatedAt, Date.now()) : null;
+    if (!person || vouchedAt === null) return;
+    const kinds: Array<['memberships' | 'staffGrants', number]> = [];
+    if (home.confirmsMemberships === true) kinds.push(['memberships', this.loginSeenRefreshMs]);
+    if (home.staff === true) kinds.push(['staffGrants', STAFF_GRANT_REFRESH_MS]);
+    const now = Date.now();
+    for (const [rows, step] of kinds) {
+      const key = `${rows}:${person}`;
+      const last = this.personVouchedAt.get(key);
+      if (last !== undefined && now - last < PERSON_VOUCH_THROTTLE_MS) continue;
+      this.personVouchedAt.delete(key);
+      this.personVouchedAt.set(key, now);
+      while (this.personVouchedAt.size > 20_000) this.personVouchedAt.delete(this.personVouchedAt.keys().next().value as string);
+      try {
+        await notePersonLogins(this.db, person, rows, vouchedAt, step);
+      } catch (error) {
+        this.logger.warn(`could not vouch for the ${rows} of a person: ${errorCode(error)}`);
+      }
     }
   }
 
