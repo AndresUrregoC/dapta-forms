@@ -22,7 +22,7 @@ export const dynamic = 'force-dynamic';
  * sign-in (`mcpOauthEnabled`, which also requires that address, the audience
  * the API checks every token against); otherwise a note says the connector is
  * not available on this deployment. Where dForms' Claude directory listing
- * connects to this MCP (`MCP_CLAUDE_DIRECTORY_URL`), Claude's tab starts there.
+ * connects to this MCP (`claudeDirectoryUrl`), Claude's tab starts there.
  *
  * API keys have no place in the dashboard any more: none is created, listed
  * or revoked here. Keys that already exist keep working with the REST API.

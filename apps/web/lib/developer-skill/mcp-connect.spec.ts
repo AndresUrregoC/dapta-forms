@@ -78,7 +78,7 @@ describe('claudeDirectoryUrl', () => {
     expect(claudeDirectoryUrl({ MCP_CLAUDE_DIRECTORY_URL: ` ${LISTING}/?ref=x#top ` })).toBe(LISTING);
   });
 
-  it('is null when unset, blank, not a URL or not https, so dev and self-hosted keep the custom connector', () => {
+  it('is null when unset, blank, not a URL or not https, on an address with no listing', () => {
     expect(claudeDirectoryUrl({})).toBeNull();
     expect(claudeDirectoryUrl({ MCP_CLAUDE_DIRECTORY_URL: '  ' })).toBeNull();
     expect(claudeDirectoryUrl({ MCP_CLAUDE_DIRECTORY_URL: 'dforms' })).toBeNull();
@@ -87,6 +87,18 @@ describe('claudeDirectoryUrl', () => {
 
   it('never reads a build-time NEXT_PUBLIC_ variable', () => {
     expect(claudeDirectoryUrl({ NEXT_PUBLIC_MCP_CLAUDE_DIRECTORY_URL: LISTING })).toBeNull();
+  });
+
+  it('knows the dForms listing for the hosted MCP with no setting, and only for that address', () => {
+    expect(claudeDirectoryUrl({ MCP_PUBLIC_URL: 'https://mcp.dforms.ai/mcp' })).toBe(LISTING);
+    expect(claudeDirectoryUrl({ MCP_PUBLIC_URL: 'https://mcp.dforms.ai/mcp/' })).toBe(LISTING);
+    expect(claudeDirectoryUrl({ MCP_PUBLIC_URL: 'https://mcp.dev.dforms.ai/mcp' })).toBeNull();
+    expect(claudeDirectoryUrl({ MCP_PUBLIC_URL: 'https://mcp.forms.example.com/mcp' })).toBeNull();
+  });
+
+  it('lets a fork listed under its own address point at its own listing', () => {
+    const own = 'https://claude.ai/directory/acme-forms';
+    expect(claudeDirectoryUrl({ MCP_PUBLIC_URL: 'https://mcp.acme.example/mcp', MCP_CLAUDE_DIRECTORY_URL: own })).toBe(own);
   });
 
   it('rides along in the snippets, null by default', () => {

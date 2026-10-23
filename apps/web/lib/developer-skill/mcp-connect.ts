@@ -60,16 +60,27 @@ export function mcpOauthEnabled(env: Record<string, string | undefined> = proces
 }
 
 /**
- * dForms' page in Claude's connectors directory, when this deployment's MCP is
- * the one that listing connects to. Read at RUNTIME from
- * `MCP_CLAUDE_DIRECTORY_URL` and set only where it matches: the listing points
- * at one MCP address, so a dev or self-hosted deployment that showed it would
- * send people to someone else's server. Unset, blank or not an https URL: null,
- * and the guide keeps the custom connector as Claude's only path.
+ * The connector listings in Claude's directory, by the MCP address each one
+ * connects to. dForms is listed for its hosted MCP only, so its own
+ * deployment shows the listing with no setting, while a dev or self-hosted
+ * deployment (another address) never sends people to someone else's server.
+ */
+const CLAUDE_DIRECTORY_LISTINGS: Record<string, string> = {
+  'https://mcp.dforms.ai/mcp': 'https://claude.ai/directory/dforms',
+};
+
+/**
+ * The connector's page in Claude's directory for this deployment's MCP, or
+ * null. Read at RUNTIME: `MCP_CLAUDE_DIRECTORY_URL` (https only) for a fork
+ * listed under its own address; otherwise the listing known for
+ * `MCP_PUBLIC_URL`. Null and the guide keeps the custom connector as
+ * Claude's only path.
  */
 export function claudeDirectoryUrl(env: Record<string, string | undefined> = process.env): string | null {
-  const url = cleanPublicUrl(env.MCP_CLAUDE_DIRECTORY_URL);
-  return url?.startsWith('https://') ? url : null;
+  const explicit = cleanPublicUrl(env.MCP_CLAUDE_DIRECTORY_URL);
+  if (explicit?.startsWith('https://')) return explicit;
+  const mcp = cleanPublicUrl(env.MCP_PUBLIC_URL);
+  return (mcp && CLAUDE_DIRECTORY_LISTINGS[mcp]) ?? null;
 }
 
 /** The single entry Cursor stores under `mcpServers.dforms`: the URL alone, Cursor runs the sign-in. */
