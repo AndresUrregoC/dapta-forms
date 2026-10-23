@@ -217,10 +217,17 @@ export class IamWorkspacesClient {
    * The caller's OWN user row. The identity service answers it only to that
    * same person (its `GET /user/:id` refuses any other id for a user token),
    * so this reads nothing about anyone else and needs no privileged key. Null
-   * when the answer is not a user row with that id.
+   * when the answer is not a user row with that id, a 404 included (a definite
+   * answer, not an outage).
    */
   async getUser(bearer: string, userId: string, opts: { timeoutMs?: number } = {}): Promise<IamUser | null> {
-    const res = await this.call<unknown>(bearer, 'GET', `/user/${encodeURIComponent(userId)}`, undefined, opts.timeoutMs);
+    let res: unknown;
+    try {
+      res = await this.call<unknown>(bearer, 'GET', `/user/${encodeURIComponent(userId)}`, undefined, opts.timeoutMs);
+    } catch (error) {
+      if (error instanceof IamHttpError && error.status === 404) return null;
+      throw error;
+    }
     // Some identity-service answers are wrapped in `data`; take either shape.
     const body = res && typeof res === 'object' && 'data' in res ? (res as { data: unknown }).data : res;
     if (!body || typeof body !== 'object' || Array.isArray(body)) return null;

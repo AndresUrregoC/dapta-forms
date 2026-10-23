@@ -331,6 +331,7 @@ describe('workspace projection (IAM-backed workspaces)', () => {
     const token = signJwtHs256({ sub: SUB, account_id: IAM_ACCOUNT, email: 'a@example.com', name: 'Alex', iat: Math.floor(Date.now() / 1000), exp: 4102444800 }, SECRET);
     for (const user of [
       { workos_user_id: 'user_01HINACTIVE000000000000000', is_active: false },
+      { workos_user_id: 'user_01HNOACTIVEFLAG00000000000' },
       { workos_user_id: 'user_01HDELETED0000000000000000', is_active: true, deleted_at: '2026-10-01T00:00:00Z' },
       { workos_user_id: 'pending_workos_sync', is_active: true },
     ]) {

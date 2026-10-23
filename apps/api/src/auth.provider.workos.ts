@@ -215,8 +215,8 @@ export class WorkOsAuthProvider implements AuthProvider {
   /**
    * The WorkOS user id on the person's own user row in the identity service,
    * read with their own bearer (the identity service answers a user token only
-   * about that same user). Taken only from an active (a blocked user is
-   * inactive), not deleted row whose id is the token's `sub`, and only when it
+   * about that same user). Taken only from a row marked active (a blocked user
+   * is inactive; a missing flag is not active), not deleted, whose id is the token's `sub`, and only when it
    * is a real WorkOS id. Never throws: a failure is logged by class and
    * status and links nothing this time. `AuthService` still checks that no one
    * else's member carries the answer before recording it.
@@ -230,7 +230,8 @@ export class WorkOsAuthProvider implements AuthProvider {
     try {
       const user = await this.projection!.iam.getUser(upstream.bearer, upstream.sub, { timeoutMs: SUBJECT_LOOKUP_TIMEOUT_MS });
       const id = user?.workos_user_id;
-      if (user && user.is_active !== false && !user.deleted_at && !user.blocked_at && typeof id === 'string' && WORKOS_USER_ID.test(id)) {
+      // Fails closed: only a row the identity service affirmatively marks active.
+      if (user && user.is_active === true && !user.deleted_at && !user.blocked_at && typeof id === 'string' && WORKOS_USER_ID.test(id)) {
         subject = id;
       }
     } catch (error) {
