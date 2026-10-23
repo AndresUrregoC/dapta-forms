@@ -66,8 +66,11 @@ start of the text summary.
   `member` role, reached only by a staff access grant, or one that does not
   exist) answers `NOT_FOUND` with the same message in every case, so nothing
   about that workspace leaks.
-- A sign-in that reaches no such workspace is refused at the door with a 403
-  that says to open dForms once with that account, then connect again.
+- A workspace counts once the person opens it in dForms on the web (the
+  switcher counts) within the link window; one they have not opened there
+  answers `NOT_FOUND` like any other. A sign-in that reaches no such
+  workspace is refused at the door with a 403 that says to open the
+  workspace in dForms with that account, then connect again.
 - The role is the member's role in the workspace the call names, read live on
   every call.
 
@@ -363,8 +366,9 @@ the login, registers the client and issues the token; dForms verifies it.
   revoked key gets the key's 401, which never points at the login.
 - **Who it acts as.** The token's `sub` is the person's WorkOS user id. The
   identity service's session token carries the same id (`workos_user_id`),
-  and every verified web request records it on the member it acts as
-  (`member.idp_subject`, written only when missing or different) and stamps
+  and every verified web request records it on the member it acts as, when
+  that member is bound to the same person the session token names
+  (`member.idp_subject`, written only when missing or different), and stamps
   when the identity service vouched for that member (`member.login_seen_at`,
   the session token's issue time, renewed about once a day). A sign-in maps
   to the members carrying its `sub` and the same person's members in other
@@ -376,15 +380,15 @@ the login, registers the client and issues the token; dForms verifies it.
   workspace it names (see [Choosing a workspace](#choosing-a-workspace)),
   with the member's live role, under every rule an API key gets.
 - **Refusals.** A sign-in that reaches no such member (never used the web
-  app, not seen there within the window, or not an owner or admin anywhere)
-  gets a 403 that says to open dForms once with that account, then connect
-  again; a `sub` that two different people carry gets a 403 that says to
+  app, not seen there within the window, or not an owner or admin in any
+  workspace it opened) gets a 403 that says to open the workspace in dForms
+  with that account, then connect again; a `sub` that two different people carry gets a 403 that says to
   contact support. Never a 401, which would only loop the login. The API logs
   one line per refusal (`mcp.oauth_refused` and the reason: `not_linked`,
   `not_active_admin` or `ambiguous`), never the token or the `sub`.
 - **Existing members.** Nobody carries the link before the first verified web
-  request after this release; each person links on their next visit to the
-  web app, with no new login.
+  request after this release. Each workspace links when the person next opens
+  it in the web app, with no new login.
 - **Limits and audit.** The MCP buckets count per member of the workspace a
   call acts in, so one person's clients share a budget per workspace; a request
   that acts in none (the handshake, the tool list) counts against the person.

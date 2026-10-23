@@ -152,7 +152,7 @@ describe('signing in', () => {
     const h = await boot();
     const unknown = await h.post(initialize('2025-06-18'), { authorization: `Bearer ${idp.token('user_unknown', `${h.base}/mcp`)}` });
     expect(unknown.status).toBe(403);
-    expect(((await unknown.json()) as { error: { message: string } }).error.message).toMatch(/not an owner or admin of any dForms workspace yet: open dForms once/i);
+    expect(((await unknown.json()) as { error: { message: string } }).error.message).toMatch(/not an owner or admin of any dForms workspace opened with this account in the last 30 days: open the workspace in dForms/i);
     expect(unknown.headers.get('www-authenticate')).toBeNull();
     expect(h.oauthLog.map((l) => JSON.parse(l) as unknown)).toEqual([{ msg: 'mcp.oauth_refused', reason: 'not_linked' }]);
     for (const line of h.oauthLog) expect(line).not.toContain('user_unknown');
@@ -171,7 +171,7 @@ describe('the link a web login records', () => {
     const unlinked = await person(h, 'admin', h.accountId, null);
     const c = await h.signIn(idp.client(linked.subject));
     expect(structured<{ member: { id: string } }>(await c.callTool({ name: 'whoami', arguments: {} })).member.id).toBe(linked.memberId);
-    expect(await refused(h, unlinked.subject)).toMatchObject({ status: 403, message: expect.stringMatching(/open dForms once/) });
+    expect(await refused(h, unlinked.subject)).toMatchObject({ status: 403, message: expect.stringMatching(/open the workspace in dForms/) });
   });
 
   it('refuses a link whose last verified web login is older than the window, and honors it again once the person comes back', async () => {
@@ -232,7 +232,7 @@ describe('a web login, then an MCP sign-in, end to end', () => {
     expect(who).toMatchObject({ workspace: { id: row!.account_id }, member: { id: row!.id } });
   });
 
-  it("reaches a second workspace the person opened on the web, never someone else's row that shares their email", async () => {
+  it("reaches a second workspace the person opened on the web, not one they never opened, never someone else's row that shares their email", async () => {
     const h = await boot(workos);
     const iamUser = randomUUID();
     const workosUser = `user_01${randomUUID().replaceAll('-', '').slice(0, 24).toUpperCase()}`;
@@ -244,6 +244,13 @@ describe('a web login, then an MCP sign-in, end to end', () => {
     await h.db.run(
       sql`INSERT INTO member (id, account_id, external_id, email, role, status, created_at)
           VALUES (${own}, ${h.other.accountId}, ${iamUser}, ${email}, 'admin', 'active', ${Date.now()})`,
+    );
+    // Initech: the person's own admin row, never opened on the web.
+    const initech = randomUUID();
+    await h.db.run(sql`INSERT INTO account (id, code, name, created_at) VALUES (${initech}, ${`i${initech.slice(0, 6)}`}, 'Initech', ${Date.now()})`);
+    await h.db.run(
+      sql`INSERT INTO member (id, account_id, external_id, email, role, status, created_at)
+          VALUES (${randomUUID()}, ${initech}, ${iamUser}, ${email}, 'admin', 'active', ${Date.now()})`,
     );
     // Acme: a row bound to another person that still carries this email.
     const theirs = randomUUID();
@@ -262,6 +269,8 @@ describe('a web login, then an MCP sign-in, end to end', () => {
     const listed = structured<{ workspaces: Array<{ id: string }> }>(await c.callTool({ name: 'list_my_workspaces', arguments: {} }));
     expect(listed.workspaces.map((w) => w.id)).not.toContain(h.accountId);
     expect(listed.workspaces.map((w) => w.id)).toContain(h.other.accountId);
+    // A workspace of theirs never opened on the web is not reached yet.
+    expect(listed.workspaces.map((w) => w.id)).not.toContain(initech);
     expect(listed.workspaces).toHaveLength(2);
   });
 

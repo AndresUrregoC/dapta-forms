@@ -20,7 +20,6 @@ import {
   BackendError,
   DoorRefusal,
   DoorUnavailable,
-  openDFormsOnce,
   type AnalyticsQuery,
   type CoreFormsBackend,
   type CreateFormInput,
@@ -149,10 +148,15 @@ const DEFAULT_LINK_MAX_AGE_MS = 30 * 86_400_000;
 /**
  * Why a verified sign-in reaches no workspace. Signing in again would not
  * change it, so it is a 403 the person can act on, never a 401 that loops the
- * login. The same words as the sibling calendars product, in dForms' terms.
+ * login: each workspace counts once the person opens it in dForms on the web
+ * within the link window, as an owner or admin. The sibling calendars
+ * product's words, in dForms' terms.
  */
-function notLinked(appUrl: string): DoorRefusal {
-  return new DoorRefusal(`This sign-in is not an owner or admin of any dForms workspace yet: ${openDFormsOnce(appUrl, 'connect again')}`);
+function notLinked(appUrl: string, linkMaxAgeMs: number): DoorRefusal {
+  const days = Math.max(1, Math.round(linkMaxAgeMs / 86_400_000));
+  return new DoorRefusal(
+    `This sign-in is not an owner or admin of any dForms workspace opened with this account in the last ${days} days: open the workspace in dForms${appUrl ? ` (${appUrl})` : ''}, then connect again.`,
+  );
 }
 
 /**
@@ -199,7 +203,8 @@ export async function authenticateMcpConnection(
   }
   if (!access) return null;
   const now = opts.now?.() ?? Date.now();
-  const rows = await membershipsBySubject(db, access.subject, now - (opts.linkMaxAgeMs ?? DEFAULT_LINK_MAX_AGE_MS));
+  const linkMaxAgeMs = opts.linkMaxAgeMs ?? DEFAULT_LINK_MAX_AGE_MS;
+  const rows = await membershipsBySubject(db, access.subject, now - linkMaxAgeMs);
   // The reason only, never the subject or the token.
   const refuse = (reason: 'ambiguous' | 'not_linked' | 'not_active_admin'): void => log(JSON.stringify({ msg: 'mcp.oauth_refused', reason }));
   if (new Set(rows.map((r) => r.externalId)).size > 1) {
@@ -210,7 +215,7 @@ export async function authenticateMcpConnection(
   const first = allowed[0];
   if (!first) {
     refuse(rows.length === 0 ? 'not_linked' : 'not_active_admin');
-    throw notLinked(opts.appUrl ?? '');
+    throw notLinked(opts.appUrl ?? '', linkMaxAgeMs);
   }
   const person: Person = { id: first.externalId, email: first.email };
   const label = `oauth:${person.id}`;

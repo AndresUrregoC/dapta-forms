@@ -23,6 +23,8 @@ let homeAccountId: string;
 let homeMemberId: string;
 /** What the next session token vouches for, on top of who the dev stub resolves. */
 let vouch: Pick<ResolvedHost, 'idpSubject' | 'authenticatedAt'>;
+/** The person the session token names (undefined: a provider that names nobody). */
+let person: string | undefined;
 let audit: string[];
 let auth: AuthService;
 
@@ -64,9 +66,10 @@ beforeEach(async () => {
     ONBOARDING_WIZARD: false,
   });
   vouch = { idpSubject: SUBJECT, authenticatedAt: Date.now() - 1_000 };
+  person = PERSON;
   const provider: AuthProvider = {
     name: 'spec',
-    resolveHost: async (req) => ({ ...(await local.resolveHost(req)), ...vouch }),
+    resolveHost: async (req) => ({ ...(await local.resolveHost(req)), personId: person, ...vouch }),
   };
   auth = new AuthService(db, provider);
   audit = [];
@@ -102,6 +105,15 @@ describe('a verified web request', () => {
     expect(audit.every((l) => !l.includes(theirs.memberId))).toBe(true);
   });
 
+  it('writes nothing on a home member bound to someone else than the person the token names, or when it names nobody', async () => {
+    person = 'iam_someone_else';
+    await auth.resolveHost(as());
+    expect(await linkOf(homeMemberId)).toEqual({ idp_subject: null, login_seen_at: null });
+    person = undefined;
+    await auth.resolveHost(as());
+    expect(await linkOf(homeMemberId)).toEqual({ idp_subject: null, login_seen_at: null });
+  });
+
   it('never records anything on a row no login bound to a person, reached by email on the web', async () => {
     const unbound = await otherWorkspace('Unbound', null, null);
     await auth.resolveHost(as(unbound.accountId));
@@ -112,7 +124,7 @@ describe('a verified web request', () => {
     const grant = await otherWorkspace('Customer', 'staff');
     const staff = new AuthService(db, {
       name: 'spec-staff',
-      resolveHost: async () => ({ accountId: grant.accountId, memberId: grant.memberId, staff: true, ...vouch }),
+      resolveHost: async () => ({ accountId: grant.accountId, memberId: grant.memberId, staff: true, personId: PERSON, ...vouch }),
     });
     await staff.resolveHost({ headers: {} });
     expect(await linkOf(grant.memberId)).toEqual({ idp_subject: null, login_seen_at: null });

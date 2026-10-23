@@ -131,9 +131,10 @@ export interface SubjectMembership {
  *
  * The link is per person. The members carrying the subject name the person's
  * upstream user id (`external_id`, the same in every account they belong to),
- * and that person's members in other accounts count too: the subject is
- * recorded on the member a web request resolves, so a workspace the person
- * opens less often may not carry it yet. Should two upstream users carry the
+ * and that person's members in other accounts count too, each while its own
+ * stamp is fresh: the subject and the stamp land on the member a web request
+ * acts as, so a workspace counts once the person opens it on the web within
+ * the window. Should two upstream users carry the
  * same subject, both are returned (each with its `externalId`), and the caller
  * decides; dForms' MCP door refuses that sign-in rather than guess.
  *

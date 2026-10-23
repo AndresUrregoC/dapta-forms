@@ -51,6 +51,14 @@ export interface ResolvedHost {
    */
   staff?: boolean;
   /**
+   * The person the session token names: the identity service's user id,
+   * what members carry as `external_id`. With `authenticatedAt` or
+   * `idpSubject` it says whose rows they may be written on: `AuthService`
+   * writes them only on a member bound to this person. Absent: nothing is
+   * written.
+   */
+  personId?: string;
+  /**
    * When the identity service minted the session token this request carries
    * (its `iat`, epoch ms), or null when the token does not say. Absent: the
    * provider vouches for nothing (the dev stub). `AuthService` stamps
@@ -77,7 +85,7 @@ export interface ResolvedHost {
 export type PrincipalVia = 'session' | 'api_key' | 'mcp_connection';
 
 /** The authenticated host, enriched with the account role for authorization. */
-export interface HostPrincipal extends Omit<ResolvedHost, 'staff' | 'authenticatedAt' | 'idpSubject'> {
+export interface HostPrincipal extends Omit<ResolvedHost, 'staff' | 'personId' | 'authenticatedAt' | 'idpSubject'> {
   role: AccountRole;
   via: PrincipalVia;
   /**

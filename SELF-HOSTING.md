@@ -239,7 +239,7 @@ defaults below.
 | `MCP_OAUTH_PROVIDER` | _(unset: API keys only)_ | `workos` lets chat apps sign in through your WorkOS AuthKit (see [`docs/MCP.md`](docs/MCP.md)); then the two values below are required, and a missing or malformed one refuses to boot. A token's subject maps to the members whose web login recorded it: no identity database is read | no |
 | `WORKOS_AUTHKIT_DOMAIN` | _(unset)_ | `MCP_OAUTH_PROVIDER` is set: the AuthKit issuer, an https origin with no path | no |
 | `MCP_PUBLIC_URL` | _(unset)_ | `MCP_OAUTH_PROVIDER` is set: the `/mcp` endpoint customers reach, registered as a resource with AuthKit; every token's audience. The web app reads the same name | no |
-| `OAUTH_LINK_MAX_AGE_DAYS` | `30` | `MCP_OAUTH_PROVIDER` is set: how many days after a member's last verified web login an MCP sign-in may still act as that member (1 to 365) | no |
+| `OAUTH_LINK_MAX_AGE_DAYS` | `30` | how many days after a member's last verified web login an MCP sign-in may still act as that member (1 to 365). Checked at boot even with `MCP_OAUTH_PROVIDER` unset, and read by the web side for how often a login renews the stamp | no |
 
 ### Deprecated API hosts (API, optional)
 

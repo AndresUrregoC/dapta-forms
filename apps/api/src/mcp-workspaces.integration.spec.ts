@@ -48,7 +48,7 @@ const LEAD = {
 };
 
 /** The refusal a verified sign-in with no owner or admin workspace gets, at connect. */
-const NOT_LINKED = `This sign-in is not an owner or admin of any dForms workspace yet: open dForms once with this account (${APP_URL}), then connect again.`;
+const NOT_LINKED = `This sign-in is not an owner or admin of any dForms workspace opened with this account in the last 30 days: open the workspace in dForms (${APP_URL}), then connect again.`;
 
 type Role = 'owner' | 'admin' | 'member';
 
@@ -375,7 +375,7 @@ describe('mid-session', () => {
 
     // The last admin workspace disabled: the next request is refused like a fresh sign-in.
     await h.db.run(sql`UPDATE member SET status = 'disabled' WHERE id = ${p.acmeMember}`);
-    await expect(c.callTool({ name: 'list_my_workspaces', arguments: {} })).rejects.toThrow(/open dForms once/);
+    await expect(c.callTool({ name: 'list_my_workspaces', arguments: {} })).rejects.toThrow(/open the workspace in dForms/);
     expect(lastRefusal(h)).toEqual({ msg: 'mcp.oauth_refused', reason: 'not_active_admin' });
   });
 });
@@ -395,7 +395,7 @@ describe('one workspace, or none', () => {
     expect((forms as { content: Array<{ text: string }> }).content[0]!.text).toMatch(/^In workspace "Globex": /);
   });
 
-  it('refuses at connect, saying to open dForms once, a linked person whose only memberships are invited or disabled', async () => {
+  it('refuses at connect, saying to open the workspace in dForms, a linked person whose only memberships are invited or disabled', async () => {
     const h = await boot();
     const p = newPerson();
     await join(h, p, h.accountId, 'admin', { status: 'invited' });
@@ -405,7 +405,7 @@ describe('one workspace, or none', () => {
     // Logged as not_active_admin: the person is linked, only no member of theirs may act.
     expect(lastRefusal(h)).toEqual({ msg: 'mcp.oauth_refused', reason: 'not_active_admin' });
     // The official client gets the same words.
-    await expect(signIn(h, p.subject)).rejects.toThrow(/open dForms once/);
+    await expect(signIn(h, p.subject)).rejects.toThrow(/open the workspace in dForms/);
   });
 });
 

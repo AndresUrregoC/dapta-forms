@@ -49,10 +49,12 @@ export interface Harness {
    */
   signIn(credentials: { clientId: string; clientSecret: string }): Promise<Client>;
   /**
-   * What a verified web login of the person records (see `AuthService`): the
-   * sign-in `subject` on their oldest real member, and every real member of
-   * theirs (`external_id = personId`) stamped as vouched for at `seenAt`
-   * (now by default; an old one makes a stale link). Throws when the person
+   * What the person's verified web requests record (see `AuthService`) once
+   * they have opened EVERY workspace of theirs on the web: the sign-in
+   * `subject` on their oldest real member, and every real member of theirs
+   * (`external_id = personId`) stamped as vouched for at `seenAt` (now by
+   * default; an old one makes a stale link). A person who opened only some of
+   * them is a spec of its own, through the web path. Throws when the person
    * has no member yet.
    */
   link(subject: string, personId: string, opts?: { seenAt?: number }): Promise<void>;
