@@ -3,11 +3,15 @@
  *
  * It does NOT talk to WorkOS. Login (hosted AuthKit, social providers) lives in
  * the upstream identity service, which after login mints an HS256 platform JWT
- * (shared secret; claims `sub`, `account_id`, `email`, `name`). This provider is
- * the DOWNSTREAM validator only — it verifies that token and projects its claims
- * onto a local `{accountId, memberId}`. This is the exact split the predecessor
- * service used, and it is what makes local and remote behave identically: the
- * secret is symmetric, so there is nothing environment-specific to fetch.
+ * (shared secret; claims `sub`, `account_id`, `email`, `name`, and
+ * `workos_user_id` when the login came through WorkOS). This provider is the
+ * DOWNSTREAM validator only: it verifies that token and projects its claims
+ * onto a local `{accountId, memberId}`, and hands `AuthService` the token's
+ * issue time and `workos_user_id`, which it records on the member
+ * (`member.idp_subject`, `member.login_seen_at`) so an MCP sign-in through the
+ * same identity can find it. This is the exact split the predecessor service
+ * used, and it is what makes local and remote behave identically: the secret
+ * is symmetric, so there is nothing environment-specific to fetch.
  *
  * Because it only ever *validates* tokens (never issues them, never calls the
  * identity service or WorkOS), it cannot affect the upstream login in any way —
@@ -43,6 +47,25 @@ type WorkOsEnv = Pick<
 
 function unauthenticated(message: string): UnauthorizedException {
   return new UnauthorizedException({ error: 'UNAUTHENTICATED', message });
+}
+
+/**
+ * A WorkOS user id: `user_` and its ULID. The identity service writes a shared
+ * placeholder (`pending_workos_sync`) on some migrated sessions; anything that
+ * is not a real id is never recorded, so no placeholder can link two people.
+ */
+const WORKOS_USER_ID = /^user_[0-9A-Za-z]{10,64}$/;
+
+/**
+ * What the token vouches for beyond who the person is: when the identity
+ * service minted it (never later than now; null without `iat`), and the
+ * person's WorkOS user id when it carries a real one.
+ */
+function vouchedBy(claims: JwtClaims): { authenticatedAt: number | null; idpSubject?: string } {
+  const authenticatedAt =
+    typeof claims.iat === 'number' && Number.isFinite(claims.iat) ? Math.min(claims.iat * 1000, Date.now()) : null;
+  const subject = claims.workos_user_id;
+  return typeof subject === 'string' && WORKOS_USER_ID.test(subject) ? { authenticatedAt, idpSubject: subject } : { authenticatedAt };
 }
 
 // Account codes are 6-char short codes from @quill/db (generateUniqueShortCode)
@@ -137,7 +160,7 @@ export class WorkOsAuthProvider implements AuthProvider {
       }
       // Staff is judged again here, on the token's email, every request: the
       // auth service ignores grant rows for anyone it does not mark.
-      if (home) return { ...home, staff: this.projection.isStaff(upstream.email) };
+      if (home) return { ...home, staff: this.projection.isStaff(upstream.email), ...vouchedBy(claims) };
       // Nothing upstream and nothing local. The identity service creates a
       // workspace at signup, so this is a real fault, not a first login — and
       // minting a token-account row here would recreate exactly the pre-0015
@@ -151,7 +174,7 @@ export class WorkOsAuthProvider implements AuthProvider {
 
     const accountId = await this.resolveAccount(accountExtId, claims);
     const memberId = await this.resolveMember(accountId, sub, claims);
-    return { accountId, memberId };
+    return { accountId, memberId, ...vouchedBy(claims) };
   }
 
   /** Find (or JIT-create) the local account projected from the token's account_id. */

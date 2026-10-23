@@ -50,6 +50,20 @@ export interface ResolvedHost {
    * ignored, because grant rows are never revoked and outlive staff status.
    */
   staff?: boolean;
+  /**
+   * When the identity service minted the session token this request carries
+   * (its `iat`, epoch ms), or null when the token does not say. Absent: the
+   * provider vouches for nothing (the dev stub). `AuthService` stamps
+   * `member.login_seen_at` with it, the freshness an MCP sign-in is held to.
+   */
+  authenticatedAt?: number | null;
+  /**
+   * The person's user id at the external authorization server MCP clients
+   * sign in with, when the session token carries a well-formed one. Absent:
+   * nothing to record. `AuthService` records it on the member
+   * (`member.idp_subject`), so an MCP sign-in as the same person finds it.
+   */
+  idpSubject?: string;
 }
 
 /**
@@ -63,7 +77,7 @@ export interface ResolvedHost {
 export type PrincipalVia = 'session' | 'api_key' | 'mcp_connection';
 
 /** The authenticated host, enriched with the account role for authorization. */
-export interface HostPrincipal extends Omit<ResolvedHost, 'staff'> {
+export interface HostPrincipal extends Omit<ResolvedHost, 'staff' | 'authenticatedAt' | 'idpSubject'> {
   role: AccountRole;
   via: PrincipalVia;
   /**
