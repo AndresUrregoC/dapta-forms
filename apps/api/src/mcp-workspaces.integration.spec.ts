@@ -541,6 +541,15 @@ describe('staff of the deployment, signed in over OAuth', () => {
       /^NOT_FOUND: No workspace of yours has this id\./,
     );
 
+    // With their own membership disabled, a fresh grant reaches nothing either.
+    const r = newPerson({ domain: STAFF_DOMAIN });
+    const ownRow = await join(h, r, h.accountId, 'admin');
+    const theirGrant = await join(h, r, h.other.accountId, 'admin', { grant: 'staff' });
+    await link(h, r.subject);
+    await h.db.run(sql`UPDATE member SET login_seen_at = ${Date.now()} WHERE id = ${theirGrant}`);
+    await h.db.run(sql`UPDATE member SET status = 'disabled' WHERE id = ${ownRow}`);
+    expect(await connectRaw(h, { authorization: `Bearer ${idp.token(r.subject, `${h.base}/mcp`)}` })).toMatchObject({ status: 403 });
+
     // A person whose only row is a grant has no real member to carry the link: refused at connect.
     const q = newPerson({ domain: STAFF_DOMAIN });
     const only = await join(h, q, h.other.accountId, 'owner', { grant: 'staff' });

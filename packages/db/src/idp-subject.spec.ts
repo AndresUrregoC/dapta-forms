@@ -9,7 +9,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { createDb, sql, type Db } from './client';
 import { migrate } from './migrate';
-import { memberIdpLink, membershipsBySubject, noteMemberLogin, notePersonLogins, recordMemberIdpSubject, staffGrantsBySubject } from './idp-subject';
+import {
+  idpSubjectHeldByAnother,
+  memberIdpLink,
+  membershipsBySubject,
+  noteMemberLogin,
+  notePersonLogins,
+  recordMemberIdpSubject,
+  staffGrantsBySubject,
+} from './idp-subject';
 
 let db: Db;
 const accounts: string[] = [];
@@ -221,24 +229,35 @@ describe('membershipsBySubject', () => {
 });
 
 describe('notePersonLogins', () => {
-  it("stamps one person's active rows of one kind, at most once a refresh step, never backwards", async () => {
+  it("stamps one person's active real memberships in the given accounts only, at most once a refresh step, never backwards", async () => {
     const a = await account('A');
     const b = await account('B');
     const c = await account('C');
+    const d = await account('D');
     const person = `iam_${run}_bulk`;
     const real = await member(a, 'member', 'active', person);
     const disabled = await member(b, 'admin', 'disabled', person);
     const grant = await member(c, 'admin', 'active', person, 'staff');
+    const unconfirmed = await member(d, 'admin', 'active', person);
     const other = await member(a, 'admin', 'active', `iam_${run}_other`);
     const t0 = 10 * DAY;
-    expect(await notePersonLogins(db, person, 'memberships', t0, DAY)).toBe(1);
+    expect(await notePersonLogins(db, person, [a, b, c], t0, DAY)).toBe(1);
     expect(await seenOf(a, real)).toBe(t0);
-    for (const [acc, id] of [[b, disabled], [c, grant], [a, other]] as const) expect(await seenOf(acc, id)).toBeNull();
-    expect(await notePersonLogins(db, person, 'memberships', t0 + DAY - 1, DAY)).toBe(0);
-    expect(await notePersonLogins(db, person, 'memberships', t0 - 5, DAY)).toBe(0);
-    expect(await notePersonLogins(db, person, 'staffGrants', t0, 3_600_000)).toBe(1);
-    expect(await seenOf(c, grant)).toBe(t0);
-    expect(await seenOf(a, real)).toBe(t0);
+    for (const [acc, id] of [[b, disabled], [c, grant], [d, unconfirmed], [a, other]] as const) expect(await seenOf(acc, id)).toBeNull();
+    expect(await notePersonLogins(db, person, [a], t0 + DAY - 1, DAY)).toBe(0);
+    expect(await notePersonLogins(db, person, [a], t0 - 5, DAY)).toBe(0);
+    expect(await notePersonLogins(db, person, [], t0 + 5 * DAY, DAY)).toBe(0);
+  });
+});
+
+describe('idpSubjectHeldByAnother', () => {
+  it('is true only when a member bound to someone else (or to nobody) carries the subject', async () => {
+    const a = await account('A');
+    const mine = await member(a, 'admin', 'active', `iam_${run}_me`);
+    await db.run(sql`UPDATE member SET idp_subject = ${s('held')} WHERE id = ${mine}`);
+    expect(await idpSubjectHeldByAnother(db, s('held'), `iam_${run}_me`)).toBe(false);
+    expect(await idpSubjectHeldByAnother(db, s('held'), `iam_${run}_you`)).toBe(true);
+    expect(await idpSubjectHeldByAnother(db, s('nobody'), `iam_${run}_me`)).toBe(false);
   });
 });
 
@@ -257,6 +276,10 @@ describe('staffGrantsBySubject', () => {
     await seen(old, now - 2 * DAY);
     const grants = await staffGrantsBySubject(db, s('staffer'), since(), now - DAY);
     expect(grants.map((g) => g.memberId)).toEqual([fresh]);
+    // The linking member disabled: no grant either.
+    await db.run(sql`UPDATE member SET status = 'disabled' WHERE id = ${real}`);
+    expect(await staffGrantsBySubject(db, s('staffer'), since(), now - DAY)).toEqual([]);
+    await db.run(sql`UPDATE member SET status = 'active' WHERE id = ${real}`);
     // The link itself stale: no grant either.
     await seen(real, now - 40 * DAY);
     expect(await staffGrantsBySubject(db, s('staffer'), since(), now - DAY)).toEqual([]);

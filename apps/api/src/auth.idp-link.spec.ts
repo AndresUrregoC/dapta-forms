@@ -22,7 +22,7 @@ let db: Db;
 let homeAccountId: string;
 let homeMemberId: string;
 /** What the next session token vouches for, on top of who the dev stub resolves. */
-let vouch: Pick<ResolvedHost, 'idpSubject' | 'authenticatedAt' | 'lookUpIdpSubject' | 'confirmsMemberships' | 'staff'>;
+let vouch: Partial<Pick<ResolvedHost, 'idpSubject' | 'authenticatedAt' | 'lookUpIdpSubject' | 'confirmedAccountIds' | 'staff'>>;
 /** The person the session token names (undefined: a provider that names nobody). */
 let person: string | undefined;
 let audit: string[];
@@ -120,40 +120,38 @@ describe('a verified web request', () => {
     expect(await linkOf(unbound.memberId)).toEqual({ idp_subject: null, login_seen_at: null });
   });
 
-  it('stamps the staff access grants of a person proven staff on the request, never records a subject on them, and leaves them alone otherwise', async () => {
+  it('stamps a staff access grant only on a request proven staff that acts in that workspace, never with a subject', async () => {
     const grant = await otherWorkspace('Customer', 'staff');
-    const asStaff = (staff: boolean) =>
+    const acting = (memberId: string, accountId: string, staff: boolean) =>
       new AuthService(db, {
         name: 'spec-staff',
-        resolveHost: async () => ({ accountId: homeAccountId, memberId: homeMemberId, staff, personId: PERSON, ...vouch }),
+        resolveHost: async () => ({ accountId, memberId, staff, personId: PERSON, ...vouch }),
       });
-    // Not staff on this request: the grant is never vouched for.
-    await asStaff(false).resolveHost({ headers: {} });
+    // Staff, but acting in their own workspace: the grant is not touched.
+    await acting(homeMemberId, homeAccountId, true).resolveHost({ headers: {} });
     expect(await linkOf(grant.memberId)).toEqual({ idp_subject: null, login_seen_at: null });
-    // Proven staff: the grant is stamped with the token's issue time, and carries no subject.
-    await asStaff(true).resolveHost({ headers: {} });
+    // Not staff on this request: the grant is refused, and not stamped.
+    await expect(acting(grant.memberId, grant.accountId, false).resolveHost({ headers: {} })).rejects.toThrow();
+    expect(await linkOf(grant.memberId)).toEqual({ idp_subject: null, login_seen_at: null });
+    // Staff acting in the customer's workspace: that grant is stamped, with no subject.
+    await acting(grant.memberId, grant.accountId, true).resolveHost({ headers: {} });
     expect(await linkOf(grant.memberId)).toEqual({ idp_subject: null, login_seen_at: vouch.authenticatedAt });
-    // Entering the grant's workspace itself records nothing on it either.
-    const inside = new AuthService(db, {
-      name: 'spec-staff-inside',
-      resolveHost: async () => ({ accountId: grant.accountId, memberId: grant.memberId, staff: true, personId: PERSON, ...vouch }),
-    });
-    await inside.resolveHost({ headers: {} });
-    expect((await linkOf(grant.memberId))?.idp_subject).toBeNull();
   });
 
-  it('vouches for every active membership of the person when the identity service just confirmed them, and only the acting one otherwise', async () => {
+  it('vouches for the active memberships the identity service just confirmed, and only those', async () => {
     const beta = await otherWorkspace('Beta');
     const gamma = await otherWorkspace('Gamma');
+    const delta = await otherWorkspace('Delta');
     await db.run(sql`UPDATE member SET status = 'disabled' WHERE id = ${gamma.memberId}`);
     const someoneElse = await otherWorkspace('Theirs', null, 'iam_someone_else');
     await auth.resolveHost(as());
     expect((await linkOf(beta.memberId))?.login_seen_at).toBeNull();
-    vouch = { ...vouch, confirmsMemberships: true };
+    vouch = { ...vouch, confirmedAccountIds: [homeAccountId, beta.accountId, gamma.accountId, someoneElse.accountId] };
     await auth.resolveHost(as());
     expect((await linkOf(beta.memberId))?.login_seen_at).toBe(vouch.authenticatedAt);
-    // Never a disabled member, nor someone else's row.
+    // Never a disabled member, an account the identity service did not confirm, or someone else's row.
     expect((await linkOf(gamma.memberId))?.login_seen_at).toBeNull();
+    expect((await linkOf(delta.memberId))?.login_seen_at).toBeNull();
     expect((await linkOf(someoneElse.memberId))?.login_seen_at).toBeNull();
   });
 
@@ -171,6 +169,15 @@ describe('a verified web request', () => {
     // Linked now: never asked again.
     await auth.resolveHost(as());
     expect(asked).toBe(2);
+  });
+
+  it('never records a looked-up subject that another person\'s member already carries', async () => {
+    const theirs = await otherWorkspace('Theirs', null, 'iam_someone_else');
+    await db.run(sql`UPDATE member SET idp_subject = ${SUBJECT} WHERE id = ${theirs.memberId}`);
+    vouch = { authenticatedAt: Date.now() - 1_000, lookUpIdpSubject: async () => SUBJECT };
+    await auth.resolveHost(as());
+    expect((await linkOf(homeMemberId))?.idp_subject).toBeNull();
+    expect((await linkOf(theirs.memberId))?.idp_subject).toBe(SUBJECT);
   });
 
   it('renews the stamp only once it is a refresh step old, and never moves it backwards', async () => {

@@ -79,9 +79,15 @@ function vouchedBy(
 // URL. Idempotency across concurrent first-logins is anchored on external_id
 // (ON CONFLICT), so the code no longer needs to be deterministic.
 
-/** How long a looked-up WorkOS user id is kept per person, and a miss (none, or the identity service down). */
+/**
+ * How long a lookup's answer is kept per person: an answer the identity
+ * service gave (an id, or a row without a usable one) for a while, a failure
+ * (unreachable, too slow) only briefly. The lookup sits on a web request, so
+ * it gets a short time limit of its own.
+ */
 const SUBJECT_LOOKUP_TTL_MS = 10 * 60_000;
-const SUBJECT_MISS_TTL_MS = 60_000;
+const SUBJECT_FAILURE_TTL_MS = 60_000;
+const SUBJECT_LOOKUP_TIMEOUT_MS = 2_000;
 /** At most this many people's lookups are kept; the oldest go first. */
 const SUBJECT_LOOKUP_MAX = 10_000;
 
@@ -180,9 +186,11 @@ export class WorkOsAuthProvider implements AuthProvider {
           ...home,
           staff: this.projection.isStaff(upstream.email),
           ...vouched,
-          // The identity service just answered for every membership: all of
-          // them are vouched for, not only the one this request acts in.
-          confirmsMemberships: !state.degraded && state.complete,
+          // The identity service just answered for every membership: the ones
+          // it confirmed are vouched for, not only the one this request acts in.
+          ...(!state.degraded && state.complete && state.confirmedAccountIds.length > 0
+            ? { confirmedAccountIds: state.confirmedAccountIds }
+            : {}),
           // An older session token carries no usable WorkOS user id: read it
           // from the person's own user row, with their own bearer.
           ...(vouched.idpSubject ? {} : { lookUpIdpSubject: () => this.lookUpIdpSubject(upstream) }),
@@ -207,28 +215,31 @@ export class WorkOsAuthProvider implements AuthProvider {
   /**
    * The WorkOS user id on the person's own user row in the identity service,
    * read with their own bearer (the identity service answers a user token only
-   * about that same user). Taken only from an active, unblocked row whose id
-   * is the token's `sub`, and only when it is a real WorkOS id. Kept a few
-   * minutes per person, a miss for one; never throws: a failure is logged by
-   * class and status and links nothing this time.
+   * about that same user). Taken only from an active (a blocked user is
+   * inactive), not deleted row whose id is the token's `sub`, and only when it
+   * is a real WorkOS id. Never throws: a failure is logged by class and
+   * status and links nothing this time. `AuthService` still checks that no one
+   * else's member carries the answer before recording it.
    */
   private async lookUpIdpSubject(upstream: UpstreamIdentity): Promise<string | null> {
     const now = Date.now();
     const hit = this.subjectLookups.get(upstream.sub);
     if (hit && hit.until > now) return hit.subject;
     let subject: string | null = null;
+    let ttl = SUBJECT_LOOKUP_TTL_MS;
     try {
-      const user = await this.projection!.iam.getUser(upstream.bearer, upstream.sub);
+      const user = await this.projection!.iam.getUser(upstream.bearer, upstream.sub, { timeoutMs: SUBJECT_LOOKUP_TIMEOUT_MS });
       const id = user?.workos_user_id;
-      if (user && user.is_active !== false && !user.blocked_at && typeof id === 'string' && WORKOS_USER_ID.test(id)) {
+      if (user && user.is_active !== false && !user.deleted_at && !user.blocked_at && typeof id === 'string' && WORKOS_USER_ID.test(id)) {
         subject = id;
       }
     } catch (error) {
+      ttl = SUBJECT_FAILURE_TTL_MS;
       const status = (error as { status?: unknown } | null)?.status;
       this.log.warn(`could not read the WorkOS user id of ${upstream.sub}: ${error instanceof Error ? error.name : 'error'}${typeof status === 'number' ? ` ${status}` : ''}`);
     }
     this.subjectLookups.delete(upstream.sub);
-    this.subjectLookups.set(upstream.sub, { until: now + (subject ? SUBJECT_LOOKUP_TTL_MS : SUBJECT_MISS_TTL_MS), subject });
+    this.subjectLookups.set(upstream.sub, { until: now + ttl, subject });
     while (this.subjectLookups.size > SUBJECT_LOOKUP_MAX) this.subjectLookups.delete(this.subjectLookups.keys().next().value as string);
     return subject;
   }

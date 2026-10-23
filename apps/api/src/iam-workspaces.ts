@@ -69,7 +69,9 @@ export interface IamAccount {
 /** A person's own user row, as the identity service answers it to that person. */
 export interface IamUser {
   id: string;
+  /** False for a blocked or deactivated user. */
   is_active?: boolean | null;
+  deleted_at?: string | null;
   blocked_at?: string | null;
   /** The person's WorkOS user id: the `sub` of their MCP sign-in tokens. */
   workos_user_id?: string | null;
@@ -217,8 +219,8 @@ export class IamWorkspacesClient {
    * so this reads nothing about anyone else and needs no privileged key. Null
    * when the answer is not a user row with that id.
    */
-  async getUser(bearer: string, userId: string): Promise<IamUser | null> {
-    const res = await this.call<unknown>(bearer, 'GET', `/user/${encodeURIComponent(userId)}`);
+  async getUser(bearer: string, userId: string, opts: { timeoutMs?: number } = {}): Promise<IamUser | null> {
+    const res = await this.call<unknown>(bearer, 'GET', `/user/${encodeURIComponent(userId)}`, undefined, opts.timeoutMs);
     // Some identity-service answers are wrapped in `data`; take either shape.
     const body = res && typeof res === 'object' && 'data' in res ? (res as { data: unknown }).data : res;
     if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
@@ -460,7 +462,7 @@ export class IamWorkspacesClient {
 
   // --- Transport -----------------------------------------------------------
 
-  private async call<T = unknown>(bearer: string, method: string, path: string, body?: unknown): Promise<T> {
+  private async call<T = unknown>(bearer: string, method: string, path: string, body?: unknown, timeoutMs?: number): Promise<T> {
     let res: Response;
     try {
       res = await this.fetchImpl(`${this.base}${path}`, {
@@ -471,7 +473,7 @@ export class IamWorkspacesClient {
           ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs ?? this.timeoutMs),
       });
     } catch (err) {
       throw new IamUnavailableError(`IAM ${method} ${path} unreachable: ${String(err)}`);

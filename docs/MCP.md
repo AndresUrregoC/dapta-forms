@@ -82,12 +82,15 @@ supersedes the MCP part of [ADR 0002](adr/0002-staff-access-over-mcp.md)).
 Staff enter a customer's workspace in the web app's switcher
 (`IAM_STAFF_DOMAINS`), which holds them a staff access grant there. A web
 request that proves the person is staff (the email its session token carries
-is on those domains) vouches for all of their grants at once, and a sign-in
-then reaches each grant for a day after that last visit, no longer: the
-workspace says `access: 'staff'`, the text starts `In workspace "<name>"
-(staff access):`, and the audit line carries `via: 'staff_grant'`. A person
-who stops being staff (or leaves) loses those workspaces over MCP within a
-day. A workspace where the person is a real member is always entered as that
+is on those domains) and acts in that customer's workspace stamps that grant,
+and a sign-in then reaches it for a day after that visit, no longer, and only
+next to an active membership of the person's own: the workspace says
+`access: 'staff'`, is never used without being named in `workspace_id`, the
+text starts `In workspace "<name>" (staff access):`, and the audit line
+carries `via: 'staff_grant'`. A customer workspace staff have not opened on
+the web in the last day is not reachable over MCP, and a person who stops
+being staff (or leaves) loses those workspaces over MCP within a day.
+A workspace where the person is a real member is always entered as that
 member. Staff can also create an API key in a customer's workspace from the
 web, which works over MCP like any key: in that workspace only, as the
 grant's `admin` row, until someone revokes it; the workspace's owners and
@@ -384,7 +387,9 @@ the login, registers the client and issues the token; dForms verifies it.
   session) reads it from the person's own user row in the identity service,
   with their own bearer, only while the member has no link yet; and when the
   identity service has just confirmed all of the person's memberships, the
-  request stamps every one of them, not only the one it acts in. No identity
+  request stamps every one the identity service confirmed, not only the one
+  it acts in. A looked-up id is recorded only if no member of anyone else
+  carries it. No identity
   database is read, and no credential for one is held:
   dForms is not told when someone is removed upstream, so MCP access ends
   when the web's would. Each call then acts as that person's member in the

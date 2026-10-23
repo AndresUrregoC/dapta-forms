@@ -175,13 +175,13 @@ function notLinked(appUrl: string, linkMaxAgeMs: number): DoorRefusal {
  * link exists because the person uses the web app, and it lapses when they
  * stop, the way their web access would.
  *
- * Staff of the deployment also reach the workspaces they entered through a
- * staff access grant (`staffGrantsBySubject`), each only while a web request
- * that proved them staff vouched for it within `STAFF_GRANT_MAX_AGE_MS` (a
- * day): a grant reaches a customer, so it lapses much sooner than a
- * membership. Those calls say `access: 'staff'` and are audited as staff
- * calls. There is no search over other workspaces from a sign-in: staff enter
- * a new customer's workspace on the web first (docs/adr/0003).
+ * Staff of the deployment also reach the customer workspaces they opened on
+ * the web through a staff access grant within `STAFF_GRANT_MAX_AGE_MS` (a
+ * day), on a request that proved them staff (`staffGrantsBySubject`), and
+ * only next to an active membership of their own. Those workspaces say
+ * `access: 'staff'`, are never used without being named, and are audited as
+ * staff calls. There is no search over other workspaces from a sign-in:
+ * staff open a customer's workspace on the web first (docs/adr/0003).
  *
  * A token that verifies but reaches nothing is a `DoorRefusal` (403) that says
  * to open dForms on the web; so is a subject that names more than one person,
@@ -223,11 +223,12 @@ export async function authenticateMcpConnection(
     throw new DoorRefusal('This sign-in matches more than one dForms account, so dForms will not guess which one it is. Contact support; do not retry.');
   }
   const active = rows.filter((r) => r.status === 'active');
-  // A workspace the person is a member of is always entered as that member,
-  // never through a grant.
+  // Grants only next to an active membership of the person's own (a person
+  // whose own memberships are all disabled reaches no customer either), and a
+  // workspace the person is a member of is always entered as that member.
   const own = new Set(active.map((m) => m.accountId));
-  const throughGrant = grants.filter((g) => !own.has(g.accountId));
-  const first = active[0] ?? throughGrant[0];
+  const throughGrant = active.length > 0 ? grants.filter((g) => !own.has(g.accountId)) : [];
+  const first = active[0];
   if (!first) {
     refuse(rows.length === 0 && grants.length === 0 ? 'not_linked' : 'no_active_membership');
     throw notLinked(opts.appUrl ?? '', linkMaxAgeMs);

@@ -62,6 +62,12 @@ export interface ProjectionState {
    * re-read failed or the state is degraded.
    */
   complete: boolean;
+  /**
+   * The local accounts the last complete, not degraded refresh projected from
+   * what the identity service answered (empty otherwise): the memberships it
+   * confirmed, and only those.
+   */
+  confirmedAccountIds: string[];
   syncedAt: number;
 }
 
@@ -165,12 +171,19 @@ export class WorkspaceProjection {
       if (!(err instanceof IamUnavailableError)) throw err;
       if (cached) {
         this.log.warn(`IAM unavailable; serving stale projection for ${id.sub}: ${err.message}`);
-        return { ...cached, degraded: true, complete: false };
+        return { ...cached, degraded: true, complete: false, confirmedAccountIds: [] };
       }
       const local = await pickHomeAccount(this.db, id.sub, null);
       if (local) {
         this.log.warn(`IAM unavailable; serving local rows for ${id.sub}: ${err.message}`);
-        const state: ProjectionState = { lastWorkspace: null, featureFlags: null, degraded: true, complete: false, syncedAt: now };
+        const state: ProjectionState = {
+          lastWorkspace: null,
+          featureFlags: null,
+          degraded: true,
+          complete: false,
+          confirmedAccountIds: [],
+          syncedAt: now,
+        };
         // Do NOT cache a degraded state past this call: retry upstream next time.
         return state;
       }
@@ -242,7 +255,14 @@ export class WorkspaceProjection {
       });
     }
 
-    const state: ProjectionState = { lastWorkspace, featureFlags, degraded: false, complete: pruneMissing, syncedAt: now };
+    const state: ProjectionState = {
+      lastWorkspace,
+      featureFlags,
+      degraded: false,
+      complete: pruneMissing,
+      confirmedAccountIds: pruneMissing ? [...new Set(result.accountIds)] : [],
+      syncedAt: now,
+    };
     this.cache.set(id.sub, state);
     return state;
   }

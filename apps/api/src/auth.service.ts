@@ -6,6 +6,7 @@ import {
   getAccountMember,
   getMemberIdentity,
   listWorkspacesForIdentity,
+  idpSubjectHeldByAnother,
   memberIdpLink,
   noteMemberLogin,
   notePersonLogins,
@@ -108,7 +109,7 @@ export class AuthService {
 
   private readonly apiKeys: ApiKeyAuthenticator;
   private readonly loginSeenRefreshMs: number;
-  /** Per person and kind of rows: when they were last vouched for together on this pod. */
+  /** Per person: when their memberships were last vouched for together on this pod. */
   private readonly personVouchedAt = new Map<string, number>();
   private readonly logger = new Logger('Auth');
   /** Where audit lines go (one JSON object per line). A field so specs can read it. */
@@ -187,6 +188,7 @@ export class AuthService {
       const member = await getAccountMember(this.db, home.accountId, home.memberId);
       if (member?.accessGrant === 'staff' && !staff) throw workspaceForbidden();
       if (member && member.accessGrant === null) await this.noteVerifiedLogin(home, home.accountId, home.memberId);
+      if (member?.accessGrant === 'staff' && staff) await this.noteStaffGrantVisit(home, home.accountId, home.memberId);
       await this.notePersonVouched(home);
       return {
         accountId: home.accountId,
@@ -209,6 +211,7 @@ export class AuthService {
     // Checked against the person the token names: the switch also matches a
     // row by email, and such a row may belong to someone else.
     if (membership.accessGrant === null) await this.noteVerifiedLogin(home, membership.accountId, membership.memberId);
+    if (membership.accessGrant === 'staff' && staff) await this.noteStaffGrantVisit(home, membership.accountId, membership.memberId);
     await this.notePersonVouched(home);
     return {
       accountId: membership.accountId,
@@ -227,22 +230,27 @@ export class AuthService {
    *     (`member.idp_subject`), written only when missing or different, so
    *     every person links on their next web request with no new login. The
    *     latest request takes it from any other member of the account, in one
-   *     transaction, and says so in an audit line;
+   *     transaction, and says so in an audit line. When the session token
+   *     carries no usable one (an older or migrated session), it is read from
+   *     the person's own user row (`lookUpIdpSubject`), only while the member
+   *     has no link yet, and recorded only if no member of anyone else
+   *     carries it: that value is not one the identity service minted into a
+   *     token, so it never takes a link from another person;
    *   - when the identity service vouched for the member
    *     (`member.login_seen_at`): the token's issue time, never the request
    *     time, so a token minted before someone was removed upstream cannot
    *     keep the stamp fresh. Renewed once it is older than the refresh step
    *     (a day, or a quarter of a shorter link window), never backwards. A
-   *     token that does not say when it was issued stamps nothing, and a
-   *     provider that vouches for nothing (the dev stub) touches nothing.
+   *     token that does not say when it was issued stamps nothing.
    *
-   * Never for a staff access grant (the caller skips those): a grant is not a
-   * membership. Only on a row bound to the person the token names
-   * (`external_id` = `home.personId`), on the home member and on a workspace
-   * the request switched to alike: the switch matches rows by email too, and
-   * the token vouches for its own person, never for whoever else holds a row
-   * with that address. A provider that names no person writes nothing. Never costs the request: a failure is logged by its code and
-   * the next request tries again.
+   * Only on a row bound to the person the token names (`external_id` =
+   * `home.personId`), on the home member and on a workspace the request
+   * switched to alike: the switch matches rows by email too, and the token
+   * vouches for its own person, never for whoever else holds a row with that
+   * address. Never for a staff access grant (the callers skip those; see
+   * `noteStaffGrantVisit`). A provider that names no person writes nothing.
+   * Never costs the request: a failure is logged by its code and the next
+   * request tries again.
    */
   private async noteVerifiedLogin(home: ResolvedHost, accountId: string, memberId: string): Promise<void> {
     const person = home.personId;
@@ -254,9 +262,14 @@ export class AuthService {
       // A row no login bound to a person names nobody (an MCP sign-in never
       // reaches it), and a row bound to someone else is theirs to vouch for.
       if (!link || link.externalId !== person) return;
-      // An older session token carries no usable subject: read it from the
-      // person's own user row, only while the member has no link yet.
-      if (!subject && !link.idpSubject && home.lookUpIdpSubject) subject = (await home.lookUpIdpSubject()) ?? undefined;
+      if (!subject && !link.idpSubject && home.lookUpIdpSubject) {
+        const looked = await home.lookUpIdpSubject();
+        if (looked && (await idpSubjectHeldByAnother(this.db, looked, person))) {
+          this.logger.warn(`not recording a looked-up sign-in subject for member ${memberId}: another person's member carries it`);
+        } else if (looked) {
+          subject = looked;
+        }
+      }
       if (subject && subject !== link.idpSubject) {
         const out = await recordMemberIdpSubject(this.db, accountId, memberId, subject, vouchedAt);
         if (out.written) {
@@ -280,41 +293,54 @@ export class AuthService {
   }
 
   /**
-   * Vouch for several rows of the person at once, on a request that proved
-   * they may use them right now (same token issue time, never backwards):
-   *
-   *   - every active real membership, when the identity service has just
-   *     confirmed all of them (`confirmsMemberships`), so one visit to the web
-   *     app reaches every workspace of theirs over MCP, not only the one it
-   *     opened;
-   *   - every active staff access grant, when the provider proved on this
-   *     request that the person is staff (`staff`), so the workspaces they
-   *     entered as staff stay reachable over MCP for `STAFF_GRANT_MAX_AGE_MS`
-   *     after their last such visit, and no longer.
-   *
-   * At most once every few minutes per person and kind, per pod. Never costs
-   * the request: a failure is logged by its code.
+   * A web request that proved the person is staff and acts in a customer's
+   * workspace through their staff access grant stamps that grant (the
+   * token's issue time, at most every `STAFF_GRANT_REFRESH_MS`, never
+   * backwards), so an MCP sign-in reaches it for `STAFF_GRANT_MAX_AGE_MS`
+   * after this visit and no longer. Only the grant this request acts in: a
+   * workspace staff entered weeks ago is not reachable over MCP until they
+   * open it again. Never a subject on a grant. Only on a row bound to the
+   * person the token names. Never costs the request.
+   */
+  private async noteStaffGrantVisit(home: ResolvedHost, accountId: string, memberId: string): Promise<void> {
+    const person = home.personId;
+    const vouchedAt = typeof home.authenticatedAt === 'number' ? Math.min(home.authenticatedAt, Date.now()) : null;
+    if (!person || vouchedAt === null) return;
+    try {
+      const link = await memberIdpLink(this.db, accountId, memberId);
+      if (!link || link.externalId !== person) return;
+      if (link.loginSeenAt === null || vouchedAt - link.loginSeenAt >= STAFF_GRANT_REFRESH_MS) {
+        await noteMemberLogin(this.db, accountId, memberId, vouchedAt, STAFF_GRANT_REFRESH_MS);
+      }
+    } catch (error) {
+      this.logger.warn(`could not stamp the staff visit of member ${memberId}: ${errorCode(error)}`);
+    }
+  }
+
+  /**
+   * When the identity service has just confirmed the person's memberships
+   * (`confirmedAccountIds`, a fresh, complete, not degraded projection),
+   * vouch for every active real membership of theirs in those accounts at
+   * once (same token issue time, the same refresh step, never backwards), so
+   * one visit to the web app reaches every workspace of theirs over MCP, not
+   * only the one it opened. Never a staff access grant. At most once every
+   * few minutes per person, per pod. Never costs the request.
    */
   private async notePersonVouched(home: ResolvedHost): Promise<void> {
     const person = home.personId;
     const vouchedAt = typeof home.authenticatedAt === 'number' ? Math.min(home.authenticatedAt, Date.now()) : null;
-    if (!person || vouchedAt === null) return;
-    const kinds: Array<['memberships' | 'staffGrants', number]> = [];
-    if (home.confirmsMemberships === true) kinds.push(['memberships', this.loginSeenRefreshMs]);
-    if (home.staff === true) kinds.push(['staffGrants', STAFF_GRANT_REFRESH_MS]);
+    const accounts = home.confirmedAccountIds ?? [];
+    if (!person || vouchedAt === null || accounts.length === 0) return;
     const now = Date.now();
-    for (const [rows, step] of kinds) {
-      const key = `${rows}:${person}`;
-      const last = this.personVouchedAt.get(key);
-      if (last !== undefined && now - last < PERSON_VOUCH_THROTTLE_MS) continue;
-      this.personVouchedAt.delete(key);
-      this.personVouchedAt.set(key, now);
-      while (this.personVouchedAt.size > 20_000) this.personVouchedAt.delete(this.personVouchedAt.keys().next().value as string);
-      try {
-        await notePersonLogins(this.db, person, rows, vouchedAt, step);
-      } catch (error) {
-        this.logger.warn(`could not vouch for the ${rows} of a person: ${errorCode(error)}`);
-      }
+    const last = this.personVouchedAt.get(person);
+    if (last !== undefined && now - last < PERSON_VOUCH_THROTTLE_MS) return;
+    this.personVouchedAt.delete(person);
+    this.personVouchedAt.set(person, now);
+    while (this.personVouchedAt.size > 20_000) this.personVouchedAt.delete(this.personVouchedAt.keys().next().value as string);
+    try {
+      await notePersonLogins(this.db, person, accounts, vouchedAt, this.loginSeenRefreshMs);
+    } catch (error) {
+      this.logger.warn(`could not vouch for the memberships of a person: ${errorCode(error)}`);
     }
   }
 

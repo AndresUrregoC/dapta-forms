@@ -81,13 +81,12 @@ export interface ResolvedHost {
    */
   lookUpIdpSubject?: () => Promise<string | null>;
   /**
-   * True when, on this request, the identity service has just confirmed every
-   * membership of the person (a fresh, complete, not degraded workspace
-   * projection), so every active member row bound to the person is one the
-   * web lets them use right now. `AuthService` then vouches for all of them,
-   * not only the one the request acts as.
+   * The local accounts whose membership of the person the identity service
+   * has just confirmed (a fresh, complete, not degraded workspace projection).
+   * `AuthService` vouches for the person's active member rows in those
+   * accounts, not only the one the request acts as. Absent: none confirmed.
    */
-  confirmsMemberships?: boolean;
+  confirmedAccountIds?: string[];
 }
 
 /**
@@ -102,7 +101,7 @@ export type PrincipalVia = 'session' | 'api_key' | 'mcp_connection';
 
 /** The authenticated host, enriched with the account role for authorization. */
 export interface HostPrincipal
-  extends Omit<ResolvedHost, 'staff' | 'personId' | 'authenticatedAt' | 'idpSubject' | 'lookUpIdpSubject' | 'confirmsMemberships'> {
+  extends Omit<ResolvedHost, 'staff' | 'personId' | 'authenticatedAt' | 'idpSubject' | 'lookUpIdpSubject' | 'confirmedAccountIds'> {
   role: AccountRole;
   via: PrincipalVia;
   /**

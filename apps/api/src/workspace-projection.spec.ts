@@ -45,7 +45,11 @@ class FakeIam {
   down = false;
   lastWorkspace: string | null = null;
   /** What the caller's own user row says (`GET /user/:id`); null = the route answers 404. */
-  user: { workos_user_id?: string | null; is_active?: boolean; blocked_at?: string | null } | null = null;
+  user: { workos_user_id?: string | null; is_active?: boolean; deleted_at?: string | null } | null = null;
+  /** Answer the user row inside `data`, as some identity-service routes do. */
+  userWrapped = false;
+  /** Answer a row with this id instead of the caller's (a misbehaving upstream). */
+  userIdOverride: string | null = null;
   workspaces: IamWorkspace[] = [];
 
   fetch: typeof fetch = async (input, init) => {
@@ -68,7 +72,9 @@ class FakeIam {
       const id = decodeURIComponent(url.pathname.slice('/iam/user/'.length));
       // The identity service answers a user token only about that same user.
       if (id !== SUB) return new Response('{}', { status: 403 });
-      return this.user ? json({ id: SUB, email: 'a@example.com', ...this.user }) : new Response('{}', { status: 404 });
+      if (!this.user) return new Response('{}', { status: 404 });
+      const row = { id: this.userIdOverride ?? SUB, email: 'a@example.com', ...this.user };
+      return json(this.userWrapped ? { data: row } : row);
     }
     if (method === 'GET' && url.pathname === '/iam/workspace/search') {
       return json({ data: this.workspaces, total: this.workspaces.length, totalPages: 1 });
@@ -321,11 +327,11 @@ describe('workspace projection (IAM-backed workspaces)', () => {
     expect(iam.calls.filter((c) => c.path.startsWith('/iam/user/'))).toHaveLength(1);
   });
 
-  it('takes nothing from a user row that is inactive, blocked, or holds no real WorkOS id', async () => {
+  it('takes nothing from a user row that is inactive (blocked), deleted, or holds no real WorkOS id', async () => {
     const token = signJwtHs256({ sub: SUB, account_id: IAM_ACCOUNT, email: 'a@example.com', name: 'Alex', iat: Math.floor(Date.now() / 1000), exp: 4102444800 }, SECRET);
     for (const user of [
       { workos_user_id: 'user_01HINACTIVE000000000000000', is_active: false },
-      { workos_user_id: 'user_01HBLOCKED0000000000000000', is_active: true, blocked_at: '2026-10-01T00:00:00Z' },
+      { workos_user_id: 'user_01HDELETED0000000000000000', is_active: true, deleted_at: '2026-10-01T00:00:00Z' },
       { workos_user_id: 'pending_workos_sync', is_active: true },
     ]) {
       iam.user = user;
@@ -338,6 +344,45 @@ describe('workspace projection (IAM-backed workspaces)', () => {
       const linked = await db.all<{ id: string }>(sql`SELECT id FROM member WHERE idp_subject IS NOT NULL`);
       expect(linked, JSON.stringify(user)).toHaveLength(0);
     }
+  });
+
+  it('reads a user row wrapped in data, and takes nothing from a row that names another user', async () => {
+    const token = signJwtHs256({ sub: SUB, account_id: IAM_ACCOUNT, email: 'a@example.com', name: 'Alex', iat: Math.floor(Date.now() / 1000), exp: 4102444800 }, SECRET);
+    const freshAuth = () =>
+      new AuthService(
+        db,
+        new WorkOsAuthProvider(db, { JWT_SECRET: SECRET, JWT_ISSUER: undefined, JWT_AUDIENCE: undefined, SEED_DEMO_FORM: false, ONBOARDING_WIZARD: false }, undefined, projection),
+      );
+    iam.user = { workos_user_id: 'user_01HSOMEONEELSE000000000000', is_active: true };
+    iam.userIdOverride = OTHER_SUB;
+    await freshAuth().resolveHost(asReq(token));
+    expect(await db.all(sql`SELECT id FROM member WHERE idp_subject IS NOT NULL`)).toHaveLength(0);
+    iam.userIdOverride = null;
+    iam.userWrapped = true;
+    iam.user = { workos_user_id: 'user_01HWRAPPEDANSWER0000000000', is_active: true };
+    await freshAuth().resolveHost(asReq(token));
+    expect(await db.all(sql`SELECT id FROM member WHERE idp_subject = 'user_01HWRAPPEDANSWER0000000000'`)).toHaveLength(1);
+  });
+
+  it('vouches only for the member a request acts in while the identity service cannot be read (a degraded projection)', async () => {
+    const workosUser = 'user_01HDEGRADEDSPEC00000000000';
+    const old = Math.floor(Date.now() / 1000) - 3 * 86_400;
+    const tokenAt = (iat: number) =>
+      signJwtHs256({ sub: SUB, account_id: IAM_ACCOUNT, email: 'a@example.com', name: 'Alex', iat, exp: 4102444800, workos_user_id: workosUser }, SECRET);
+    await auth.resolveHost(asReq(tokenAt(old)));
+    const before = await db.all<{ account_id: string; login_seen_at: number | string | null }>(
+      sql`SELECT account_id, login_seen_at FROM member WHERE external_id = ${SUB}`,
+    );
+    expect(before.every((r) => Number(r.login_seen_at) === old * 1000)).toBe(true);
+    // The identity service goes down and the cached projection expires: the next request is degraded.
+    iam.down = true;
+    now += 61_000;
+    const fresh = Math.floor(Date.now() / 1000);
+    const p = await auth.resolveHost(asReq(tokenAt(fresh)));
+    const after = await db.all<{ account_id: string; login_seen_at: number | string | null }>(
+      sql`SELECT account_id, login_seen_at FROM member WHERE external_id = ${SUB}`,
+    );
+    for (const r of after) expect(Number(r.login_seen_at), r.account_id).toBe(r.account_id === p.accountId ? fresh * 1000 : old * 1000);
   });
 
   it('records the WorkOS user id the session carries on each workspace the person opens, so an MCP sign-in reaches them', async () => {
