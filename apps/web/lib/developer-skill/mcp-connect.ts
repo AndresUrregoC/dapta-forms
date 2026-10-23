@@ -59,6 +59,19 @@ export function mcpOauthEnabled(env: Record<string, string | undefined> = proces
   return cleanPublicUrl(env.MCP_PUBLIC_URL) !== null;
 }
 
+/**
+ * dForms' page in Claude's connectors directory, when this deployment's MCP is
+ * the one that listing connects to. Read at RUNTIME from
+ * `MCP_CLAUDE_DIRECTORY_URL` and set only where it matches: the listing points
+ * at one MCP address, so a dev or self-hosted deployment that showed it would
+ * send people to someone else's server. Unset, blank or not an https URL: null,
+ * and the guide keeps the custom connector as Claude's only path.
+ */
+export function claudeDirectoryUrl(env: Record<string, string | undefined> = process.env): string | null {
+  const url = cleanPublicUrl(env.MCP_CLAUDE_DIRECTORY_URL);
+  return url?.startsWith('https://') ? url : null;
+}
+
 /** The single entry Cursor stores under `mcpServers.dforms`: the URL alone, Cursor runs the sign-in. */
 export function cursorServerEntry(mcpUrl: string): { url: string } {
   return { url: mcpUrl };
@@ -117,6 +130,8 @@ export const hermesLoginCommand = `hermes mcp login ${MCP_SERVER_NAME}`;
 /** Everything the guide prints for one address, built on the server. */
 export interface McpSnippets {
   url: string;
+  /** dForms' listing in Claude's directory, or null where it does not apply (`claudeDirectoryUrl`). */
+  claudeDirectory: string | null;
   claudeCode: string;
   codexAdd: string;
   codexLogin: string;
@@ -128,9 +143,10 @@ export interface McpSnippets {
   cursorJson: string;
 }
 
-export function mcpSnippets(mcpUrl: string): McpSnippets {
+export function mcpSnippets(mcpUrl: string, claudeDirectory: string | null = null): McpSnippets {
   return {
     url: mcpUrl,
+    claudeDirectory,
     claudeCode: claudeCodeCommand(mcpUrl),
     codexAdd: codexAddCommand(mcpUrl),
     codexLogin: codexLoginCommand,

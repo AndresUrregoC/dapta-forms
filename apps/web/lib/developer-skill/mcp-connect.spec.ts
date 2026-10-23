@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MCP_SERVER_NAME,
   claudeCodeCommand,
+  claudeDirectoryUrl,
   codexAddCommand,
   codexLoginCommand,
   openclawLoginCommand,
@@ -66,6 +67,31 @@ describe('mcpOauthEnabled', () => {
 
   it('never reads a build-time NEXT_PUBLIC_ variable', () => {
     expect(mcpOauthEnabled({ NEXT_PUBLIC_MCP_OAUTH_PROVIDER: 'workos' })).toBe(false);
+  });
+});
+
+describe('claudeDirectoryUrl', () => {
+  const LISTING = 'https://claude.ai/directory/dforms';
+
+  it('is the listing as set, cleaned', () => {
+    expect(claudeDirectoryUrl({ MCP_CLAUDE_DIRECTORY_URL: LISTING })).toBe(LISTING);
+    expect(claudeDirectoryUrl({ MCP_CLAUDE_DIRECTORY_URL: ` ${LISTING}/?ref=x#top ` })).toBe(LISTING);
+  });
+
+  it('is null when unset, blank, not a URL or not https, so dev and self-hosted keep the custom connector', () => {
+    expect(claudeDirectoryUrl({})).toBeNull();
+    expect(claudeDirectoryUrl({ MCP_CLAUDE_DIRECTORY_URL: '  ' })).toBeNull();
+    expect(claudeDirectoryUrl({ MCP_CLAUDE_DIRECTORY_URL: 'dforms' })).toBeNull();
+    expect(claudeDirectoryUrl({ MCP_CLAUDE_DIRECTORY_URL: 'http://claude.ai/directory/dforms' })).toBeNull();
+  });
+
+  it('never reads a build-time NEXT_PUBLIC_ variable', () => {
+    expect(claudeDirectoryUrl({ NEXT_PUBLIC_MCP_CLAUDE_DIRECTORY_URL: LISTING })).toBeNull();
+  });
+
+  it('rides along in the snippets, null by default', () => {
+    expect(mcpSnippets(URL_).claudeDirectory).toBeNull();
+    expect(mcpSnippets(URL_, LISTING).claudeDirectory).toBe(LISTING);
   });
 });
 
