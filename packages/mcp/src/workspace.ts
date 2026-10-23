@@ -202,7 +202,7 @@ export function bucketOf(credential: McpCredential, body: unknown): string {
   const caller =
     named !== undefined
       ? credential.workspaces.find((w) => w.accountId === named)
-      : credential.workspaces.length === 1
+      : credential.workspaces.length === 1 && credential.workspaces[0]!.access !== 'staff'
         ? credential.workspaces[0]
         : undefined;
   return caller ? caller.credentialId : `person:${credential.personId}`;

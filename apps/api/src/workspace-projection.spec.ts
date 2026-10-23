@@ -44,12 +44,7 @@ class FakeIam {
   calls: Array<{ method: string; path: string; body?: unknown }> = [];
   down = false;
   lastWorkspace: string | null = null;
-  /** What the caller's own user row says (`GET /user/:id`); null = the route answers 404. */
-  user: { workos_user_id?: string | null; is_active?: boolean; deleted_at?: string | null } | null = null;
-  /** Answer the user row inside `data`, as some identity-service routes do. */
-  userWrapped = false;
-  /** Answer a row with this id instead of the caller's (a misbehaving upstream). */
-  userIdOverride: string | null = null;
+
   workspaces: IamWorkspace[] = [];
 
   fetch: typeof fetch = async (input, init) => {
@@ -67,14 +62,6 @@ class FakeIam {
     if (method === 'PUT' && url.pathname === `/iam/account/${IAM_ACCOUNT}`) {
       this.lastWorkspace = body?.feature_flags?.last_workspace ?? null;
       return json({ ok: true });
-    }
-    if (method === 'GET' && url.pathname.startsWith('/iam/user/')) {
-      const id = decodeURIComponent(url.pathname.slice('/iam/user/'.length));
-      // The identity service answers a user token only about that same user.
-      if (id !== SUB) return new Response('{}', { status: 403 });
-      if (!this.user) return new Response('{}', { status: 404 });
-      const row = { id: this.userIdOverride ?? SUB, email: 'a@example.com', ...this.user };
-      return json(this.userWrapped ? { data: row } : row);
     }
     if (method === 'GET' && url.pathname === '/iam/workspace/search') {
       return json({ data: this.workspaces, total: this.workspaces.length, totalPages: 1 });
@@ -306,63 +293,32 @@ describe('workspace projection (IAM-backed workspaces)', () => {
     expect(put).toBeDefined();
     expect((put!.body as { feature_flags: { last_workspace: string } }).feature_flags.last_workspace).toBe(WS_INVITED);
   });
-  it('links an older session through the person\'s own user row, and one visit reaches every workspace the identity service confirmed', async () => {
-    const workosUser = 'user_01HOLDSESSIONSPEC000000000';
+  it('one visit vouches for every membership the identity service confirmed, not only the one it opened', async () => {
+    const workosUser = 'user_01HONEVISITSPEC00000000000';
     const iat = Math.floor(Date.now() / 1000) - 5;
-    // An older session: no workos_user_id in the token, or the migration placeholder.
     const token = signJwtHs256(
-      { sub: SUB, account_id: IAM_ACCOUNT, email: 'a@example.com', name: 'Alex', iat, exp: 4102444800, workos_user_id: 'pending_workos_sync' },
+      { sub: SUB, account_id: IAM_ACCOUNT, email: 'a@example.com', name: 'Alex', iat, exp: 4102444800, workos_user_id: workosUser },
       SECRET,
     );
-    iam.user = { workos_user_id: workosUser, is_active: true };
     await auth.resolveHost(asReq(token));
     const rows = await db.all<{ idp_subject: string | null; login_seen_at: number | string | null }>(
       sql`SELECT idp_subject, login_seen_at FROM member WHERE external_id = ${SUB}`,
     );
     expect(rows).toHaveLength(2);
-    // Both memberships vouched for at once, the subject on the one the request acted in.
     expect(rows.every((r) => Number(r.login_seen_at) === iat * 1000)).toBe(true);
+    // The subject on the one the request acted in; the other is reached through it.
     expect(rows.filter((r) => r.idp_subject === workosUser)).toHaveLength(1);
-    expect((await membershipsBySubject(db, workosUser, iat * 1000 - 1)).map((m) => m.accountId)).toHaveLength(2);
-    expect(iam.calls.filter((c) => c.path.startsWith('/iam/user/'))).toHaveLength(1);
+    expect(await membershipsBySubject(db, workosUser, iat * 1000 - 1)).toHaveLength(2);
   });
 
-  it('takes nothing from a user row that is inactive (blocked), deleted, or holds no real WorkOS id', async () => {
-    const token = signJwtHs256({ sub: SUB, account_id: IAM_ACCOUNT, email: 'a@example.com', name: 'Alex', iat: Math.floor(Date.now() / 1000), exp: 4102444800 }, SECRET);
-    for (const user of [
-      { workos_user_id: 'user_01HINACTIVE000000000000000', is_active: false },
-      { workos_user_id: 'user_01HNOACTIVEFLAG00000000000' },
-      { workos_user_id: 'user_01HDELETED0000000000000000', is_active: true, deleted_at: '2026-10-01T00:00:00Z' },
-      { workos_user_id: 'pending_workos_sync', is_active: true },
-    ]) {
-      iam.user = user;
-      // A fresh provider each time: the lookup is kept per person for a while.
-      const fresh = new AuthService(
-        db,
-        new WorkOsAuthProvider(db, { JWT_SECRET: SECRET, JWT_ISSUER: undefined, JWT_AUDIENCE: undefined, SEED_DEMO_FORM: false, ONBOARDING_WIZARD: false }, undefined, projection),
-      );
-      await fresh.resolveHost(asReq(token));
-      const linked = await db.all<{ id: string }>(sql`SELECT id FROM member WHERE idp_subject IS NOT NULL`);
-      expect(linked, JSON.stringify(user)).toHaveLength(0);
-    }
-  });
-
-  it('reads a user row wrapped in data, and takes nothing from a row that names another user', async () => {
-    const token = signJwtHs256({ sub: SUB, account_id: IAM_ACCOUNT, email: 'a@example.com', name: 'Alex', iat: Math.floor(Date.now() / 1000), exp: 4102444800 }, SECRET);
-    const freshAuth = () =>
-      new AuthService(
-        db,
-        new WorkOsAuthProvider(db, { JWT_SECRET: SECRET, JWT_ISSUER: undefined, JWT_AUDIENCE: undefined, SEED_DEMO_FORM: false, ONBOARDING_WIZARD: false }, undefined, projection),
-      );
-    iam.user = { workos_user_id: 'user_01HSOMEONEELSE000000000000', is_active: true };
-    iam.userIdOverride = OTHER_SUB;
-    await freshAuth().resolveHost(asReq(token));
+  it('never trusts a session token without a usable WorkOS id: nothing is recorded, and nothing is read about the user', async () => {
+    const token = signJwtHs256(
+      { sub: SUB, account_id: IAM_ACCOUNT, email: 'a@example.com', name: 'Alex', iat: Math.floor(Date.now() / 1000), exp: 4102444800, workos_user_id: 'pending_workos_sync' },
+      SECRET,
+    );
+    await auth.resolveHost(asReq(token));
     expect(await db.all(sql`SELECT id FROM member WHERE idp_subject IS NOT NULL`)).toHaveLength(0);
-    iam.userIdOverride = null;
-    iam.userWrapped = true;
-    iam.user = { workos_user_id: 'user_01HWRAPPEDANSWER0000000000', is_active: true };
-    await freshAuth().resolveHost(asReq(token));
-    expect(await db.all(sql`SELECT id FROM member WHERE idp_subject = 'user_01HWRAPPEDANSWER0000000000'`)).toHaveLength(1);
+    expect(iam.calls.some((c) => c.path.startsWith('/iam/user/'))).toBe(false);
   });
 
   it('vouches only for the member a request acts in while the identity service cannot be read (a degraded projection)', async () => {
@@ -379,7 +335,12 @@ describe('workspace projection (IAM-backed workspaces)', () => {
     iam.down = true;
     now += 61_000;
     const fresh = Math.floor(Date.now() / 1000);
-    const p = await auth.resolveHost(asReq(tokenAt(fresh)));
+    // A new AuthService, so its per-person throttle cannot hide a wrong stamp.
+    const degradedAuth = new AuthService(
+      db,
+      new WorkOsAuthProvider(db, { JWT_SECRET: SECRET, JWT_ISSUER: undefined, JWT_AUDIENCE: undefined, SEED_DEMO_FORM: false, ONBOARDING_WIZARD: false }, undefined, projection),
+    );
+    const p = await degradedAuth.resolveHost(asReq(tokenAt(fresh)));
     const after = await db.all<{ account_id: string; login_seen_at: number | string | null }>(
       sql`SELECT account_id, login_seen_at FROM member WHERE external_id = ${SUB}`,
     );

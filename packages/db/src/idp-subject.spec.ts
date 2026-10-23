@@ -10,7 +10,6 @@ import { randomUUID } from 'node:crypto';
 import { createDb, sql, type Db } from './client';
 import { migrate } from './migrate';
 import {
-  idpSubjectHeldByAnother,
   memberIdpLink,
   membershipsBySubject,
   noteMemberLogin,
@@ -247,17 +246,6 @@ describe('notePersonLogins', () => {
     expect(await notePersonLogins(db, person, [a], t0 + DAY - 1, DAY)).toBe(0);
     expect(await notePersonLogins(db, person, [a], t0 - 5, DAY)).toBe(0);
     expect(await notePersonLogins(db, person, [], t0 + 5 * DAY, DAY)).toBe(0);
-  });
-});
-
-describe('idpSubjectHeldByAnother', () => {
-  it('is true only when a member bound to someone else (or to nobody) carries the subject', async () => {
-    const a = await account('A');
-    const mine = await member(a, 'admin', 'active', `iam_${run}_me`);
-    await db.run(sql`UPDATE member SET idp_subject = ${s('held')} WHERE id = ${mine}`);
-    expect(await idpSubjectHeldByAnother(db, s('held'), `iam_${run}_me`)).toBe(false);
-    expect(await idpSubjectHeldByAnother(db, s('held'), `iam_${run}_you`)).toBe(true);
-    expect(await idpSubjectHeldByAnother(db, s('nobody'), `iam_${run}_me`)).toBe(false);
   });
 });
 

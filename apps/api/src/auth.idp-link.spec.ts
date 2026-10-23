@@ -22,7 +22,7 @@ let db: Db;
 let homeAccountId: string;
 let homeMemberId: string;
 /** What the next session token vouches for, on top of who the dev stub resolves. */
-let vouch: Partial<Pick<ResolvedHost, 'idpSubject' | 'authenticatedAt' | 'lookUpIdpSubject' | 'confirmedAccountIds' | 'staff'>>;
+let vouch: Partial<Pick<ResolvedHost, 'idpSubject' | 'authenticatedAt' | 'confirmedAccountIds' | 'staff'>>;
 /** The person the session token names (undefined: a provider that names nobody). */
 let person: string | undefined;
 let audit: string[];
@@ -138,6 +138,17 @@ describe('a verified web request', () => {
     expect(await linkOf(grant.memberId)).toEqual({ idp_subject: null, login_seen_at: vouch.authenticatedAt });
   });
 
+  it('stamps a grant reached through the workspace switch only when it is bound to the same person', async () => {
+    const mine = await otherWorkspace('Mine', 'staff');
+    // Someone else's grant that still carries this email: the switch reaches it by email.
+    const theirs = await otherWorkspace('Theirs', 'staff', 'iam_someone_else');
+    vouch = { ...vouch, staff: true };
+    await auth.resolveHost(as(mine.accountId));
+    expect((await linkOf(mine.memberId))?.login_seen_at).toBe(vouch.authenticatedAt);
+    await auth.resolveHost(as(theirs.accountId)).catch(() => undefined);
+    expect(await linkOf(theirs.memberId)).toEqual({ idp_subject: null, login_seen_at: null });
+  });
+
   it('vouches for the active memberships the identity service just confirmed, and only those', async () => {
     const beta = await otherWorkspace('Beta');
     const gamma = await otherWorkspace('Gamma');
@@ -153,31 +164,6 @@ describe('a verified web request', () => {
     expect((await linkOf(gamma.memberId))?.login_seen_at).toBeNull();
     expect((await linkOf(delta.memberId))?.login_seen_at).toBeNull();
     expect((await linkOf(someoneElse.memberId))?.login_seen_at).toBeNull();
-  });
-
-  it('links an older session through the identity service only while the member has no link, and records nothing when it answers none', async () => {
-    let asked = 0;
-    let answer: string | null = null;
-    vouch = { authenticatedAt: Date.now() - 1_000, lookUpIdpSubject: async () => ((asked += 1), answer) };
-    await auth.resolveHost(as());
-    expect(asked).toBe(1);
-    expect((await linkOf(homeMemberId))?.idp_subject).toBeNull();
-    answer = SUBJECT;
-    await auth.resolveHost(as());
-    expect(asked).toBe(2);
-    expect((await linkOf(homeMemberId))?.idp_subject).toBe(SUBJECT);
-    // Linked now: never asked again.
-    await auth.resolveHost(as());
-    expect(asked).toBe(2);
-  });
-
-  it('never records a looked-up subject that another person\'s member already carries', async () => {
-    const theirs = await otherWorkspace('Theirs', null, 'iam_someone_else');
-    await db.run(sql`UPDATE member SET idp_subject = ${SUBJECT} WHERE id = ${theirs.memberId}`);
-    vouch = { authenticatedAt: Date.now() - 1_000, lookUpIdpSubject: async () => SUBJECT };
-    await auth.resolveHost(as());
-    expect((await linkOf(homeMemberId))?.idp_subject).toBeNull();
-    expect((await linkOf(theirs.memberId))?.idp_subject).toBe(SUBJECT);
   });
 
   it('renews the stamp only once it is a refresh step old, and never moves it backwards', async () => {

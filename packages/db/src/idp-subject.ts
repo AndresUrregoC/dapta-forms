@@ -215,21 +215,6 @@ export async function notePersonLogins(
 }
 
 /**
- * Whether a member bound to a person other than `externalId` carries
- * `subject`. A subject that came from somewhere other than a session token
- * the identity service minted is recorded only when this is false, so it can
- * never take a link from someone else.
- */
-export async function idpSubjectHeldByAnother(db: Db, subject: string, externalId: string): Promise<boolean> {
-  const row = await db.get<{ one: number }>(
-    sql`SELECT 1 AS one FROM member
-        WHERE idp_subject = ${subject} AND (external_id IS NULL OR external_id <> ${externalId})
-        LIMIT 1`,
-  );
-  return !!row;
-}
-
-/**
  * The rows a sign-in with `subject` reaches through a staff access grant: the
  * active `access_grant = 'staff'` rows of the person behind the subject (found
  * through one of their active real members carrying it, itself seen since

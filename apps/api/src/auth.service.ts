@@ -6,7 +6,6 @@ import {
   getAccountMember,
   getMemberIdentity,
   listWorkspacesForIdentity,
-  idpSubjectHeldByAnother,
   memberIdpLink,
   noteMemberLogin,
   notePersonLogins,
@@ -230,12 +229,9 @@ export class AuthService {
    *     (`member.idp_subject`), written only when missing or different, so
    *     every person links on their next web request with no new login. The
    *     latest request takes it from any other member of the account, in one
-   *     transaction, and says so in an audit line. When the session token
-   *     carries no usable one (an older or migrated session), it is read from
-   *     the person's own user row (`lookUpIdpSubject`), only while the member
-   *     has no link yet, and recorded only if no member of anyone else
-   *     carries it: that value is not one the identity service minted into a
-   *     token, so it never takes a link from another person;
+   *     transaction, and says so in an audit line. Only ever from a session
+   *     token the identity service minted: a value read anywhere else (the
+   *     person's user row, which users can edit) is never trusted for it;
    *   - when the identity service vouched for the member
    *     (`member.login_seen_at`): the token's issue time, never the request
    *     time, so a token minted before someone was removed upstream cannot
@@ -254,22 +250,14 @@ export class AuthService {
    */
   private async noteVerifiedLogin(home: ResolvedHost, accountId: string, memberId: string): Promise<void> {
     const person = home.personId;
-    let subject = home.idpSubject;
+    const subject = home.idpSubject;
     const vouchedAt = typeof home.authenticatedAt === 'number' ? Math.min(home.authenticatedAt, Date.now()) : null;
-    if (!person || (!subject && !home.lookUpIdpSubject && vouchedAt === null)) return;
+    if (!person || (!subject && vouchedAt === null)) return;
     try {
       const link = await memberIdpLink(this.db, accountId, memberId);
       // A row no login bound to a person names nobody (an MCP sign-in never
       // reaches it), and a row bound to someone else is theirs to vouch for.
       if (!link || link.externalId !== person) return;
-      if (!subject && !link.idpSubject && home.lookUpIdpSubject) {
-        const looked = await home.lookUpIdpSubject();
-        if (looked && (await idpSubjectHeldByAnother(this.db, looked, person))) {
-          this.logger.warn(`not recording a looked-up sign-in subject for member ${memberId}: another person's member carries it`);
-        } else if (looked) {
-          subject = looked;
-        }
-      }
       if (subject && subject !== link.idpSubject) {
         const out = await recordMemberIdpSubject(this.db, accountId, memberId, subject, vouchedAt);
         if (out.written) {

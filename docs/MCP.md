@@ -83,7 +83,8 @@ Staff enter a customer's workspace in the web app's switcher
 (`IAM_STAFF_DOMAINS`), which holds them a staff access grant there. A web
 request that proves the person is staff (the email its session token carries
 is on those domains) and acts in that customer's workspace stamps that grant,
-and a sign-in then reaches it for a day after that visit, no longer, and only
+and a sign-in then reaches it for about a day after that visit (a day from
+the issue time of that visit's session token), no longer, and only
 next to an active membership of the person's own: the workspace says
 `access: 'staff'`, is never used without being named in `workspace_id`, the
 text starts `In workspace "<name>" (staff access):`, and the audit line
@@ -91,10 +92,11 @@ carries `via: 'staff_grant'`. A customer workspace staff have not opened on
 the web in the last day is not reachable over MCP, and a person who stops
 being staff (or leaves) loses those workspaces over MCP within a day.
 A workspace where the person is a real member is always entered as that
-member. Staff can also create an API key in a customer's workspace from the
-web, which works over MCP like any key: in that workspace only, as the
-grant's `admin` row, until someone revokes it; the workspace's owners and
-admins see such keys marked as created by Dapta staff.
+member. Staff can also create an API key in a customer's workspace through
+the API (`/v1/api-keys`, with their session), which works over MCP like any
+key: in that workspace only, as the grant's `admin` row, until someone revokes
+it; the workspace's owners and admins see such keys marked as created by Dapta
+staff.
 
 ## Tools
 
@@ -382,15 +384,13 @@ the login, registers the client and issues the token; dForms verifies it.
   the session token's issue time, renewed about once a day). A sign-in maps
   to the members carrying its `sub` and the same person's members in other
   workspaces, each only while its own stamp is within
-  `OAUTH_LINK_MAX_AGE_DAYS` (30 by default), any active role. A web request
-  whose session token carries no usable WorkOS id (an older or migrated
-  session) reads it from the person's own user row in the identity service,
-  with their own bearer, only while the member has no link yet; and when the
-  identity service has just confirmed all of the person's memberships, the
-  request stamps every one the identity service confirmed, not only the one
-  it acts in. A looked-up id is recorded only if no member of anyone else
-  carries it. No identity
-  database is read, and no credential for one is held:
+  `OAUTH_LINK_MAX_AGE_DAYS` (30 by default), any active role. When the
+  identity service has just confirmed the person's memberships (a fresh, not
+  degraded projection), the request stamps every one it confirmed, not only
+  the one it acts in. The subject is only ever taken from a session token the
+  identity service minted: a session whose token carries none (an older,
+  migrated or account-switched session) links nothing until the person signs
+  in again. No identity database is read, and no credential for one is held:
   dForms is not told when someone is removed upstream, so MCP access ends
   when the web's would. Each call then acts as that person's member in the
   workspace it names (see [Choosing a workspace](#choosing-a-workspace)),
@@ -403,7 +403,9 @@ the login, registers the client and issues the token; dForms verifies it.
   refusal (`mcp.oauth_refused` and the reason: `not_linked`,
   `no_active_membership` or `ambiguous`), never the token or the `sub`.
 - **Existing members.** A person links on their next visit to the web app,
-  with no new login, even with a session opened before this release.
+  with no new login, when their session token carries their WorkOS id. A
+  session whose token does not (it predates the claim, or came from an
+  account switch) needs a fresh sign-in to the web app once.
 - **Limits and audit.** The MCP buckets count per member of the workspace a
   call acts in, so one person's clients share a budget per workspace; a request
   that acts in none (the handshake, the tool list) counts against the person.

@@ -79,24 +79,10 @@ function vouchedBy(
 // URL. Idempotency across concurrent first-logins is anchored on external_id
 // (ON CONFLICT), so the code no longer needs to be deterministic.
 
-/**
- * How long a lookup's answer is kept per person: an answer the identity
- * service gave (an id, or a row without a usable one) for a while, a failure
- * (unreachable, too slow) only briefly. The lookup sits on a web request, so
- * it gets a short time limit of its own.
- */
-const SUBJECT_LOOKUP_TTL_MS = 10 * 60_000;
-const SUBJECT_FAILURE_TTL_MS = 60_000;
-const SUBJECT_LOOKUP_TIMEOUT_MS = 2_000;
-/** At most this many people's lookups are kept; the oldest go first. */
-const SUBJECT_LOOKUP_MAX = 10_000;
-
 export class WorkOsAuthProvider implements AuthProvider {
   readonly name = 'workos';
   private readonly log = new Logger('WorkOsAuthProvider');
   private readonly secret: string;
-  /** Per person (`sub`): the WorkOS user id their own user row holds, or null, and until when it is kept. */
-  private readonly subjectLookups = new Map<string, { until: number; subject: string | null }>();
 
   constructor(
     private readonly db: Db,
@@ -186,14 +172,9 @@ export class WorkOsAuthProvider implements AuthProvider {
           ...home,
           staff: this.projection.isStaff(upstream.email),
           ...vouched,
-          // The identity service just answered for every membership: the ones
-          // it confirmed are vouched for, not only the one this request acts in.
-          ...(!state.degraded && state.complete && state.confirmedAccountIds.length > 0
-            ? { confirmedAccountIds: state.confirmedAccountIds }
-            : {}),
-          // An older session token carries no usable WorkOS user id: read it
-          // from the person's own user row, with their own bearer.
-          ...(vouched.idpSubject ? {} : { lookUpIdpSubject: () => this.lookUpIdpSubject(upstream) }),
+          // The identity service just answered for these memberships: they are
+          // vouched for, not only the one this request acts in.
+          ...(!state.degraded && state.confirmedAccountIds.length > 0 ? { confirmedAccountIds: state.confirmedAccountIds } : {}),
         };
       }
       // Nothing upstream and nothing local. The identity service creates a
@@ -210,39 +191,6 @@ export class WorkOsAuthProvider implements AuthProvider {
     const accountId = await this.resolveAccount(accountExtId, claims);
     const memberId = await this.resolveMember(accountId, sub, claims);
     return { accountId, memberId, ...vouchedBy(sub, claims) };
-  }
-
-  /**
-   * The WorkOS user id on the person's own user row in the identity service,
-   * read with their own bearer (the identity service answers a user token only
-   * about that same user). Taken only from a row marked active (a blocked user
-   * is inactive; a missing flag is not active), not deleted, whose id is the token's `sub`, and only when it
-   * is a real WorkOS id. Never throws: a failure is logged by class and
-   * status and links nothing this time. `AuthService` still checks that no one
-   * else's member carries the answer before recording it.
-   */
-  private async lookUpIdpSubject(upstream: UpstreamIdentity): Promise<string | null> {
-    const now = Date.now();
-    const hit = this.subjectLookups.get(upstream.sub);
-    if (hit && hit.until > now) return hit.subject;
-    let subject: string | null = null;
-    let ttl = SUBJECT_LOOKUP_TTL_MS;
-    try {
-      const user = await this.projection!.iam.getUser(upstream.bearer, upstream.sub, { timeoutMs: SUBJECT_LOOKUP_TIMEOUT_MS });
-      const id = user?.workos_user_id;
-      // Fails closed: only a row the identity service affirmatively marks active.
-      if (user && user.is_active === true && !user.deleted_at && !user.blocked_at && typeof id === 'string' && WORKOS_USER_ID.test(id)) {
-        subject = id;
-      }
-    } catch (error) {
-      ttl = SUBJECT_FAILURE_TTL_MS;
-      const status = (error as { status?: unknown } | null)?.status;
-      this.log.warn(`could not read the WorkOS user id of ${upstream.sub}: ${error instanceof Error ? error.name : 'error'}${typeof status === 'number' ? ` ${status}` : ''}`);
-    }
-    this.subjectLookups.delete(upstream.sub);
-    this.subjectLookups.set(upstream.sub, { until: now + ttl, subject });
-    while (this.subjectLookups.size > SUBJECT_LOOKUP_MAX) this.subjectLookups.delete(this.subjectLookups.keys().next().value as string);
-    return subject;
   }
 
   /** Find (or JIT-create) the local account projected from the token's account_id. */

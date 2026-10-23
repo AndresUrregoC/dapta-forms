@@ -63,8 +63,8 @@ export interface ProjectionState {
    */
   complete: boolean;
   /**
-   * The local accounts the last complete, not degraded refresh projected from
-   * what the identity service answered (empty otherwise): the memberships it
+   * The local accounts the last not degraded refresh projected from what the
+   * identity service answered (empty when degraded): the memberships it
    * confirmed, and only those.
    */
   confirmedAccountIds: string[];
@@ -260,7 +260,9 @@ export class WorkspaceProjection {
       featureFlags,
       degraded: false,
       complete: pruneMissing,
-      confirmedAccountIds: pruneMissing ? [...new Set(result.accountIds)] : [],
+      // Every account here came from what the identity service answered, even
+      // when a staff re-read failed (that only stops pruning).
+      confirmedAccountIds: [...new Set(result.accountIds)],
       syncedAt: now,
     };
     this.cache.set(id.sub, state);

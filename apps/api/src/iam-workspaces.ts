@@ -66,17 +66,6 @@ export interface IamAccount {
   feature_flags?: Record<string, unknown> | null;
 }
 
-/** A person's own user row, as the identity service answers it to that person. */
-export interface IamUser {
-  id: string;
-  /** False for a blocked or deactivated user. */
-  is_active?: boolean | null;
-  deleted_at?: string | null;
-  blocked_at?: string | null;
-  /** The person's WorkOS user id: the `sub` of their MCP sign-in tokens. */
-  workos_user_id?: string | null;
-}
-
 export interface IamRole {
   id: string;
   name: string;
@@ -209,30 +198,6 @@ export class IamWorkspacesClient {
     await this.call(bearer, 'PUT', `/account/${encodeURIComponent(accountId)}`, {
       feature_flags: { ...(currentFlags ?? {}), last_workspace: workspaceId },
     });
-  }
-
-  // --- Users ---------------------------------------------------------------
-
-  /**
-   * The caller's OWN user row. The identity service answers it only to that
-   * same person (its `GET /user/:id` refuses any other id for a user token),
-   * so this reads nothing about anyone else and needs no privileged key. Null
-   * when the answer is not a user row with that id, a 404 included (a definite
-   * answer, not an outage).
-   */
-  async getUser(bearer: string, userId: string, opts: { timeoutMs?: number } = {}): Promise<IamUser | null> {
-    let res: unknown;
-    try {
-      res = await this.call<unknown>(bearer, 'GET', `/user/${encodeURIComponent(userId)}`, undefined, opts.timeoutMs);
-    } catch (error) {
-      if (error instanceof IamHttpError && error.status === 404) return null;
-      throw error;
-    }
-    // Some identity-service answers are wrapped in `data`; take either shape.
-    const body = res && typeof res === 'object' && 'data' in res ? (res as { data: unknown }).data : res;
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
-    const user = body as Partial<IamUser>;
-    return typeof user.id === 'string' && user.id === userId ? (user as IamUser) : null;
   }
 
   // --- Workspaces ----------------------------------------------------------
@@ -469,7 +434,7 @@ export class IamWorkspacesClient {
 
   // --- Transport -----------------------------------------------------------
 
-  private async call<T = unknown>(bearer: string, method: string, path: string, body?: unknown, timeoutMs?: number): Promise<T> {
+  private async call<T = unknown>(bearer: string, method: string, path: string, body?: unknown): Promise<T> {
     let res: Response;
     try {
       res = await this.fetchImpl(`${this.base}${path}`, {
@@ -480,7 +445,7 @@ export class IamWorkspacesClient {
           ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(timeoutMs ?? this.timeoutMs),
+        signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (err) {
       throw new IamUnavailableError(`IAM ${method} ${path} unreachable: ${String(err)}`);

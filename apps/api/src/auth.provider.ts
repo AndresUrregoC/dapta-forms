@@ -73,14 +73,6 @@ export interface ResolvedHost {
    */
   idpSubject?: string;
   /**
-   * For a session token that carries no usable `idpSubject` (an older or
-   * migrated session): reads the person's own user row from the identity
-   * service, with their own bearer, and answers the subject it holds, or
-   * null. `AuthService` calls it only when the member still has no link, so
-   * an existing session links without logging out.
-   */
-  lookUpIdpSubject?: () => Promise<string | null>;
-  /**
    * The local accounts whose membership of the person the identity service
    * has just confirmed (a fresh, complete, not degraded workspace projection).
    * `AuthService` vouches for the person's active member rows in those
@@ -101,7 +93,7 @@ export type PrincipalVia = 'session' | 'api_key' | 'mcp_connection';
 
 /** The authenticated host, enriched with the account role for authorization. */
 export interface HostPrincipal
-  extends Omit<ResolvedHost, 'staff' | 'personId' | 'authenticatedAt' | 'idpSubject' | 'lookUpIdpSubject' | 'confirmedAccountIds'> {
+  extends Omit<ResolvedHost, 'staff' | 'personId' | 'authenticatedAt' | 'idpSubject' | 'confirmedAccountIds'> {
   role: AccountRole;
   via: PrincipalVia;
   /**
